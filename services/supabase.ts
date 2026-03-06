@@ -239,8 +239,34 @@ export const updateTask = async (id: string, updates: ProgramTaskUpdate): Promis
 };
 
 export const deleteTask = async (id: string): Promise<void> => {
-    const { error } = await supabase.from('program').delete().eq('id', id);
-    if (error) throw error;
+    const orgId = await getUserOrgId();
+
+    const toError = (err: any, fallback: string): Error => {
+        const parts = [
+            err?.message,
+            err?.details,
+            err?.hint,
+            err?.code ? `code=${err.code}` : null,
+        ].filter(Boolean);
+        return new Error(parts.length > 0 ? parts.join(' | ') : fallback);
+    };
+
+    let taskDeleteQuery = supabase.from('program').delete().eq('id', id);
+    if (orgId) {
+        taskDeleteQuery = taskDeleteQuery.eq('org_id', orgId);
+    }
+
+    const { error: taskDeleteError } = await taskDeleteQuery;
+    if (!taskDeleteError) return;
+
+    if (taskDeleteError.code === '23503') {
+        throw toError(
+            taskDeleteError,
+            'Milestone is still referenced by another table. Add ON DELETE CASCADE on child foreign keys.'
+        );
+    }
+
+    throw toError(taskDeleteError, 'Failed to delete milestone.');
 };
 
 export const getActivityLogs = async (programId: string): Promise<ActivityLog[]> => {
@@ -404,14 +430,38 @@ export const addPolicy = async (policy: PolicyDocumentCreate): Promise<PolicyDoc
     const { data: sessionData } = await supabase.auth.getSession();
     const userId = (sessionData?.session as any)?.user?.id ?? null;
     const orgId = await getUserOrgId();
-    const payload = { ...(policy as any), user_id: userId, org_id: orgId };
+    
+    // Map policy_doc_link to url and owner to owner_name
+    // ID must be manually provided by user
+    const { owner, policy_doc_link, ...policyData } = policy as any;
+    const payload = { 
+        ...policyData, 
+        url: policy_doc_link || policyData.url, 
+        owner_name: owner || null,
+        user_id: userId, 
+        org_id: orgId 
+    };
+    
     const { data, error } = await supabase.from('policy_documents').insert(payload).select().single();
     if (error) throw error;
     return data;
 };
 
 export const updatePolicy = async (id: string, updates: PolicyDocumentUpdate): Promise<PolicyDocument> => {
-    const { data, error } = await supabase.from('policy_documents').update(updates).eq('id', id).select().single();
+    // Map policy_doc_link to url and owner to owner_name
+    const { owner, policy_doc_link, ...updateData } = updates as any;
+    
+    // If policy_doc_link is provided, use it as url value
+    if (policy_doc_link !== undefined) {
+        updateData.url = policy_doc_link;
+    }
+    
+    // If owner is provided, map to owner_name
+    if (owner !== undefined) {
+        updateData.owner_name = owner || null;
+    }
+    
+    const { data, error } = await supabase.from('policy_documents').update(updateData).eq('id', id).select().single();
     if (error) throw error;
     return data;
 };
@@ -746,4 +796,102 @@ export const getWorkflowTemplates = async (): Promise<WorkflowTemplate[]> => {
 
 export const saveWorkflowTemplates = async (templates: WorkflowTemplate[]) => {
     localStorage.setItem('grc_workflow_templates', JSON.stringify(templates));
+};
+/**
+ * Send feedback email to support team using Resend REST API
+ */
+export const sendFeedbackEmail = async (rating: number, description: string): Promise<boolean> => {
+    try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const userId = (sessionData?.session as any)?.user?.id ?? 'Unknown';
+        const userEmail = (sessionData?.session as any)?.user?.email ?? 'Unknown';
+        const resendApiKey = import.meta.env.VITE_RESEND_API_KEY;
+
+        if (!resendApiKey) {
+            console.warn('Resend API key not configured. Feedback will not be sent via email.');
+            return true;
+        }
+
+        const fromEmail = import.meta.env.VITE_RESEND_FROM_EMAIL || 'feedback@cloudstory.ind.in';
+
+        const emailSubject = `New Feedback Submission - Rating: ${rating}/5`;
+        const emailHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { border-bottom: 2px solid #3b82f6; padding-bottom: 15px; margin-bottom: 20px; }
+        .rating { font-size: 24px; color: #fbbf24; margin: 10px 0; }
+        .section { margin: 15px 0; }
+        .label { font-weight: bold; color: #1f2937; }
+        .value { background: #f3f4f6; padding: 10px; border-radius: 5px; margin-top: 5px; }
+        .feedback-text { white-space: pre-wrap; background: #f9fafb; border-left: 4px solid #3b82f6; padding: 15px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2 style="margin: 0; color: #1f2937;">New Feedback Received</h2>
+        </div>
+        
+        <div class="section">
+            <div class="label">Rating:</div>
+            <div class="rating">${'⭐'.repeat(rating)} ${rating}/5 stars</div>
+        </div>
+
+        <div class="section">
+            <div class="label">User Information:</div>
+            <div class="value">
+                <p><strong>User ID:</strong> ${userId}</p>
+                <p><strong>Email:</strong> ${userEmail}</p>
+                <p><strong>Submitted:</strong> ${new Date().toLocaleString()}</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="label">Feedback Description:</div>
+            <div class="feedback-text">${(description || '(No description provided)').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+        </div>
+
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 12px;">
+            <p>This is an automated email from the Zeroto1 GRC feedback system.</p>
+        </div>
+    </div>
+</body>
+</html>
+        `;
+
+        console.log('Sending feedback email...', { from: fromEmail, to: 'haripriya.kusnur@cloudstory.ind.in', rating, description });
+
+        const response = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${resendApiKey}`,
+            },
+            body: JSON.stringify({
+                from: fromEmail,
+                to: 'haripriya.kusnur@cloudstory.ind.in',
+                subject: emailSubject,
+                html: emailHtml,
+                reply_to: userEmail,
+            }),
+        });
+
+        const responseData = await response.json();
+        console.log('Resend API Response:', responseData);
+
+        if (!response.ok) {
+            console.error('Failed to send feedback email via Resend:', responseData);
+            return true; // Continue even if email fails
+        }
+
+        console.log('Email sent successfully:', responseData);
+        return true;
+    } catch (error) {
+        console.error('Error sending feedback email:', error);
+        return true; // Continue even if email fails
+    }
 };

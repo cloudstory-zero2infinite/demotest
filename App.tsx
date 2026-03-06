@@ -82,6 +82,151 @@ const DeleteConfirmationModal: React.FC<DeleteConfirmationModalProps> = ({ isOpe
     </Modal>
 );
 
+// --- FEEDBACK MODAL ---
+interface FeedbackModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+}
+
+const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose }) => {
+    const [rating, setRating] = useState(0);
+    const [hoveredRating, setHoveredRating] = useState(0);
+    const [description, setDescription] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [error, setError] = useState('');
+
+    const handleSubmit = async () => {
+        if (rating === 0) {
+            setError('Please select a rating');
+            return;
+        }
+
+        setError('');
+        setIsSubmitting(true);
+        try {
+            console.log('Submitting feedback:', { rating, description });
+
+            // Send feedback via Formspree
+            const response = await fetch('https://formspree.io/f/mpqyzqzy', {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    rating,
+                    description,
+                    _subject: 'New feedback from Rapid Dev app',
+                }),
+            });
+
+            if (!response.ok) {
+                let message = 'Failed to submit feedback. Please try again.';
+                try {
+                    const data = await response.json();
+                    if (data?.errors && data.errors.length > 0 && data.errors[0]?.message) {
+                        message = data.errors[0].message;
+                    }
+                } catch {
+                    // ignore JSON parse errors and use default message
+                }
+                throw new Error(message);
+            }
+
+            await SupabaseService.logAllActivity({
+                action: 'Submitted Feedback',
+                module: 'Feedback',
+                event_data: { rating, description }
+            });
+
+            alert('Thank you for your feedback!');
+            setRating(0);
+            setDescription('');
+            setError('');
+            onClose();
+        } catch (err: any) {
+            console.error('Failed to submit feedback', err);
+            const errorMsg = err?.message || 'Failed to submit feedback. Please try again.';
+            setError(errorMsg);
+            alert(errorMsg);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-[300] flex justify-center items-center p-4" onClick={onClose} aria-modal="true" role="dialog">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+                <div className="p-6">
+                    <button onClick={onClose} className="float-right text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" aria-label="Close">
+                        <XIcon className="w-5 h-5" />
+                    </button>
+                    <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-1">How would you rate us?</h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Pick a rate *</p>
+
+                    <div className="flex justify-center gap-2 mb-6">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                            <button
+                                key={star}
+                                onClick={() => setRating(star)}
+                                onMouseEnter={() => setHoveredRating(star)}
+                                onMouseLeave={() => setHoveredRating(0)}
+                                className="focus:outline-none transition-transform hover:scale-110"
+                            >
+                                <svg
+                                    className={`w-10 h-10 ${
+                                        star <= (hoveredRating || rating)
+                                            ? 'fill-green-500 text-green-500'
+                                            : 'fill-gray-300 text-gray-300 dark:fill-gray-600 dark:text-gray-600'
+                                    }`}
+                                    viewBox="0 0 24 24"
+                                >
+                                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                                </svg>
+                            </button>
+                        ))}
+                    </div>
+
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Tell us more about your experience
+                    </label>
+                    <textarea
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                        placeholder="Share your thoughts, suggestions, or issues..."
+                        rows={4}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white dark:bg-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+
+                    {error && (
+                        <div className="mt-3 p-3 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-600 text-red-700 dark:text-red-200 text-sm rounded-lg">
+                            {error}
+                        </div>
+                    )}
+
+                    <div className="mt-6 flex justify-end gap-3">
+                        <button
+                            onClick={onClose}
+                            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            onClick={handleSubmit}
+                            disabled={isSubmitting}
+                            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+                        >
+                            {isSubmitting ? 'Submitting...' : 'Submit'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // --- AI ASSISTANT MODAL ---
 interface AiAssistantModalProps {
     isOpen: boolean;
@@ -692,7 +837,7 @@ const DashboardTab: React.FC = () => {
             </div>
 
             <div className="md:col-span-2 lg:col-span-2 p-4 bg-white dark:bg-gray-800 rounded-lg shadow">
-                <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Control Status</h3>
+                <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Capability Mapping</h3>
                 <ResponsiveContainer width="100%" height={250}>
                     <PieChart>
                         <Pie data={controlStatusData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={80} fill="#8884d8" paddingAngle={5}>
@@ -894,11 +1039,13 @@ const ProgramTrackerView: React.FC = () => {
                     entity_id: modalState.task.id,
                     entity_name: modalState.task.program_name
                 });
-                await SupabaseService.addActivityLog(modalState.task.id, `Milestone "${modalState.task.program_name}" was deleted.`);
                 fetchTasks();
                 closeModal();
             } catch (err) {
-                setError('Failed to delete milestone.');
+                const message = err instanceof Error
+                    ? err.message
+                    : ((err as any)?.message || JSON.stringify(err) || 'Failed to delete milestone.');
+                setError(`Failed to delete milestone. ${message}`);
             }
         }
     };
@@ -959,11 +1106,11 @@ const ProgramTrackerView: React.FC = () => {
                 <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4 sm:mb-0">GRC Program Tracker</h2>
                 <div className="flex space-x-2">
                     <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
-                    <button onClick={() => fileInputRef.current?.click()} className="flex items-center px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md shadow-sm hover:bg-green-700">
-                        <UploadIcon className="h-5 w-5 mr-2" /> Import CSV
+                    <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <UploadIcon className="h-5 w-5" />
                     </button>
-                    <button onClick={() => setModalState({ type: 'add' })} className="flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700">
-                        <PlusIcon className="h-5 w-5 mr-2" /> Add Milestone
+                    <button onClick={() => setModalState({ type: 'add' })} title="Add Milestone" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <PlusIcon className="h-5 w-5" />
                     </button>
                 </div>
             </div>
@@ -1547,15 +1694,15 @@ const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole }) => {
     const isPlatformAdmin = userRole === 'tenant_admin';
     
     const subTabs: { id: SubTab; label: string }[] = [
-        { id: 'structure', label: 'Organisation Structure' },
-        { id: 'contacts', label: 'Contacts' },
+        // { id: 'structure', label: 'Organisation Structure' },
+        // { id: 'contacts', label: 'Contacts' },
         ...(isPlatformAdmin ? [{ id: 'tenant_admin' as const, label: 'Tenant Admin' }] : [])
     ];
     
     const renderContent = () => {
         switch(activeSubTab) {
-            case 'structure': return <OrgStructureView />;
-            case 'contacts': return <ContactsView />;
+            // case 'structure': return <OrgStructureView />;
+            // case 'contacts': return <ContactsView />;
             case 'tenant_admin': return isPlatformAdmin ? <PlatformAdminTab /> : null;
             default: return null;
         }
@@ -1696,11 +1843,11 @@ const ContactsView: React.FC = () => {
         <div>
             <div className="flex justify-end items-center mb-4 space-x-2">
                  <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
-                 <button onClick={() => fileInputRef.current?.click()} className="flex items-center px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md shadow-sm hover:bg-green-700">
-                    <UploadIcon className="h-5 w-5 mr-2" /> Import CSV
+                 <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                    <UploadIcon className="h-5 w-5" />
                 </button>
-                <button onClick={() => setModalState({ type: 'add' })} className="flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md shadow-sm hover:bg-blue-700">
-                    <PlusIcon className="h-5 w-5 mr-2" /> Add Contact
+                <button onClick={() => setModalState({ type: 'add' })} title="Add Contact" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                    <PlusIcon className="h-5 w-5" />
                 </button>
             </div>
             
@@ -2128,11 +2275,11 @@ const InternalControlsView: React.FC = () => {
                 </div>
                 <div className="flex space-x-2">
                     <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
-                    <button onClick={() => fileInputRef.current?.click()} className="flex items-center px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md shadow-sm hover:bg-green-700">
-                        <UploadIcon className="h-5 w-5 mr-2" /> Import CSV
+                    <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <UploadIcon className="h-5 w-5" />
                     </button>
-                    <button onClick={() => setModalState({ type: 'add' })} className="flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md shadow-sm hover:bg-blue-700">
-                        <PlusIcon className="h-5 w-5 mr-2" /> Add Control
+                    <button onClick={() => setModalState({ type: 'add' })} title="Add Control" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <PlusIcon className="h-5 w-5" />
                     </button>
                 </div>
             </div>
@@ -2408,10 +2555,11 @@ const AssetsView: React.FC = () => {
     const [assets, setAssets] = useState<Asset[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string|null>(null);
-    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | null; asset?: Asset | null }>({ type: null });
+    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | 'import' | null; asset?: Asset | null }>({ type: null });
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [filter, setFilter] = useState('');
     const [sortConfig, setSortConfig] = useState<{ key: keyof Asset; direction: 'ascending' | 'descending' } | null>(null);
+    const [importData, setImportData] = useState<{ newAssets: AssetCreate[]; duplicates: string[] }>({ newAssets: [], duplicates: [] });
 
     const fetchAssets = useCallback(async () => {
         try {
@@ -2437,6 +2585,8 @@ const AssetsView: React.FC = () => {
             filteredItems = filteredItems.filter(item =>
                 String(item.asset_id ?? '').toLowerCase().includes(lowerCaseFilter) ||
                 String(item.name ?? '').toLowerCase().includes(lowerCaseFilter) ||
+                String(item.asset_owner ?? '').toLowerCase().includes(lowerCaseFilter) ||
+                String(item.business_owner ?? '').toLowerCase().includes(lowerCaseFilter) ||
                 String(item.details ?? '').toLowerCase().includes(lowerCaseFilter)
             );
         }
@@ -2533,9 +2683,9 @@ const AssetsView: React.FC = () => {
             if(!text) return;
 
             const lines = text.split('\n').slice(1);
-            const newAssets: AssetCreate[] = lines
+            const parsedAssets: AssetCreate[] = lines
                 .map(line => {
-                    const [asset_id, name, criticality, details, governed_status, vulnerability_count, exposure, category] = line.split(',').map(s => s.trim());
+                    const [asset_id, name, criticality, details, governed_status, vulnerability_count, exposure, category, asset_owner, business_owner] = line.split(',').map(s => s.trim());
                     if (!asset_id || !name || !criticality || !governed_status || !exposure || !category) return null;
 
                     // Basic validation for enum types
@@ -2560,28 +2710,67 @@ const AssetsView: React.FC = () => {
                         vulnerability_count: Number(vulnerability_count) || 0,
                         exposure: exposure as AssetExposure,
                         category: category as AssetCategory,
+                        asset_owner: asset_owner || '',
+                        business_owner: business_owner || '',
                     };
                 })
                 .filter((asset): asset is AssetCreate => asset !== null);
             
-            if (newAssets.length > 0) {
-                try {
-                    await SupabaseService.bulkAddAssets(newAssets);
-                     await SupabaseService.logAllActivity({
-                        action: 'Bulk Imported Assets',
-                        module: 'Governance',
-                        event_data: { count: newAssets.length }
-                    });
-                    alert(`${newAssets.length} assets imported successfully!`);
-                    fetchAssets();
-                } catch (err) {
-                    alert('Failed to import assets.');
-                    console.error(err);
-                }
-            }
+            // Check for duplicates by asset_id
+            const existingAssetIds = new Set(assets.map(a => a.asset_id));
+            const newAssets = parsedAssets.filter(a => !existingAssetIds.has(a.asset_id));
+            const duplicates = parsedAssets.filter(a => existingAssetIds.has(a.asset_id)).map(a => a.asset_id);
+            
+            setImportData({ newAssets, duplicates });
+            setModalState({ type: 'import' });
         };
         reader.readAsText(file);
         if(fileInputRef.current) fileInputRef.current.value = '';
+    };
+    
+    const handleConfirmImport = async () => {
+        if (importData.newAssets.length > 0) {
+            try {
+                await SupabaseService.bulkAddAssets(importData.newAssets);
+                await SupabaseService.logAllActivity({
+                    action: 'Bulk Imported Assets',
+                    module: 'Governance',
+                    event_data: { count: importData.newAssets.length, duplicateCount: importData.duplicates.length }
+                });
+                setModalState({ type: null });
+                fetchAssets();
+            } catch (err) {
+                setError('Failed to import assets.');
+                console.error(err);
+            }
+        }
+    };
+
+    const handleExportCSV = () => {
+        const headers = ['asset_id', 'name', 'criticality', 'details', 'governed_status', 'vulnerability_count', 'exposure', 'category', 'asset_owner', 'business_owner'];
+        const csvContent = [
+            headers.join(','),
+            ...filteredAndSortedAssets.map(asset =>
+                [
+                    asset.asset_id,
+                    `"${(asset.name || '').replace(/"/g, '""')}"`,
+                    asset.criticality,
+                    `"${(asset.details || '').replace(/"/g, '""')}"`,
+                    asset.governed_status,
+                    asset.vulnerability_count,
+                    asset.exposure,
+                    asset.category,
+                    `"${(asset.asset_owner || '').replace(/"/g, '""')}"`,
+                    `"${(asset.business_owner || '').replace(/"/g, '""')}"`,
+                ].join(',')
+            ),
+        ].join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `assets-${new Date().toISOString().split('T')[0]}.csv`;
+        link.click();
     };
 
     return (
@@ -2599,11 +2788,14 @@ const AssetsView: React.FC = () => {
                 </div>
                 <div className="flex space-x-2">
                     <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
-                    <button onClick={() => fileInputRef.current?.click()} className="flex items-center px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md shadow-sm hover:bg-green-700">
-                        <UploadIcon className="h-5 w-5 mr-2" /> Import CSV
+                    <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <UploadIcon className="h-5 w-5" />
                     </button>
-                    <button onClick={() => setModalState({ type: 'add' })} className="flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md shadow-sm hover:bg-blue-700">
-                        <PlusIcon className="h-5 w-5 mr-2" /> Add Asset
+                    <button onClick={handleExportCSV} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <DownloadIcon className="h-5 w-5" />
+                    </button>
+                    <button onClick={() => setModalState({ type: 'add' })} title="Add Asset" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <PlusIcon className="h-5 w-5" />
                     </button>
                 </div>
             </div>
@@ -2631,13 +2823,13 @@ const AssetsView: React.FC = () => {
                                     </button>
                                 </th>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-                                    <button onClick={() => requestSort('category')} className="flex items-center w-full text-left focus:outline-none">
-                                        Category {getSortIconFor('category')}
+                                    <button onClick={() => requestSort('business_owner')} className="flex items-center w-full text-left focus:outline-none">
+                                        Business Owner {getSortIconFor('business_owner')}
                                     </button>
                                 </th>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-                                    <button onClick={() => requestSort('exposure')} className="flex items-center w-full text-left focus:outline-none">
-                                        Exposure {getSortIconFor('exposure')}
+                                    <button onClick={() => requestSort('category')} className="flex items-center w-full text-left focus:outline-none">
+                                        Type {getSortIconFor('category')}
                                     </button>
                                 </th>
                                 <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
@@ -2653,8 +2845,8 @@ const AssetsView: React.FC = () => {
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{asset.asset_id}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">{asset.name}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{asset.criticality}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{asset.business_owner || '-'}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{asset.category}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{asset.exposure}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                         <div className="flex justify-end items-center space-x-2">
                                             <button onClick={() => setModalState({ type: 'view', asset })} className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
@@ -2681,6 +2873,43 @@ const AssetsView: React.FC = () => {
                 onConfirm={handleDeleteAsset}
                 itemName="asset"
             />
+            <Modal isOpen={modalState.type === 'import'} onClose={closeModal} title="Import CSV Preview">
+                <div className="space-y-4">
+                    <div>
+                        <h4 className="font-semibold text-gray-900 dark:text-white mb-2">New Assets to Import ({importData.newAssets.length})</h4>
+                        {importData.newAssets.length > 0 ? (
+                            <div className="max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-md p-3">
+                                {importData.newAssets.map((asset, idx) => (
+                                    <div key={idx} className="py-2 px-2 border-b border-gray-100 dark:border-gray-700 last:border-b-0 text-sm dark:text-gray-300">
+                                        <div className="font-medium">{asset.asset_id} - {asset.name}</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400">Criticality: {asset.criticality} | Category: {asset.category}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-gray-500 dark:text-gray-400 text-sm">No new assets to import.</div>
+                        )}
+                    </div>
+                    {importData.duplicates.length > 0 && (
+                        <div>
+                            <h4 className="font-semibold text-yellow-600 dark:text-yellow-400 mb-2">Duplicates (Not Imported - {importData.duplicates.length})</h4>
+                            <div className="max-h-48 overflow-y-auto border border-yellow-200 dark:border-yellow-700 rounded-md p-3 bg-yellow-50 dark:bg-gray-800">
+                                {importData.duplicates.map((assetId, idx) => (
+                                    <div key={idx} className="py-1 px-2 text-sm text-yellow-800 dark:text-yellow-200">
+                                        {assetId} (already exists)
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+                <div className="mt-6 flex justify-end space-x-3">
+                    <button onClick={closeModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
+                    <button onClick={handleConfirmImport} disabled={importData.newAssets.length === 0} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed">
+                        Import {importData.newAssets.length} Asset{importData.newAssets.length !== 1 ? 's' : ''}
+                    </button>
+                </div>
+            </Modal>
         </div>
     );
 };
@@ -2698,10 +2927,10 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
     useEffect(() => {
         if (assetToEdit) {
-            const { asset_id, name, criticality, details, governed_status, vulnerability_count, exposure, category } = assetToEdit;
-            setFormData({ asset_id, name, criticality, details, governed_status, vulnerability_count, exposure, category });
+            const { asset_id, name, asset_owner, business_owner, criticality, details, governed_status, vulnerability_count, exposure, category } = assetToEdit;
+            setFormData({ asset_id, name, asset_owner, business_owner, criticality, details, governed_status, vulnerability_count, exposure, category });
         } else {
-            setFormData({ asset_id: '', name: '', criticality: 'Low', category: 'Technology', exposure: 'Internal', governed_status: 'Non-Governed', vulnerability_count: 0, details: '' });
+            setFormData({ asset_id: '', name: '', asset_owner: '', business_owner: '', criticality: 'Low', category: 'Technology', exposure: 'Internal', governed_status: 'Non-Governed', vulnerability_count: 0, details: '' });
         }
     }, [assetToEdit, isOpen, mode]);
 
@@ -2729,6 +2958,14 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asset Name</label>
                         <input type="text" name="name" value={formData.name || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asset Owner</label>
+                        <input type="text" name="asset_owner" value={formData.asset_owner || ''} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Business Owner</label>
+                        <input type="text" name="business_owner" value={formData.business_owner || ''} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Criticality</label>
@@ -2780,9 +3017,12 @@ const PoliciesView: React.FC = () => {
     const [policies, setPolicies] = useState<PolicyDocument[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string|null>(null);
-    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | null; policy?: PolicyDocument | null }>({ type: null });
+    const [importLoading, setImportLoading] = useState(false);
+    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | 'import' | null; policy?: PolicyDocument | null }>({ type: null });
     const [filter, setFilter] = useState('');
     const [sortConfig, setSortConfig] = useState<{ key: keyof PolicyDocument; direction: 'ascending' | 'descending' } | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [importData, setImportData] = useState<{ newPolicies: PolicyDocumentCreate[]; policiesToUpdate: Array<{id: string; data: PolicyDocumentUpdate}>; duplicateNames: string[] }>({ newPolicies: [], policiesToUpdate: [], duplicateNames: [] });
 
     const fetchPolicies = useCallback(async () => {
         try {
@@ -2845,11 +3085,273 @@ const PoliciesView: React.FC = () => {
         return sortConfig.direction === 'ascending' ? <SortUpIcon className="h-4 w-4 ml-1" /> : <SortDownIcon className="h-4 w-4 ml-1" />;
     };
 
+    const isValidDate = (dateString: string): boolean => {
+        if (!dateString || dateString.trim() === '') return false;
+        const date = new Date(dateString);
+        return date instanceof Date && !isNaN(date.getTime());
+    };
+
     const closeModal = () => setModalState({ type: null });
+
+    const handleImportCSV = (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            const text = e.target?.result as string;
+            if (!text) return;
+
+            try {
+                const lines = text.split('\n').filter(line => line.trim());
+                if (lines.length < 2) {
+                    alert('CSV file must have at least a header and one data row');
+                    return;
+                }
+
+                const parsedPolicies: Array<{id: string | null; data: PolicyDocumentCreate}> = lines
+                    .slice(1)
+                    .map(line => {
+                        // Parse CSV with proper quote handling
+                        const parts: string[] = [];
+                        let current = '';
+                        let inQuotes = false;
+                        
+                        for (let i = 0; i < line.length; i++) {
+                            const char = line[i];
+                            const nextChar = line[i + 1];
+
+                            if (char === '"') {
+                                if (inQuotes && nextChar === '"') {
+                                    current += '"';
+                                    i++;
+                                } else {
+                                    inQuotes = !inQuotes;
+                                }
+                            } else if (char === ',' && !inQuotes) {
+                                parts.push(current.trim());
+                                current = '';
+                            } else {
+                                current += char;
+                            }
+                        }
+                        parts.push(current.trim());
+
+                        if (!parts[1]) return null;
+
+                        try {
+                            const policyId = parts[0] && parts[0] !== '' ? parts[0] : null;
+                            
+                            // Explicit column mapping for CSV import
+                            // Headers: ['id', 'name', 'description', 'document_type', 'document_content', 
+                            //           'content_editor_text', 'url', 'grc_contact', 'policy_reviewer_contact', 'tags', 
+                            //           'published_date', 'next_review_date', 'policy_labels', 'related_projects', 'status', 
+                            //           'version', 'custom_roles', 'related_documents', 'owner_name', 'created_at']
+                            
+                            const name = parts[1] || '';
+                            const description = parts[2] && parts[2] !== '' ? parts[2] : null;
+                            const document_type = parts[3] && parts[3] !== '' ? parts[3] : null;
+                            const document_content = parts[4] ? parseInt(parts[4]) : 0;
+                            const content_editor_text = parts[5] && parts[5] !== '' ? parts[5] : null;
+                            const url = parts[6] && parts[6] !== '' ? parts[6] : null;
+                            const grc_contact = parts[7] ? parts[7] : 'N/A';
+                            const policy_reviewer_contact = parts[8] ? parts[8] : 'N/A';
+                            const tags = parts[9] && parts[9] !== '' ? parts[9] : null;
+                            const published_date = (parts[10] && isValidDate(parts[10])) ? parts[10] : new Date().toISOString();
+                            const next_review_date = (parts[11] && isValidDate(parts[11])) ? parts[11] : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+                            const policy_labels = parts[12] && parts[12] !== '' ? parts[12] : null;
+                            const related_projects = parts[13] && parts[13] !== '' ? parts[13] : null;
+                            const status = parts[14] ? parseInt(parts[14]) : 0;
+                            const version = parts[15] && parts[15] !== '' ? parts[15] : '1.0';
+                            const custom_roles = parts[16] && parts[16] !== '' ? parts[16] : null;
+                            const related_documents = parts[17] && parts[17] !== '' ? parts[17] : null;
+                            const owner_name = parts[18] && parts[18] !== '' ? parts[18] : null;
+                            
+                            // Validate enum values
+                            if (![0, 1, 2].includes(document_content)) {
+                                console.warn(`Invalid document_content: ${parts[4]}, using 0`);
+                            }
+                            if (![0, 1].includes(status)) {
+                                console.warn(`Invalid status: ${parts[14]}, using 0`);
+                            }
+
+                            const policyData: PolicyDocumentCreate = {
+                                name,
+                                description,
+                                document_type,
+                                document_content: document_content as DocumentContentType,
+                                content_editor_text,
+                                url,
+                                grc_contact,
+                                policy_reviewer_contact,
+                                tags,
+                                published_date,
+                                next_review_date,
+                                policy_labels,
+                                related_projects,
+                                status: status as PolicyStatus,
+                                version,
+                                policy_portal_permissions: 'private',
+                                custom_roles,
+                                related_documents,
+                                owner: owner_name,
+                                policy_doc_link: url,
+                            };
+                            
+                            return { id: policyId, data: policyData };
+                        } catch (parseErr) {
+                            console.error('Error parsing policy row:', line, parseErr);
+                            return null;
+                        }
+                    })
+                    .filter((p): p is Array<{id: string | null; data: PolicyDocumentCreate}>[number] => p !== null);
+
+                // Separate into new policies and updates based on ID
+                const policyIdMap = new Map(policies.map(p => [p.id, p]));
+                const newPolicies = parsedPolicies.filter(p => !p.id || !policyIdMap.has(p.id)).map(p => p.data);
+                const policiesToUpdate = parsedPolicies
+                    .filter(p => p.id && policyIdMap.has(p.id))
+                    .map(p => ({
+                        id: p.id!,
+                        data: p.data as PolicyDocumentUpdate
+                    }));
+
+                setImportData({ newPolicies, policiesToUpdate, duplicateNames: [] });
+                setModalState({ type: 'import' });
+            } catch (err) {
+                alert('Failed to parse CSV file.');
+                console.error(err);
+            }
+        };
+        reader.readAsText(file);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    const handleConfirmImport = async () => {
+        const hasNewPolicies = importData.newPolicies.length > 0;
+        const hasUpdatePolicies = importData.policiesToUpdate.length > 0;
+
+        if (!hasNewPolicies && !hasUpdatePolicies) return;
+
+        setImportLoading(true);
+        try {
+            // Add new policies
+            const addResults = hasNewPolicies 
+                ? await Promise.allSettled(importData.newPolicies.map(p => SupabaseService.addPolicy(p)))
+                : [];
+
+            // Update existing policies
+            const updateResults = hasUpdatePolicies
+                ? await Promise.allSettled(importData.policiesToUpdate.map(p => SupabaseService.updatePolicy(p.id, p.data)))
+                : [];
+
+            // Combine results
+            const allResults = [...addResults, ...updateResults];
+            const failed = allResults.filter(r => r.status === 'rejected');
+
+            if (failed.length > 0) {
+                const errorMessages = failed.map((r: any) => r.reason?.message || r.reason?.toString()).join(', ');
+                setError(`Failed to import ${failed.length} policies: ${errorMessages}`);
+                console.error('Failed imports:', failed);
+                setImportLoading(false);
+                return;
+            }
+
+            await SupabaseService.logAllActivity({
+                action: 'Bulk Imported/Updated Policies',
+                module: 'Governance',
+                event_data: { 
+                    addedCount: importData.newPolicies.length, 
+                    updatedCount: importData.policiesToUpdate.length 
+                }
+            });
+            setModalState({ type: null });
+            setImportData({ newPolicies: [], policiesToUpdate: [], duplicateNames: [] });
+            setError(null);
+            setImportLoading(false);
+            fetchPolicies();
+        } catch (err) {
+            const errorMsg = err instanceof Error ? err.message : String(err);
+            setError(`Failed to import policies: ${errorMsg}`);
+            console.error('Import error:', err);
+            setImportLoading(false);
+        }
+    };
+
+    const handleExportCSV = () => {
+        const headers = ['id', 'name', 'description', 'document_type', 'document_content', 'content_editor_text', 'url', 'grc_contact', 'policy_reviewer_contact', 'tags', 'published_date', 'next_review_date', 'policy_labels', 'related_projects', 'status', 'version', 'custom_roles', 'related_documents', 'owner_name', 'created_at'];
+        const csvContent = [
+            headers.join(','),
+            ...filteredAndSortedPolicies.map(policy =>
+                [
+                    `"${(policy.id || '').replace(/"/g, '""')}"`,
+                    `"${(policy.name || '').replace(/"/g, '""')}"`,
+                    `"${(policy.description || '').replace(/"/g, '""')}"`,
+                    `"${(policy.document_type || '').replace(/"/g, '""')}"`,
+                    `"${(policy.document_content || '').toString().replace(/"/g, '""')}"`,
+                    `"${(policy.content_editor_text || '').replace(/"/g, '""')}"`,
+                    `"${(policy.url || '').replace(/"/g, '""')}"`,
+                    `"${(policy.grc_contact || '').replace(/"/g, '""')}"`,
+                    `"${(policy.policy_reviewer_contact || '').replace(/"/g, '""')}"`,
+                    `"${(policy.tags || '').replace(/"/g, '""')}"`,
+                    `"${(policy.published_date || '').replace(/"/g, '""')}"`,
+                    `"${(policy.next_review_date || '').replace(/"/g, '""')}"`,
+                    `"${(policy.policy_labels || '').replace(/"/g, '""')}"`,
+                    `"${(policy.related_projects || '').replace(/"/g, '""')}"`,
+                    `"${(policy.status || '').replace(/"/g, '""')}"`,
+                    `"${(policy.version || '').replace(/"/g, '""')}"`,
+                    `"${(policy.custom_roles || '').replace(/"/g, '""')}"`,
+                    `"${(policy.related_documents || '').replace(/"/g, '""')}"`,
+                    `"${(policy.owner_name || '').replace(/"/g, '""')}"`,
+                    `"${(policy.created_at || '').replace(/"/g, '""')}"`,
+                ].join(',')
+            ),
+        ].join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `policies-${new Date().toISOString().split('T')[0]}.csv`;
+        link.click();
+    };
 
     const handleSavePolicy = async (formData: PolicyDocumentCreate | PolicyDocumentUpdate, documentFile?: File | null) => {
         try {
-            const dataToSave: PolicyDocumentCreate | PolicyDocumentUpdate = { ...formData };
+            // Validate and clean the data before saving
+            const cleanData: any = { ...formData };
+            
+            // For adding: Policy ID is required and must be manually provided
+            if (modalState.type === 'add') {
+                if (!cleanData.id || cleanData.id.trim() === '') {
+                    throw new Error('Policy ID is required');
+                }
+            }
+            
+            // Ensure status is a valid integer (0 or 1)
+            cleanData.status = parseInt(String(cleanData.status)) || 0;
+            if (![0, 1].includes(cleanData.status)) {
+                cleanData.status = 0;
+            }
+            
+            // Ensure document_content is a valid integer (0, 1, or 2)
+            cleanData.document_content = parseInt(String(cleanData.document_content)) || 0;
+            if (![0, 1, 2].includes(cleanData.document_content)) {
+                cleanData.document_content = 0;
+            }
+            
+            // Remove empty strings and convert to null
+            Object.keys(cleanData).forEach(key => {
+                if (cleanData[key] === '') {
+                    cleanData[key] = null;
+                }
+            });
+            
+            // Ensure required text fields have at least some content
+            if (!cleanData.name || cleanData.name.trim() === '') {
+                throw new Error('Policy name is required');
+            }
+            
+            const dataToSave: PolicyDocumentCreate | PolicyDocumentUpdate = cleanData;
 
             if (dataToSave.document_content === 1 && documentFile) { // Attachment
                 dataToSave.url = await SupabaseService.uploadFile(documentFile, 'policies');
@@ -2867,6 +3369,7 @@ const PoliciesView: React.FC = () => {
                     event_data: { changes: dataToSave }
                 });
             } else if (modalState.type === 'add') {
+                console.log('Adding policy with data:', dataToSave);
                 const addedPolicy = await SupabaseService.addPolicy(dataToSave as PolicyDocumentCreate);
                 await SupabaseService.logAllActivity({
                     action: 'Created Policy',
@@ -2879,8 +3382,16 @@ const PoliciesView: React.FC = () => {
             fetchPolicies();
             closeModal();
         } catch (err) {
-            setError('Failed to save policy.');
-            console.error(err);
+            let errorMsg = 'Unknown error';
+            if (err instanceof Error) {
+                errorMsg = err.message;
+            } else if (typeof err === 'object' && err !== null) {
+                errorMsg = JSON.stringify(err);
+            } else {
+                errorMsg = String(err);
+            }
+            setError(`Failed to save policy: ${errorMsg}`);
+            console.error('Policy save error:', err, 'Data attempted:', formData);
         }
     };
     
@@ -2921,19 +3432,34 @@ const PoliciesView: React.FC = () => {
                     />
                 </div>
                 <div className="flex space-x-2">
-                    <button onClick={() => setModalState({ type: 'add' })} className="flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md shadow-sm hover:bg-blue-700">
-                        <PlusIcon className="h-5 w-5 mr-2" /> Add Policy
+                    <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
+                    <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <UploadIcon className="h-5 w-5" />
+                    </button>
+                    <button onClick={handleExportCSV} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <DownloadIcon className="h-5 w-5" />
+                    </button>
+                    <button onClick={() => setModalState({ type: 'add' })} title="Add Policy" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <PlusIcon className="h-5 w-5" />
                     </button>
                 </div>
             </div>
 
-            {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">{error}</div>}
+            {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4 dark:bg-red-900 dark:border-red-700 dark:text-red-200" role="alert">
+                <span>{error}</span>
+                <button onClick={() => setError(null)} className="ml-4 font-bold">×</button>
+            </div>}
 
             <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg dark:border-gray-700">
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-800">
                             <tr>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
+                                    <button onClick={() => requestSort('id')} className="flex items-center w-full text-left focus:outline-none">
+                                        Policy ID {getSortIconFor('id')}
+                                    </button>
+                                </th>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
                                     <button onClick={() => requestSort('name')} className="flex items-center w-full text-left focus:outline-none">
                                         Name {getSortIconFor('name')}
@@ -2942,6 +3468,11 @@ const PoliciesView: React.FC = () => {
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
                                     <button onClick={() => requestSort('status')} className="flex items-center w-full text-left focus:outline-none">
                                         Status {getSortIconFor('status')}
+                                    </button>
+                                </th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
+                                    <button onClick={() => requestSort('created_at')} className="flex items-center w-full text-left focus:outline-none">
+                                        Created Date {getSortIconFor('created_at')}
                                     </button>
                                 </th>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
@@ -2965,14 +3496,19 @@ const PoliciesView: React.FC = () => {
                             ) : filteredAndSortedPolicies.map(policy => (
                                 <tr key={policy.id}>
                                     <td className="px-6 py-4 whitespace-nowrap">
+                                        <div className="text-sm font-mono text-gray-500 dark:text-gray-400">{policy.id?.substring(0, 8)}</div>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="text-sm font-medium text-gray-900 dark:text-white">{policy.name}</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap"><StatusBadge status={policy.status} colorMap={policyStatusStyles} /></td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{policy.created_at ? new Date(policy.created_at).toLocaleDateString() : 'N/A'}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{policy.version}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{policy.document_type || 'N/A'}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                         <div className="flex justify-end items-center space-x-2">
-                                             {policy.url && <a href={policy.url} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-blue-500"><DownloadIcon className="h-5 w-5" /></a>}
+
+                                            {policy.url && <a href={policy.url} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-blue-500" title="View URL"><DownloadIcon className="h-5 w-5" /></a>}
                                             <button onClick={() => setModalState({ type: 'view', policy })} className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
                                             <button onClick={() => setModalState({ type: 'edit', policy })} className="text-gray-400 hover:text-yellow-500"><PencilIcon className="h-5 w-5" /></button>
                                             <button onClick={() => setModalState({ type: 'delete', policy })} className="text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5" /></button>
@@ -2997,6 +3533,54 @@ const PoliciesView: React.FC = () => {
                 onConfirm={handleDeletePolicy}
                 itemName="policy"
             />
+            <Modal isOpen={modalState.type === 'import'} onClose={closeModal} title="Import CSV Preview">
+                <div className="space-y-4">
+                    {error && <div className="bg-red-100 border border-red-400 text-red-700 px-3 py-2 rounded text-sm dark:bg-red-900 dark:border-red-700 dark:text-red-200">
+                        {error}
+                    </div>}
+                    <div>
+                        <h4 className="font-semibold text-gray-900 dark:text-white mb-2">New Policies to Import ({importData.newPolicies.length})</h4>
+                        {importData.newPolicies.length > 0 ? (
+                            <div className="max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-md p-3">
+                                {importData.newPolicies.map((policy, idx) => (
+                                    <div key={idx} className="py-2 px-2 border-b border-gray-100 dark:border-gray-700 last:border-b-0 text-sm dark:text-gray-300">
+                                        <div className="font-medium">{policy.name}</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400">Version: {policy.version} | Type: {policy.document_type || 'N/A'}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-gray-500 dark:text-gray-400 text-sm">No new policies to import.</div>
+                        )}
+                    </div>
+                    {importData.policiesToUpdate.length > 0 && (
+                        <div>
+                            <h4 className="font-semibold text-blue-600 dark:text-blue-400 mb-2">Existing Policies to Update ({importData.policiesToUpdate.length})</h4>
+                            <div className="max-h-48 overflow-y-auto border border-blue-200 dark:border-blue-700 rounded-md p-3 bg-blue-50 dark:bg-gray-800">
+                                {importData.policiesToUpdate.map((item, idx) => {
+                                    const policy = policies.find(p => p.id === item.id);
+                                    const newName = item.data.name;
+                                    const oldName = policy?.name;
+                                    return (
+                                        <div key={idx} className="py-2 px-2 text-sm text-blue-800 dark:text-blue-200 border-b border-blue-100 dark:border-blue-900 last:border-b-0">
+                                            <div className="font-medium">{oldName}</div>
+                                            {oldName !== newName && (
+                                                <div className="text-xs text-blue-600 dark:text-blue-300">→ {newName}</div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+                </div>
+                <div className="mt-6 flex justify-end space-x-3">
+                    <button onClick={closeModal} disabled={importLoading} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500 disabled:opacity-50 disabled:cursor-not-allowed">Cancel</button>
+                    <button onClick={handleConfirmImport} disabled={(importData.newPolicies.length === 0 && importData.policiesToUpdate.length === 0) || importLoading} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed">
+                        {importLoading ? 'Importing...' : `Import ${importData.newPolicies.length + importData.policiesToUpdate.length} Record${importData.newPolicies.length + importData.policiesToUpdate.length !== 1 ? 's' : ''}`}
+                    </button>
+                </div>
+            </Modal>
         </div>
     );
 };
@@ -3010,11 +3594,12 @@ interface PolicyModalProps {
 }
 const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose, onSave, policyToEdit, mode }) => {
     const today = new Date().toISOString().split('T')[0];
-    const [formData, setFormData] = useState<Partial<PolicyDocumentCreate>>({});
+    const [formData, setFormData] = useState<Partial<PolicyDocumentCreate> & { id?: string }>({});
     const [documentFile, setDocumentFile] = useState<File | null>(null);
     const isViewMode = mode === 'view';
 
-    const defaultState: Partial<PolicyDocumentCreate> = {
+    const defaultState: Partial<PolicyDocumentCreate> & { id?: string } = {
+        id: '',
         name: '',
         description: '',
         status: 0,
@@ -3033,21 +3618,23 @@ const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose, onSave, poli
         custom_roles: '',
         related_documents: '',
         document_type: '',
+        owner: '',
+        policy_doc_link: '',
     };
     
     useEffect(() => {
         if (policyToEdit) {
             const { 
-                name, description, document_content, content_editor_text, url, grc_contact,
+                id, name, description, document_content, content_editor_text, url, grc_contact,
                 policy_reviewer_contact, tags, published_date, next_review_date, policy_labels,
                 related_projects, status, document_type, version, policy_portal_permissions,
-                custom_roles, related_documents 
+                custom_roles, related_documents, owner_name
             } = policyToEdit;
             setFormData({
-                name, description, document_content, content_editor_text, url, grc_contact,
+                id, name, description, document_content, content_editor_text, url, grc_contact,
                 policy_reviewer_contact, tags, published_date, next_review_date, policy_labels,
                 related_projects, status, document_type, version, policy_portal_permissions,
-                custom_roles, related_documents
+                custom_roles, related_documents, owner: owner_name || '', policy_doc_link: url || ''
             });
         } else {
             setFormData(defaultState);
@@ -3085,18 +3672,33 @@ const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose, onSave, poli
         <Modal isOpen={isOpen} onClose={onClose} title={title}>
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Policy ID</label>
+                        <input 
+                            type="text" 
+                            name="id"
+                            value={formData.id || ''} 
+                            onChange={handleChange}
+                            readOnly={mode === 'edit' || isViewMode}
+                            required={mode === 'add'}
+                            placeholder="Enter Policy ID"
+                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" 
+                        />
+                    </div>
+                    <div></div>
+                    
                     {renderInputField('Name', 'name', 'text', true)}
                     {renderInputField('Version', 'version', 'text', true)}
                     
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
-                        <textarea name="description" value={formData.description || ''} onChange={handleChange} readOnly={isViewMode} rows={3} 
+                        <textarea name="description" value={formData.description || ''} onChange={handleChange} readOnly={isViewMode} required rows={3} 
                                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
                     </div>
 
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Document Content</label>
-                        <select name="document_content" value={formData.document_content} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                        <select name="document_content" value={formData.document_content} onChange={handleChange} disabled={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                             <option value={0}>Use Content</option>
                             <option value={1}>Use Attachments</option>
                             <option value={2}>Use URL</option>
@@ -3106,7 +3708,7 @@ const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose, onSave, poli
 
                     {formData.document_content === 0 && <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Content Editor Text</label>
-                        <textarea name="content_editor_text" value={formData.content_editor_text || ''} onChange={handleChange} readOnly={isViewMode} rows={5} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
+                        <textarea name="content_editor_text" value={formData.content_editor_text || ''} onChange={handleChange} readOnly={isViewMode} required rows={5} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
                     </div>}
 
                     {formData.document_content === 1 && <div className="md:col-span-2">
@@ -3125,27 +3727,30 @@ const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose, onSave, poli
                     {renderInputField('GRC Contact', 'grc_contact', 'text', true, 'User-admin|Group-Admins')}
                     {renderInputField('Policy Reviewer Contact', 'policy_reviewer_contact', 'text', true, 'User-jane|Group-Reviewers')}
                     
-                    {renderInputField('Tags', 'tags', 'text', false, 'Critical|SOX|PCI')}
-                    {renderInputField('Policy Labels', 'policy_labels', 'text', false)}
+                    {renderInputField('Tags', 'tags', 'text', true, 'Critical|SOX|PCI')}
+                    {renderInputField('Policy Labels', 'policy_labels', 'text', true)}
 
-                    {renderInputField('Published Date', 'published_date', 'date', true)}
-                    {renderInputField('Next Review Date', 'next_review_date', 'date', true)}
+                    {renderInputField('Owner', 'owner', 'text', true)}
+                    {renderInputField('PolicyDocLink', 'policy_doc_link', 'url', false)}
+
+                    {renderInputField('CreatedDate', 'published_date', 'date', true)}
+                    {renderInputField('RefreshDate', 'next_review_date', 'date', true)}
                     
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
-                        <select name="status" value={formData.status ?? 0} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                        <select name="status" value={formData.status ?? 0} onChange={handleChange} disabled={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                            <option value={0}>Draft</option>
                            <option value={1}>Published</option>
                         </select>
                     </div>
                     {renderInputField('Document Type', 'document_type', 'text', true)}
                     
-                    {renderInputField('Related Projects', 'related_projects', 'text', false, 'Project A|Project B')}
-                    {renderInputField('Related Documents', 'related_documents', 'text', false, 'Doc 1|Doc 2')}
+                    {renderInputField('Related Projects', 'related_projects', 'text', true, 'Project A|Project B')}
+                    {renderInputField('Related Documents', 'related_documents', 'text', true, 'Doc 1|Doc 2')}
                     
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Portal Permissions</label>
-                        <select name="policy_portal_permissions" value={formData.policy_portal_permissions} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                        <select name="policy_portal_permissions" value={formData.policy_portal_permissions} onChange={handleChange} disabled={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                            <option value="public">Public</option><option value="private">Private</option><option value="custom-roles">Custom Roles</option>
                         </select>
                     </div>
@@ -3305,8 +3910,8 @@ const VulnerabilitiesView: React.FC = () => {
                     />
                 </div>
                 <div className="flex space-x-2">
-                    <button onClick={() => setModalState({ type: 'add' })} className="flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md shadow-sm hover:bg-blue-700">
-                        <PlusIcon className="h-5 w-5 mr-2" /> Add Vulnerability
+                    <button onClick={() => setModalState({ type: 'add' })} title="Add Vulnerability" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <PlusIcon className="h-5 w-5" />
                     </button>
                 </div>
             </div>
@@ -4727,6 +5332,7 @@ const App: React.FC = () => {
     const [isNameModalOpen, setIsNameModalOpen] = useState<boolean>(false);
     const [authChecked, setAuthChecked] = useState(false);
     const [logoutToastVisible, setLogoutToastVisible] = useState(false);
+    const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
     const logoutTimerRef = useRef<number | null>(null);
 
 
@@ -4842,12 +5448,12 @@ const App: React.FC = () => {
         { id: 'dashboard', label: 'Dashboard' },
         { id: 'organisation', label: 'Organisation' },
         { id: 'program', label: 'Program' },
-        { id: 'policymanager', label: 'Policy Manager' },
+        // { id: 'policymanager', label: 'Policy Manager' },
         { id: 'governance', label: 'Governance' },
-        { id: 'risk', label: 'Risk' },
+        // { id: 'risk', label: 'Risk' },
         { id: 'compliance', label: 'Compliance' },
-        { id: 'threat', label: 'Threat View' },
-        { id: 'resiliency', label: 'Resiliency' },
+        // { id: 'threat', label: 'Threat View' },
+        // { id: 'resiliency', label: 'Resiliency' },
         { id: 'logs', label: 'Activity Logs' },
     ];
 
@@ -4881,6 +5487,7 @@ const App: React.FC = () => {
                 </div>
             )}
             <NameEntryModal isOpen={isNameModalOpen} />
+            <FeedbackModal isOpen={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
             <Header 
                 userRole={userRole} 
                 setUserRole={setUserRole} 
@@ -4911,12 +5518,12 @@ const App: React.FC = () => {
                 {activeTab === 'dashboard' && <DashboardTab />}
                 {activeTab === 'organisation' && <OrganisationTab userRole={platformAdminRole} />}
                 {activeTab === 'program' && <ProgramTab userRole={userRole} />}
-                {activeTab === 'policymanager' && <PolicyManagerTab />}
+                {/* {activeTab === 'policymanager' && <PolicyManagerTab />} */}
                 {activeTab === 'governance' && <GovernanceTab />}
-                {activeTab === 'risk' && <RiskTab />}
+                {/* {activeTab === 'risk' && <RiskTab />} */}
                 {activeTab === 'compliance' && <ComplianceTab />}
-                {activeTab === 'threat' && <ThreatViewTab />}
-                {activeTab === 'resiliency' && <ResiliencyTab />}
+                {/* {activeTab === 'threat' && <ThreatViewTab />}
+                {activeTab === 'resiliency' && <ResiliencyTab />} */}
                 {activeTab === 'logs' && <ActivityLogsTab />}
                 
                 <ErrorBoundary>
@@ -4926,6 +5533,18 @@ const App: React.FC = () => {
                         userRole={userRole}
                     />
                 </ErrorBoundary>
+
+                {/* Floating Feedback Button */}
+                <button
+                    onClick={() => setIsFeedbackOpen(true)}
+                    className="fixed bottom-6 right-6 w-14 h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg flex items-center justify-center z-50 transition-transform hover:scale-110"
+                    title="Send feedback"
+                    aria-label="Send feedback"
+                >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                    </svg>
+                </button>
 
             </main>
         </div>

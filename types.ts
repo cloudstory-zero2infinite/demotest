@@ -59,6 +59,8 @@ export interface Asset {
     id: string;
     asset_id: string;
     name: string;
+    asset_owner?: string | null;
+    business_owner?: string | null;
     criticality: AssetCriticality;
     details: string;
     governed_status: AssetGovernedStatus;
@@ -96,6 +98,8 @@ export interface PolicyDocument {
     policy_portal_permissions: PolicyPermissions;
     custom_roles: string | null;
     related_documents: string | null;
+    owner_name: string | null;
+    policy_doc_link: string | null;
     created_at: string;
     updated_at: string;
 }
