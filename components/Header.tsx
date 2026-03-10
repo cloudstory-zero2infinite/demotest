@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheckIcon, SunIcon, MoonIcon, BotIcon } from './Icons';
+import { ShieldCheckIcon, SunIcon, MoonIcon } from './Icons';
 
 type UserRole = 'security-staff' | 'cxo';
 
@@ -8,11 +8,10 @@ interface HeaderProps {
     setUserRole: (role: UserRole) => void;
     isDarkMode: boolean;
     toggleDarkMode: () => void;
-    onOpenAiAssistant: () => void;
     onSignOut: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ userRole, setUserRole, isDarkMode, toggleDarkMode, onOpenAiAssistant, onSignOut }) => {
+const Header: React.FC<HeaderProps> = ({ userRole, setUserRole, isDarkMode, toggleDarkMode, onSignOut }) => {
     return (
         <header className="bg-white dark:bg-gray-800 shadow-md">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -39,13 +38,6 @@ const Header: React.FC<HeaderProps> = ({ userRole, setUserRole, isDarkMode, togg
                             <option value="security-staff">Security Staff View</option>
                             <option value="cxo">CXO View</option>
                         </select>
-                         <button
-                            onClick={onOpenAiAssistant}
-                            aria-label="Open AI Assistant"
-                            className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-gray-800 focus:ring-blue-500"
-                        >
-                           <BotIcon className="h-6 w-6" />
-                        </button>
                         <button
                             onClick={toggleDarkMode}
                             aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}

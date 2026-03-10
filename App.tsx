@@ -4,8 +4,7 @@ import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, 
 import { ProgramTask, ProgramStatus, ActivityLog, ProgramTaskCreate, ProgramTaskUpdate, InternalControl, Asset, PolicyDocument, AssetCriticality, AssetGovernedStatus, AssetExposure, AssetCategory, InternalControlCreate, InternalControlUpdate, AssetCreate, AssetUpdate, PolicyDocumentCreate, PolicyDocumentUpdate, DocumentContentType, PolicyPermissions, PolicyStatus, InternalControlStatus, Compliance, ComplianceStatus, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityStatus, VulnerabilitySource, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, WorkflowStep, UserRole } from './types';
 import * as SupabaseService from './services/supabase';
 import Header from './components/Header';
-import { EyeIcon, PencilIcon, TrashIcon, HistoryIcon, PlusIcon, UploadIcon, XIcon, DownloadIcon, ChartPieIcon, UsersIcon, ExclamationTriangleIcon, ArrowPathIcon, MoonIcon, SunIcon, BotIcon, SortUpDownIcon, SortUpIcon, SortDownIcon } from './components/Icons';
-import { GoogleGenAI, GenerateContentResponse } from '@google/genai';
+import { EyeIcon, PencilIcon, TrashIcon, HistoryIcon, PlusIcon, UploadIcon, XIcon, DownloadIcon, ChartPieIcon, UsersIcon, ExclamationTriangleIcon, ArrowPathIcon, MoonIcon, SunIcon, SortUpDownIcon, SortUpIcon, SortDownIcon } from './components/Icons';
 
 // UI Components defined within App.tsx to keep file count low, but outside the main App component.
 
@@ -227,13 +226,6 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose }) => {
     );
 };
 
-// --- AI ASSISTANT MODAL ---
-interface AiAssistantModalProps {
-    isOpen: boolean;
-    onClose: () => void;
-    userRole: 'security-staff' | 'cxo';
-}
-
 // error boundary to catch unexpected runtime errors in child components
 class ErrorBoundary extends React.Component<{children:React.ReactNode}, {hasError:boolean}> {
   constructor(props:any) {
@@ -251,172 +243,6 @@ class ErrorBoundary extends React.Component<{children:React.ReactNode}, {hasErro
     return this.props.children;
   }
 }
-
-const AiAssistantModal: React.FC<AiAssistantModalProps> = ({ isOpen, onClose, userRole }) => {
-    const [ai, setAi] = useState<GoogleGenAI | null>(null);
-    const [messages, setMessages] = useState<{role: 'user' | 'bot', text: string}[]>([]);
-    const [input, setInput] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
-    const [contextData, setContextData] = useState<{
-        assets: Asset[];
-        controls: InternalControl[];
-        policies: PolicyDocument[];
-        tasks: ProgramTask[];
-    } | null>(null);
-    const [isContextLoading, setIsContextLoading] = useState(false);
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-    
-    useEffect(() => {
-        const key = process.env.API_KEY;
-        if (key) {
-            setAi(new GoogleGenAI({ apiKey: key }));
-        } else {
-            console.warn('Gemini API key not set – AI features will be disabled');
-        }
-    }, []);
-    
-    useEffect(() => {
-        if (isOpen) {
-            setMessages(userRole === 'cxo' ? [{ role: 'bot', text: 'Hello! As the GRC Q&A Assistant, I can answer questions about your organization\'s security program based on the data in this tool. What would you like to know?' }] : []);
-            setInput('');
-            setIsLoading(false);
-
-            if (userRole === 'cxo' && !contextData) {
-                const fetchContextData = async () => {
-                    setIsContextLoading(true);
-                    try {
-                        const [assets, controls, policies, tasks] = await Promise.all([
-                            SupabaseService.getAssets(),
-                            SupabaseService.getInternalControls(),
-                            SupabaseService.getPolicies(),
-                            SupabaseService.getTasks(),
-                        ]);
-                        setContextData({ assets, controls, policies, tasks });
-                    } catch (e) {
-                        console.error("Failed to fetch context for AI", e);
-                        setMessages(prev => [...prev, {role: 'bot', text: 'Sorry, I was unable to load the necessary context data to answer questions.'}]);
-                    } finally {
-                        setIsContextLoading(false);
-                    }
-                };
-                fetchContextData();
-            }
-        }
-    }, [isOpen, userRole, contextData]);
-    
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [messages]);
-
-    const handleSendMessage = async () => {
-        if (!input.trim() || !ai || !contextData) return;
-        
-        const userMessage = { role: 'user' as const, text: input };
-        setMessages(prev => [...prev, userMessage]);
-        setInput('');
-        setIsLoading(true);
-        
-        try {
-            const { policies, assets, controls, tasks } = contextData;
-            const context = `
-                --- SUMMARY OF POLICIES (${policies.length} total) ---
-                ${policies.slice(0,5).map(p => `Policy: ${p.name}, Status: ${p.status === 1 ? 'Published' : 'Draft'}`).join('\n')}
-
-                --- SUMMARY OF ASSETS (${assets.length} total) ---
-                There are ${assets.filter(a => a.criticality === 'High').length} high-criticality assets.
-                There are ${assets.filter(a => a.governed_status === 'Governed').length} governed assets.
-                
-                --- SUMMARY OF CONTROLS (${controls.length} total) ---
-                ${controls.filter(c => c.status === 'Enforced').length} controls are enforced.
-                ${controls.filter(c => c.status === 'InProgress').length} controls are in progress.
-
-                --- SUMMARY OF PROGRAM TASKS/MILESTONES (${tasks.length} total) ---
-                ${tasks.filter(t => t.status === 'Completed').length} milestones are completed.
-                ${tasks.filter(t => t.status === 'InProgress').length} milestones are in progress.
-            `;
-            
-            const prompt = `You are an expert GRC analyst. Based ONLY on the following context about an organization's GRC program, answer the user's question. Your response must be strictly grounded in the provided information. If the answer cannot be found in the context, state that you cannot answer based on the available information.
-
-            CONTEXT:
-            ${context}
-            
-            QUESTION:
-            ${input}
-            `;
-            
-            const response: GenerateContentResponse = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: prompt,
-            });
-
-            const botMessage = { role: 'bot' as const, text: response.text || "I'm sorry, I couldn't generate a response." };
-            setMessages(prev => [...prev, botMessage]);
-        } catch (error) {
-            console.error("Error calling Gemini API:", error);
-            const errorMessage = { role: 'bot' as const, text: "Sorry, I encountered an error. Please check the console for details." };
-            setMessages(prev => [...prev, errorMessage]);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title={userRole === 'cxo' ? 'GRC Q&A Assistant' : 'GRC Action Assistant'}>
-            <div className="flex flex-col h-[60vh]">
-            {userRole === 'cxo' ? (
-                <>
-                    <div className="flex-grow overflow-y-auto p-4 space-y-4">
-                        {messages.map((msg, index) => (
-                            <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${msg.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'}`}>
-                                    <p className="text-sm" style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</p>
-                                </div>
-                            </div>
-                        ))}
-                         {isLoading && (
-                            <div className="flex justify-start">
-                                <div className="max-w-xs lg:max-w-md px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white">
-                                    <div className="flex items-center space-x-2">
-                                        <div className="w-2 h-2 bg-gray-500 rounded-full animate-pulse"></div>
-                                        <div className="w-2 h-2 bg-gray-500 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
-                                        <div className="w-2 h-2 bg-gray-500 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                        <div ref={messagesEndRef} />
-                    </div>
-                    <div className="p-4 border-t dark:border-gray-700">
-                        <div className="flex space-x-2">
-                            <input
-                                type="text"
-                                value={input}
-                                onChange={(e) => setInput(e.target.value)}
-                                onKeyPress={(e) => e.key === 'Enter' && !isLoading && handleSendMessage()}
-                                placeholder="Ask a question about your GRC program..."
-                                disabled={isLoading || isContextLoading}
-                                className="flex-grow block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white disabled:opacity-50"
-                            />
-                            <button onClick={handleSendMessage} disabled={isLoading || isContextLoading} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md shadow-sm hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed">
-                                {isContextLoading ? 'Loading...' : 'Send'}
-                            </button>
-                        </div>
-                    </div>
-                </>
-            ) : (
-                <div className="text-center p-8">
-                    <BotIcon className="h-12 w-12 text-blue-500 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 dark:text-white">AI Action Assistant</h3>
-                    <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                       AI-powered actions for Security Staff, such as drafting policies or adding program tasks from a prompt, are coming soon!
-                    </p>
-                </div>
-            )}
-            </div>
-        </Modal>
-    );
-};
-
 
 // --- DASHBOARD: New Framework Compliance Chart ---
 type DerivedComplianceStatus = 'Compliant' | 'NonCompliant' | 'NotMapped';
@@ -951,6 +777,8 @@ const ProgramTrackerView: React.FC = () => {
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
     const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | 'log' | null; task?: ProgramTask | null }>({ type: null });
+    const [filter, setFilter] = useState('');
+    const [sortConfig, setSortConfig] = useState<{ key: keyof ProgramTask; direction: 'ascending' | 'descending' } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const fetchTasks = useCallback(async () => {
@@ -1093,6 +921,63 @@ const ProgramTrackerView: React.FC = () => {
         if(fileInputRef.current) fileInputRef.current.value = '';
     };
 
+    const filteredAndSortedTasks = useMemo(() => {
+        let items = [...tasks];
+        if (filter) {
+            const q = filter.toLowerCase();
+            items = items.filter(t =>
+                t.program_name.toLowerCase().includes(q) ||
+                (t.description && t.description.toLowerCase().includes(q)) ||
+                t.month.toLowerCase().includes(q) ||
+                t.status.toLowerCase().includes(q)
+            );
+        }
+        if (sortConfig) {
+            items.sort((a, b) => {
+                const aVal = a[sortConfig.key];
+                const bVal = b[sortConfig.key];
+                if (aVal === null || aVal === undefined) return 1;
+                if (bVal === null || bVal === undefined) return -1;
+                if (aVal < bVal) return sortConfig.direction === 'ascending' ? -1 : 1;
+                if (aVal > bVal) return sortConfig.direction === 'ascending' ? 1 : -1;
+                return 0;
+            });
+        }
+        return items;
+    }, [tasks, filter, sortConfig]);
+
+    const requestSort = (key: keyof ProgramTask) => {
+        let direction: 'ascending' | 'descending' = 'ascending';
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') direction = 'descending';
+        setSortConfig({ key, direction });
+    };
+
+    const getSortIconFor = (key: keyof ProgramTask) => {
+        if (!sortConfig || sortConfig.key !== key) return <SortUpDownIcon className="h-4 w-4 ml-1 text-gray-400" />;
+        return sortConfig.direction === 'ascending' ? <SortUpIcon className="h-4 w-4 ml-1" /> : <SortDownIcon className="h-4 w-4 ml-1" />;
+    };
+
+    const handleExportCSV = () => {
+        const headers = ['program_name', 'description', 'month', 'status', 'progress_percent'];
+        const csvContent = [
+            headers.join(','),
+            ...filteredAndSortedTasks.map(t =>
+                [
+                    `"${(t.program_name || '').replace(/"/g, '""')}"`,
+                    `"${(t.description || '').replace(/"/g, '""')}"`,
+                    t.month,
+                    t.status,
+                    t.progress_percent,
+                ].join(',')
+            ),
+        ].join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `program-milestones-${new Date().toISOString().split('T')[0]}.csv`;
+        link.click();
+    };
+
     const programStatusStyles: Record<ProgramStatus, string> = {
         Planned: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
         InProgress: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300',
@@ -1102,36 +987,59 @@ const ProgramTrackerView: React.FC = () => {
 
     return (
         <div className="px-4 py-6 sm:px-0">
-            <div className="flex flex-col sm:flex-row justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4 sm:mb-0">GRC Program Tracker</h2>
-                <div className="flex space-x-2">
-                    <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
-                    <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-                        <UploadIcon className="h-5 w-5" />
-                    </button>
-                    <button onClick={() => setModalState({ type: 'add' })} title="Add Milestone" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-                        <PlusIcon className="h-5 w-5" />
-                    </button>
+            <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
+                <div className="flex items-center gap-3">
+                    <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">GRC Program Tracker</h2>
+                </div>
+                <div className="flex items-center gap-3 w-full sm:w-auto">
+                    <input
+                        type="text"
+                        placeholder="Filter milestones..."
+                        value={filter}
+                        onChange={e => setFilter(e.target.value)}
+                        className="block w-full sm:w-56 rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        aria-label="Filter milestones"
+                    />
+                    <div className="flex space-x-2">
+                        <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
+                        <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                            <UploadIcon className="h-5 w-5" />
+                        </button>
+                        <button onClick={handleExportCSV} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                            <DownloadIcon className="h-5 w-5" />
+                        </button>
+                        <button onClick={() => setModalState({ type: 'add' })} title="Add Milestone" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                            <PlusIcon className="h-5 w-5" />
+                        </button>
+                    </div>
                 </div>
             </div>
             {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">{error}</div>}
-            
+
             <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg dark:border-gray-700">
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-800">
                             <tr>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Milestone Name</th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Month</th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Status</th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Progress</th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                    <button onClick={() => requestSort('program_name')} className="flex items-center w-full text-left focus:outline-none">Milestone Name {getSortIconFor('program_name')}</button>
+                                </th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                    <button onClick={() => requestSort('month')} className="flex items-center w-full text-left focus:outline-none">Month {getSortIconFor('month')}</button>
+                                </th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                    <button onClick={() => requestSort('status')} className="flex items-center w-full text-left focus:outline-none">Status {getSortIconFor('status')}</button>
+                                </th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                    <button onClick={() => requestSort('progress_percent')} className="flex items-center w-full text-left focus:outline-none">Progress {getSortIconFor('progress_percent')}</button>
+                                </th>
                                 <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
                             {loading ? (
                                 <tr><td colSpan={5} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading milestones...</td></tr>
-                            ) : tasks.map(task => (
+                            ) : filteredAndSortedTasks.map(task => (
                                 <tr key={task.id}>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="text-sm font-medium text-gray-900 dark:text-white">{task.program_name}</div>
@@ -2260,11 +2168,32 @@ const InternalControlsView: React.FC = () => {
         if(fileInputRef.current) fileInputRef.current.value = '';
     };
 
+    const handleExportCSV = () => {
+        const headers = ['ctl_id', 'name', 'description', 'status', 'compliance_tags'];
+        const csvContent = [
+            headers.join(','),
+            ...filteredAndSortedControls.map(c =>
+                [
+                    c.ctl_id,
+                    `"${(c.name || '').replace(/"/g, '""')}"`,
+                    `"${(c.description || '').replace(/"/g, '""')}"`,
+                    c.status || '',
+                    `"${(c.compliance_tag3 || []).join('|')}"`,
+                ].join(',')
+            ),
+        ].join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `internal-controls-${new Date().toISOString().split('T')[0]}.csv`;
+        link.click();
+    };
+
     return (
         <div>
             <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
                 <div className="w-full sm:w-1/3">
-                    <input 
+                    <input
                         type="text"
                         placeholder="Filter controls..."
                         value={filter}
@@ -2277,6 +2206,9 @@ const InternalControlsView: React.FC = () => {
                     <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
                     <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <UploadIcon className="h-5 w-5" />
+                    </button>
+                    <button onClick={handleExportCSV} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <DownloadIcon className="h-5 w-5" />
                     </button>
                     <button onClick={() => setModalState({ type: 'add' })} title="Add Control" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <PlusIcon className="h-5 w-5" />
@@ -3778,6 +3710,7 @@ const VulnerabilitiesView: React.FC = () => {
     const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | null; vulnerability?: Vulnerability | null }>({ type: null });
     const [filter, setFilter] = useState('');
     const [sortConfig, setSortConfig] = useState<{ key: keyof Vulnerability; direction: 'ascending' | 'descending' } | null>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const vulnerabilityStatusStyles: Record<VulnerabilityStatus, string> = {
         'Planned': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
@@ -3896,6 +3829,62 @@ const VulnerabilitiesView: React.FC = () => {
         }
     };
 
+    const handleImportCSV = (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            const text = e.target?.result as string;
+            if (!text) return;
+            const validSources: VulnerabilitySource[] = ['KEV', 'Scanning', 'PT', 'Reported-Ext'];
+            const validStatuses: VulnerabilityStatus[] = ['Planned', 'Remediated', 'NA'];
+            const lines = text.split('\n').slice(1);
+            const newVulns: VulnerabilityCreate[] = lines
+                .map((line): VulnerabilityCreate | null => {
+                    const [name, description, derived_from, status] = line.split(',').map(s => s ? s.trim() : '');
+                    if (!name || !derived_from || !status) return null;
+                    if (!validSources.includes(derived_from as VulnerabilitySource)) return null;
+                    if (!validStatuses.includes(status as VulnerabilityStatus)) return null;
+                    return { name, description: description || null, derived_from: derived_from as VulnerabilitySource, status: status as VulnerabilityStatus, asset_id: null };
+                })
+                .filter((v): v is VulnerabilityCreate => v !== null);
+            if (newVulns.length > 0) {
+                try {
+                    for (const v of newVulns) await SupabaseService.addVulnerability(v);
+                    await SupabaseService.logAllActivity({ action: 'Bulk Imported Vulnerabilities', module: 'Governance', event_data: { count: newVulns.length } });
+                    alert(`${newVulns.length} vulnerabilities imported successfully!`);
+                    fetchVulnerabilities();
+                } catch (err) {
+                    alert('Failed to import vulnerabilities.');
+                }
+            }
+        };
+        reader.readAsText(file);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    const handleExportCSV = () => {
+        const headers = ['name', 'description', 'derived_from', 'status', 'asset_name', 'asset_id'];
+        const csvContent = [
+            headers.join(','),
+            ...filteredAndSortedVulnerabilities.map(v =>
+                [
+                    `"${(v.name || '').replace(/"/g, '""')}"`,
+                    `"${(v.description || '').replace(/"/g, '""')}"`,
+                    v.derived_from,
+                    v.status,
+                    `"${(v.assets?.name || '').replace(/"/g, '""')}"`,
+                    v.assets?.asset_id || '',
+                ].join(',')
+            ),
+        ].join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `vulnerabilities-${new Date().toISOString().split('T')[0]}.csv`;
+        link.click();
+    };
+
     return (
         <div>
             <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
@@ -3910,6 +3899,13 @@ const VulnerabilitiesView: React.FC = () => {
                     />
                 </div>
                 <div className="flex space-x-2">
+                    <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
+                    <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <UploadIcon className="h-5 w-5" />
+                    </button>
+                    <button onClick={handleExportCSV} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <DownloadIcon className="h-5 w-5" />
+                    </button>
                     <button onClick={() => setModalState({ type: 'add' })} title="Add Vulnerability" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <PlusIcon className="h-5 w-5" />
                     </button>
@@ -4501,12 +4497,8 @@ const CyberGraph: React.FC<{ data: { nodes: any[], links: GraphLink[] } }> = ({ 
 const ThreatViewTab: React.FC = () => {
     const [csvData, setCsvData] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-    const [activeSubMode, setActiveSubMode] = useState<'Manual' | 'AI'>('Manual');
-    const [systemMsg, setSystemMsg] = useState({ text: 'Select a mode and launch an orbit.', color: 'text-green-600 dark:text-green-400' });
+    const [systemMsg, setSystemMsg] = useState({ text: 'Select filters and launch an orbit.', color: 'text-green-600 dark:text-green-400' });
     const [filters, setFilters] = useState({ source_type: 'campaign', relationship_type: 'uses', target_type: 'malware' });
-    const [chatInput, setChatInput] = useState('');
-    const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'ai', text: string }[]>([]);
-    const [isAiProcessing, setIsAiProcessing] = useState(false);
     const [graphData, setGraphData] = useState<{ nodes: any[], links: any[] } | null>(null);
 
     useEffect(() => {
@@ -4580,56 +4572,6 @@ const ThreatViewTab: React.FC = () => {
         setSystemMsg({ text: 'Orbit stable. Visualization loaded!', color: 'text-green-600 dark:text-green-400' });
     };
 
-    const handleChat = async (isViz: boolean) => {
-        if (!chatInput.trim()) return;
-        
-        const prompt = chatInput;
-        setChatHistory(prev => [...prev, { role: 'user', text: prompt }]);
-        setChatInput('');
-        setIsAiProcessing(true);
-        setSystemMsg({ text: 'Sending chat query to AI...', color: 'text-blue-600 dark:text-blue-400' });
-
-        try {
-            const key = process.env.API_KEY;
-            if (!key) throw new Error('Gemini API key missing');
-            const ai = new GoogleGenAI({ apiKey: key });
-            const model = 'gemini-3-flash-preview';
-            
-            const systemInstruction = `You are a MITRE ATT&CK expert. The dataset has columns: source_ref, source_ref_type, relationship_type, target_ref, target_ref_type. 
-            Source/Target types include: malware, course-of-action, x-mitre-tactic, attack-pattern, intrusion-set, campaign.
-            Relationships: uses, detects, mitigates.
-            
-            If the user asks for a visualization, respond with a JSON object format: {"action": "visualize", "filters": {"source_type": "...", "relationship_type": "...", "target_type": "..."}}.
-            Otherwise, provide a detailed cyber threat explanation.`;
-
-            const response = await ai.models.generateContent({
-                model,
-                contents: prompt,
-                config: { systemInstruction }
-            });
-
-            const text = response.text || "";
-            
-            // Check if it contains a visualization command
-            const jsonMatch = text.match(/\{.*\}/s);
-            if (jsonMatch && isViz) {
-                const cmd = JSON.parse(jsonMatch[0]);
-                if (cmd.action === 'visualize') {
-                    setFilters(cmd.filters);
-                    launchOrbit(cmd.filters);
-                }
-            }
-            
-            setChatHistory(prev => [...prev, { role: 'ai', text: text.replace(/\{.*\}/s, '').trim() }]);
-            setSystemMsg({ text: 'Chat response received.', color: 'text-green-600 dark:text-green-400' });
-        } catch (err) {
-            setChatHistory(prev => [...prev, { role: 'ai', text: "Critical error in AI communication." }]);
-            setSystemMsg({ text: 'Chat connection failure.', color: 'text-red-600 dark:text-red-500' });
-        } finally {
-            setIsAiProcessing(false);
-        }
-    };
-
     return (
         <div className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white p-6 rounded-xl min-h-[800px] border border-gray-200 dark:border-gray-700 font-sans shadow-lg mt-6">
             <h1 className="text-3xl font-black mb-8 text-center bg-gradient-to-r from-blue-600 to-green-600 bg-clip-text text-transparent uppercase tracking-tight">
@@ -4639,23 +4581,7 @@ const ThreatViewTab: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-full">
                 {/* Left Panel: Controls */}
                 <div className="bg-gray-50 dark:bg-gray-700/50 p-6 rounded-xl border border-gray-200 dark:border-gray-600 shadow-sm flex flex-col gap-6">
-                    <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-500 shadow-sm">
-                        <button 
-                            onClick={() => setActiveSubMode('Manual')}
-                            className={`flex-1 py-2.5 text-xs font-black tracking-widest uppercase transition-all ${activeSubMode === 'Manual' ? 'bg-blue-600 text-white shadow-inner' : 'bg-white dark:bg-gray-800 text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}
-                        >
-                            MANUAL MODE
-                        </button>
-                        <button 
-                            onClick={() => setActiveSubMode('AI')}
-                            className={`flex-1 py-2.5 text-xs font-black tracking-widest uppercase transition-all ${activeSubMode === 'AI' ? 'bg-blue-600 text-white shadow-inner' : 'bg-white dark:bg-gray-800 text-gray-500 hover:text-gray-900 dark:hover:text-white'}`}
-                        >
-                            AI QUERY MODE
-                        </button>
-                    </div>
-
-                    {activeSubMode === 'Manual' ? (
-                        <div className="space-y-4">
+                    <div className="space-y-4">
                             <h2 className="text-sm font-black uppercase tracking-widest text-blue-600 dark:text-blue-400 mb-2">Configuration</h2>
                             <div className="space-y-3">
                                 <div>
@@ -4696,46 +4622,6 @@ const ThreatViewTab: React.FC = () => {
                                 Launch Orbit
                             </button>
                         </div>
-                    ) : (
-                        <div className="flex flex-col h-[550px]">
-                            <h2 className="text-sm font-black uppercase tracking-widest text-purple-600 dark:text-purple-400 mb-4">Threat Intelligence</h2>
-                            <div className="flex-grow overflow-y-auto mb-4 p-4 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 space-y-4 text-xs shadow-inner">
-                                <div className="text-blue-600 dark:text-blue-400 flex items-center gap-2 font-bold">
-                                    <BotIcon className="h-4 w-4" /> AI: Ready for threat interrogation.
-                                </div>
-                                {chatHistory.map((msg, i) => (
-                                    <div key={i} className={msg.role === 'user' ? 'text-gray-800 dark:text-gray-200 text-right' : 'text-blue-700 dark:text-blue-300'}>
-                                        <div className={`inline-block p-2.5 rounded-lg border ${msg.role === 'user' ? 'bg-gray-50 border-gray-200' : 'bg-blue-50/50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-900/50'}`}>
-                                            <span className="font-black uppercase tracking-tighter block mb-1 opacity-50">{msg.role === 'user' ? 'YOU' : 'AI'}</span>
-                                            {msg.text}
-                                        </div>
-                                    </div>
-                                ))}
-                                {isAiProcessing && <div className="text-yellow-600 dark:text-yellow-400 animate-pulse font-black text-[10px] uppercase tracking-widest">Processing Signal...</div>}
-                            </div>
-                            <textarea 
-                                className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-xl p-3 text-sm outline-none mb-3 focus:ring-2 focus:ring-purple-500 transition-all shadow-sm dark:text-white"
-                                rows={3}
-                                placeholder="Query actor TTPs or malware behaviors..."
-                                value={chatInput}
-                                onChange={e => setChatInput(e.target.value)}
-                            />
-                            <div className="flex gap-2">
-                                <button 
-                                    onClick={() => handleChat(false)}
-                                    className="flex-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-sm"
-                                >
-                                    Chat
-                                </button>
-                                <button 
-                                    onClick={() => handleChat(true)}
-                                    className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-lg active:scale-[0.98]"
-                                >
-                                    Visualize
-                                </button>
-                            </div>
-                        </div>
-                    )}
                     <div className={`mt-auto text-center font-black text-[10px] uppercase tracking-widest ${systemMsg.color} border-t border-gray-100 dark:border-gray-600 pt-4 animate-pulse`}>
                         {systemMsg.text}
                     </div>
@@ -4954,7 +4840,6 @@ const PolicyManagerTab: React.FC = () => {
 const PolicyVisualizer: React.FC = () => {
     const [nodes, setNodes] = useState<PolicyNode[]>([]);
     const [links, setLinks] = useState<PolicyLink[]>([]);
-    const [isAiLoading, setIsAiLoading] = useState(false);
     const canvasRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -4979,56 +4864,8 @@ const PolicyVisualizer: React.FC = () => {
         }
     };
 
-    const runAiMapping = async () => {
-        setIsAiLoading(true);
-        const key = process.env.API_KEY;
-        if (!key) {
-            console.warn('Gemini API key not set – AI mapping disabled');
-            setIsAiLoading(false);
-            return;
-        }
-        const ai = new GoogleGenAI({ apiKey: key });
-        
-        try {
-            const prompt = `Based on these security policies and their sections, suggest logical cross-links between them. Return a simple JSON array of objects with sourceNodeId, sourceSection, targetNodeId.
-            POLICIES: ${JSON.stringify(nodes.map(n => ({ id: n.id, name: n.name, sections: n.sections })))}
-            ONLY return the JSON.`;
-            
-            const response = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: prompt,
-            });
-            
-            const rawJson = response.text?.replace(/```json|```/g, '').trim() || "[]";
-            const suggestions = JSON.parse(rawJson);
-            
-            const newLinks = suggestions.map((s: any) => ({
-                id: Math.random().toString(36).substr(2, 9),
-                ...s
-            }));
-            
-            setLinks([...links, ...newLinks]);
-            alert("AI successfully suggested and added mapping links!");
-        } catch (e) {
-            console.error(e);
-            alert("AI mapping failed. Please try again.");
-        } finally {
-            setIsAiLoading(false);
-        }
-    };
-
     return (
         <div className="relative h-[700px] border border-gray-300 dark:border-gray-700 rounded-lg overflow-hidden bg-gray-50 dark:bg-gray-900 shadow-inner">
-            <div className="absolute top-4 right-4 z-10 space-x-2">
-                <button 
-                    onClick={runAiMapping} 
-                    disabled={isAiLoading}
-                    className="flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-md shadow-md text-sm font-medium disabled:opacity-50"
-                >
-                    <BotIcon className="w-4 h-4 mr-2" /> {isAiLoading ? 'Analyzing...' : 'AI Auto-Map'}
-                </button>
-            </div>
-            
             <div className="p-8 flex flex-wrap gap-12 overflow-auto h-full" ref={canvasRef}>
                 {nodes.map((node, i) => (
                     <div key={node.id} className="w-64 bg-white dark:bg-gray-800 border-2 border-blue-500 rounded-lg shadow-xl flex flex-col transition-all hover:scale-105">
@@ -5321,7 +5158,6 @@ const App: React.FC = () => {
     const [activeTab, setActiveTab] = useState<Tab>('dashboard');
     const [userRole, setUserRole] = useState<LocalUserRole>('security-staff');
     const [platformAdminRole, setPlatformAdminRole] = useState<UserRole | null>(null);
-    const [isAiAssistantOpen, setIsAiAssistantOpen] = useState(false);
     const [isDarkMode, setIsDarkMode] = useState(() => {
         if (typeof window !== 'undefined' && localStorage.getItem('theme')) {
             return localStorage.getItem('theme') === 'dark';
@@ -5493,7 +5329,6 @@ const App: React.FC = () => {
                 setUserRole={setUserRole} 
                 isDarkMode={isDarkMode} 
                 toggleDarkMode={toggleDarkMode} 
-                onOpenAiAssistant={() => setIsAiAssistantOpen(true)}
                 onSignOut={handleSignOut}
             />
             <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
@@ -5515,25 +5350,29 @@ const App: React.FC = () => {
                     </nav>
                 </div>
                 
-                {activeTab === 'dashboard' && <DashboardTab />}
-                {activeTab === 'organisation' && <OrganisationTab userRole={platformAdminRole} />}
-                {activeTab === 'program' && <ProgramTab userRole={userRole} />}
-                {/* {activeTab === 'policymanager' && <PolicyManagerTab />} */}
-                {activeTab === 'governance' && <GovernanceTab />}
-                {/* {activeTab === 'risk' && <RiskTab />} */}
-                {activeTab === 'compliance' && <ComplianceTab />}
-                {/* {activeTab === 'threat' && <ThreatViewTab />}
-                {activeTab === 'resiliency' && <ResiliencyTab />} */}
-                {activeTab === 'logs' && <ActivityLogsTab />}
+                {!authChecked ? (
+                    <div className="flex items-center justify-center py-24">
+                        <svg className="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                        </svg>
+                        <p className="ml-3 text-gray-500 dark:text-gray-400">Loading...</p>
+                    </div>
+                ) : (
+                    <>
+                        {activeTab === 'dashboard' && <DashboardTab />}
+                        {activeTab === 'organisation' && <OrganisationTab userRole={platformAdminRole} />}
+                        {activeTab === 'program' && <ProgramTab userRole={userRole} />}
+                        {/* {activeTab === 'policymanager' && <PolicyManagerTab />} */}
+                        {activeTab === 'governance' && <GovernanceTab />}
+                        {/* {activeTab === 'risk' && <RiskTab />} */}
+                        {activeTab === 'compliance' && <ComplianceTab />}
+                        {/* {activeTab === 'threat' && <ThreatViewTab />}
+                        {activeTab === 'resiliency' && <ResiliencyTab />} */}
+                        {activeTab === 'logs' && <ActivityLogsTab />}
+                    </>
+                )}
                 
-                <ErrorBoundary>
-                    <AiAssistantModal 
-                        isOpen={isAiAssistantOpen}
-                        onClose={() => setIsAiAssistantOpen(false)}
-                        userRole={userRole}
-                    />
-                </ErrorBoundary>
-
                 {/* Floating Feedback Button */}
                 <button
                     onClick={() => setIsFeedbackOpen(true)}

@@ -1,897 +1,437 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate } from '../types';
 
-// Updated to provided Supabase project
-const supabaseUrl = 'https://aswhgudvanozkhefurbi.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFzd2hndWR2YW5vemtoZWZ1cmJpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyNTMyNjIsImV4cCI6MjA4NjgyOTI2Mn0.JBjEYH8p_UUDFyFtN66_dFFMfsgILqjTUzMAcmSh2wI';
+// Supabase client is kept ONLY for Google Auth (OAuth sign-in/sign-out/session)
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
-export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: { persistSession: true, autoRefreshToken: true },
+});
 
-const GRC_DOCUMENTS_BUCKET = 'grc-documents';
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:3001';
 
-// --- Organization & User Functions ---
+// Internal helper — attaches the user's JWT to every backend request
+const apiRequest = async <T>(path: string, options: RequestInit = {}): Promise<T> => {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
 
-/**
- * Get the organization ID for the current logged-in user
- */
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
+    },
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: response.statusText }));
+    throw new Error(err.message || `Request failed with status ${response.status}`);
+  }
+
+  // Handle 204 No Content
+  if (response.status === 204) return undefined as unknown as T;
+  return response.json();
+};
+
+// --- Organisation & User Functions ---
+
 export const getUserOrgId = async (): Promise<string | null> => {
-    try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const userId = (sessionData?.session as any)?.user?.id ?? null;
-        
-        if (!userId) return null;
-        
-        const { data, error } = await supabase
-            .from('org_onboarding')
-            .select('org_id')
-            .eq('user_id', userId)
-            .single();
-        
-        if (error) {
-            console.error('Error fetching org_id:', error);
-            return null;
-        }
-        
-        return data?.org_id ?? null;
-    } catch (error) {
-        console.error('Error in getUserOrgId:', error);
-        return null;
-    }
+  try {
+    const me = await apiRequest<{ orgId: string | null }>('/api/org/me');
+    return me.orgId;
+  } catch {
+    return null;
+  }
 };
 
-/**
- * Get all users in the same organization as the current user
- */
-export const getOrganizationUsers = async (orgId?: string): Promise<any[]> => {
-    try {
-        let targetOrgId = orgId;
-        
-        if (!targetOrgId) {
-            targetOrgId = await getUserOrgId();
-        }
-        
-        if (!targetOrgId) {
-            console.warn('No organization found for user');
-            return [];
-        }
-        
-        const { data, error } = await supabase
-            .from('org_onboarding')
-            .select('*')
-            .eq('org_id', targetOrgId)
-            .order('created_at', { ascending: false });
-        
-        if (error) throw error;
-        return data || [];
-    } catch (error) {
-        console.error('Error fetching organization users:', error);
-        return [];
-    }
+export const getOrganizationUsers = async (): Promise<any[]> => {
+  try {
+    return await apiRequest<any[]>('/api/org/users');
+  } catch {
+    return [];
+  }
 };
 
-/**
- * Get the current logged-in user's role from org_onboarding table
- */
 export const getUserRole = async (): Promise<string | null> => {
-    try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const userId = (sessionData?.session as any)?.user?.id ?? null;
-        
-        if (!userId) return null;
-        
-        const { data, error } = await supabase
-            .from('org_onboarding')
-            .select('role')
-            .eq('user_id', userId)
-            .single();
-        
-        if (error) {
-            console.error('Error fetching user role:', error);
-            return null;
-        }
-        
-        return data?.role ?? null;
-    } catch (error) {
-        console.error('Error in getUserRole:', error);
-        return null;
-    }
+  try {
+    const me = await apiRequest<{ role: string | null }>('/api/org/me');
+    return me.role;
+  } catch {
+    return null;
+  }
 };
 
-/**
- * Create a new organization
- */
 export const createOrganization = async (name: string): Promise<any> => {
-    try {
-        const { data, error } = await supabase
-            .from('organizations')
-            .insert({ name })
-            .select()
-            .single();
-        
-        if (error) {
-            console.error('Error creating organization:', error);
-            throw error;
-        }
-        return data;
-    } catch (error) {
-        console.error('Error in createOrganization:', error);
-        throw error;
-    }
+  return apiRequest('/api/org/create', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
 };
 
-/**
- * Look up user ID by email from auth.users
- */
-export const getUserIdByEmail = async (email: string): Promise<string | null> => {
-    try {
-        const { data, error } = await supabase
-            .rpc('get_user_id_by_email', { email_input: email });
-        
-        if (error) {
-            console.warn('Could not find user by email:', email, error);
-            return null;
-        }
-        
-        console.log('Found user_id for', email, ':', data);
-        return data;
-    } catch (error) {
-        console.error('Error in getUserIdByEmail:', error);
-        return null;
-    }
+export const getUserIdByEmail = async (_email: string): Promise<string | null> => {
+  // This is a server-side-only operation now
+  return null;
 };
 
-/**
- * Onboard a user to an organization
- */
 export const onboardUserToOrganization = async (orgId: string, email: string, role: string = 'user', description?: string): Promise<any> => {
-    try {
-        // Look up user_id by email - optional, allows pending invitations
-        const userId = await getUserIdByEmail(email);
-        
-        if (userId) {
-            console.log(`User ${email} exists: user_id = ${userId}`);
-        } else {
-            console.log(`User ${email} has not signed up yet - creating pending invitation`);
-        }
-        
-        const payload: any = { 
-            org_id: orgId, 
-            email: email.toLowerCase(), 
-            role
-        };
-        
-        // Only add user_id if found (otherwise it's a pending invitation)
-        if (userId) {
-            payload.user_id = userId;
-        }
-        
-        // Add description if provided
-        if (description && description.trim()) {
-            payload.description = description;
-        }
-        
-        const { data, error } = await supabase
-            .from('org_onboarding')
-            .insert(payload)
-            .select()
-            .single();
-        
-        if (error) {
-            console.error('Error onboarding user:', error);
-            throw error;
-        }
-        
-        const status = userId ? 'active' : 'pending invitation';
-        console.log(`User ${email} onboarded [${status}]:`, { userId: data.user_id, description: data.description });
-        return data;
-    } catch (error) {
-        console.error('Error in onboardUserToOrganization:', error);
-        throw error;
-    }
+  return apiRequest('/api/org/onboard', {
+    method: 'POST',
+    body: JSON.stringify({ orgId, email, role, description }),
+  });
 };
 
 // --- Program Milestone Functions ---
 
 export const addActivityLog = async (programId: string, activity: string) => {
-    const orgId = await getUserOrgId();
-    if (!orgId) {
-        console.error('No organization found for user');
-        return;
-    }
-    const { error } = await supabase.from('program_activity_log').insert({ program_id: programId, activity, org_id: orgId });
-    if (error) console.error('Error logging activity:', error);
+  try {
+    await apiRequest(`/api/program/${programId}/activity`, {
+      method: 'POST',
+      body: JSON.stringify({ activity }),
+    });
+  } catch (err) {
+    console.error('Error logging activity:', err);
+  }
 };
 
 export const getTasks = async (): Promise<ProgramTask[]> => {
-    const orgId = await getUserOrgId();
-    if (!orgId) return [];
-    const { data, error } = await supabase.from('program').select('*').eq('org_id', orgId).order('last_updated', { ascending: false });
-    if (error) throw error;
-    return data || [];
+  return apiRequest<ProgramTask[]>('/api/program');
 };
 
 export const addTask = async (task: ProgramTaskCreate): Promise<ProgramTask> => {
-    // Ensure the inserted task carries the current user's id and org_id to satisfy RLS policies
-    const { data: sessionData } = await supabase.auth.getSession();
-    const userId = (sessionData?.session as any)?.user?.id ?? null;
-    const orgId = await getUserOrgId();
-    const payload = { ...(task as any), user_id: userId, org_id: orgId };
-    const { data, error } = await supabase.from('program').insert(payload).select().single();
-    if (error) throw error;
-    return data;
+  return apiRequest<ProgramTask>('/api/program', {
+    method: 'POST',
+    body: JSON.stringify(task),
+  });
 };
 
 export const bulkAddTasks = async (tasks: ProgramTaskCreate[]): Promise<ProgramTask[]> => {
-    // Attach current user id and org_id to each task for RLS checks
-    const { data: sessionData } = await supabase.auth.getSession();
-    const userId = (sessionData?.session as any)?.user?.id ?? null;
-    const orgId = await getUserOrgId();
-    const payloads = tasks.map(t => ({ ...(t as any), user_id: userId, org_id: orgId }));
-    const { data, error } = await supabase.from('program').insert(payloads).select();
-    if (error) throw error;
-    return data || [];
-}
+  return apiRequest<ProgramTask[]>('/api/program/bulk', {
+    method: 'POST',
+    body: JSON.stringify(tasks),
+  });
+};
 
 export const updateTask = async (id: string, updates: ProgramTaskUpdate): Promise<ProgramTask> => {
-    const { data, error } = await supabase.from('program').update(updates).eq('id', id).select().single();
-    if (error) throw error;
-    return data;
+  return apiRequest<ProgramTask>(`/api/program/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
 };
 
 export const deleteTask = async (id: string): Promise<void> => {
-    const orgId = await getUserOrgId();
-
-    const toError = (err: any, fallback: string): Error => {
-        const parts = [
-            err?.message,
-            err?.details,
-            err?.hint,
-            err?.code ? `code=${err.code}` : null,
-        ].filter(Boolean);
-        return new Error(parts.length > 0 ? parts.join(' | ') : fallback);
-    };
-
-    let taskDeleteQuery = supabase.from('program').delete().eq('id', id);
-    if (orgId) {
-        taskDeleteQuery = taskDeleteQuery.eq('org_id', orgId);
-    }
-
-    const { error: taskDeleteError } = await taskDeleteQuery;
-    if (!taskDeleteError) return;
-
-    if (taskDeleteError.code === '23503') {
-        throw toError(
-            taskDeleteError,
-            'Milestone is still referenced by another table. Add ON DELETE CASCADE on child foreign keys.'
-        );
-    }
-
-    throw toError(taskDeleteError, 'Failed to delete milestone.');
+  return apiRequest<void>(`/api/program/${id}`, { method: 'DELETE' });
 };
 
 export const getActivityLogs = async (programId: string): Promise<ActivityLog[]> => {
-    const orgId = await getUserOrgId();
-    if (!orgId) return [];
-    const { data, error } = await supabase.from('program_activity_log').select('*').eq('program_id', programId).eq('org_id', orgId).order('created_at', { ascending: false }).limit(5);
-    if (error) throw error;
-    return data || [];
+  return apiRequest<ActivityLog[]>(`/api/program/${programId}/activity`);
 };
 
-/**
- * Get all activity logs for the current user's organization (not limited to a specific program)
- */
 export const getAllOrgActivityLogs = async (): Promise<ActivityLog[]> => {
-    const orgId = await getUserOrgId();
-    if (!orgId) return [];
-    const { data, error } = await supabase.from('program_activity_log').select('*').eq('org_id', orgId).order('created_at', { ascending: false }).limit(100);
-    if (error) {
-        console.error('Error fetching org activity logs:', error);
-        return [];
-    }
-    return data || [];
+  return apiRequest<ActivityLog[]>('/api/activity/program');
 };
 
+// --- Governance: File Handling (kept as direct Supabase storage — no sensitive data) ---
 
-// --- Governance: File Handling ---
+const GRC_DOCUMENTS_BUCKET = 'grc-documents';
+
 export const uploadFile = async (file: File, pathPrefix: string): Promise<string> => {
-    const filePath = `${pathPrefix}/${Date.now()}-${file.name}`;
-    const { error } = await supabase.storage.from(GRC_DOCUMENTS_BUCKET).upload(filePath, file);
-    if (error) throw error;
-
-    const { data } = supabase.storage.from(GRC_DOCUMENTS_BUCKET).getPublicUrl(filePath);
-    return data.publicUrl;
+  const filePath = `${pathPrefix}/${Date.now()}-${file.name}`;
+  const { error } = await supabase.storage.from(GRC_DOCUMENTS_BUCKET).upload(filePath, file);
+  if (error) throw error;
+  const { data } = supabase.storage.from(GRC_DOCUMENTS_BUCKET).getPublicUrl(filePath);
+  return data.publicUrl;
 };
 
 export const getFileUrl = (filePath: string): string => {
-    const { data } = supabase.storage.from(GRC_DOCUMENTS_BUCKET).getPublicUrl(filePath);
-    return data.publicUrl;
-}
+  const { data } = supabase.storage.from(GRC_DOCUMENTS_BUCKET).getPublicUrl(filePath);
+  return data.publicUrl;
+};
 
-// Get public URL for any bucket/path
 export const getStoragePublicUrl = (bucket: string, filePath: string): string => {
-    const { data } = supabase.storage.from(bucket).getPublicUrl(filePath);
-    return data.publicUrl;
-}
+  const { data } = supabase.storage.from(bucket).getPublicUrl(filePath);
+  return data.publicUrl;
+};
 
-// Create a signed URL for a storage object (expiresIn seconds)
-export const createSignedUrl = async (bucket: string, filePath: string, expiresIn: number = 60) : Promise<string> => {
-    const { data, error } = await supabase.storage.from(bucket).createSignedUrl(filePath, expiresIn);
-    if (error) throw error;
-    return data.signedUrl;
-}
+export const createSignedUrl = async (bucket: string, filePath: string, expiresIn: number = 60): Promise<string> => {
+  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(filePath, expiresIn);
+  if (error) throw error;
+  return data.signedUrl;
+};
 
 // --- Governance: Internal Controls ---
 
 export const getComplianceTags = async (): Promise<string[]> => {
-    const orgId = await getUserOrgId();
-    if (!orgId) return [];
-    const { data, error } = await supabase.from('compliance').select('compliance_id').eq('org_id', orgId);
-    if (error) {
-        console.error("Could not fetch compliance tags, returning empty list.", error);
-        return [];
-    }
-    return data.map(item => item.compliance_id) || [];
+  try {
+    return await apiRequest<string[]>('/api/controls/compliance-tags');
+  } catch {
+    return [];
+  }
 };
 
 export const getInternalControls = async (): Promise<InternalControl[]> => {
-    const orgId = await getUserOrgId();
-    if (!orgId) return [];
-    const { data, error } = await supabase.from('internal_control_catalogue').select('*').eq('org_id', orgId).order('updated_at', { ascending: false });
-    if (error) throw error;
-    return data || [];
+  return apiRequest<InternalControl[]>('/api/controls');
 };
 
 export const addInternalControl = async (control: InternalControlCreate): Promise<InternalControl> => {
-    // Attach current authenticated user id and org_id for RLS ownership checks
-    const { data: sessionData } = await supabase.auth.getSession();
-    const userId = (sessionData?.session as any)?.user?.id ?? null;
-    const orgId = await getUserOrgId();
-    const payload = { ...(control as any), user_id: userId, org_id: orgId };
-    const { data, error } = await supabase.from('internal_control_catalogue').insert(payload).select().single();
-    if (error) throw error;
-    return data;
+  return apiRequest<InternalControl>('/api/controls', {
+    method: 'POST',
+    body: JSON.stringify(control),
+  });
 };
 
 export const updateInternalControl = async (id: string, updates: InternalControlUpdate): Promise<InternalControl> => {
-    const { data, error } = await supabase.from('internal_control_catalogue').update(updates).eq('id', id).select().single();
-    if (error) throw error;
-    return data;
+  return apiRequest<InternalControl>(`/api/controls/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
 };
 
 export const deleteInternalControl = async (id: string): Promise<void> => {
-    const { error } = await supabase.from('internal_control_catalogue').delete().eq('id', id);
-    if (error) throw error;
+  return apiRequest<void>(`/api/controls/${id}`, { method: 'DELETE' });
 };
 
 export const bulkAddInternalControls = async (controls: InternalControlCreate[]): Promise<InternalControl[]> => {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const userId = (sessionData?.session as any)?.user?.id ?? null;
-    const orgId = await getUserOrgId();
-    const payloads = controls.map(c => ({ ...(c as any), user_id: userId, org_id: orgId }));
-    const { data, error } = await supabase.from('internal_control_catalogue').insert(payloads).select();
-    if (error) throw error;
-    return data || [];
-}
+  return apiRequest<InternalControl[]>('/api/controls/bulk', {
+    method: 'POST',
+    body: JSON.stringify(controls),
+  });
+};
 
 // --- Governance: Assets ---
 
 export const getAssets = async (): Promise<Asset[]> => {
-    const orgId = await getUserOrgId();
-    if (!orgId) return [];
-    const { data, error } = await supabase.from('assets').select('*').eq('org_id', orgId).order('created_at', { ascending: false });
-    if (error) throw error;
-    return data || [];
+  return apiRequest<Asset[]>('/api/assets');
 };
 
 export const addAsset = async (asset: AssetCreate): Promise<Asset> => {
-    // Attach current user's id and org_id to satisfy RLS policies that require ownership
-    const { data: sessionData } = await supabase.auth.getSession();
-    const userId = (sessionData?.session as any)?.user?.id ?? null;
-    const orgId = await getUserOrgId();
-    const payload = { ...(asset as any), user_id: userId, org_id: orgId };
-    const { data, error } = await supabase.from('assets').insert(payload).select().single();
-    if (error) throw error;
-    return data;
+  return apiRequest<Asset>('/api/assets', {
+    method: 'POST',
+    body: JSON.stringify(asset),
+  });
 };
 
 export const updateAsset = async (id: string, updates: AssetUpdate): Promise<Asset> => {
-    const { data, error } = await supabase.from('assets').update(updates).eq('id', id).select().single();
-    if (error) throw error;
-    return data;
+  return apiRequest<Asset>(`/api/assets/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
 };
 
 export const deleteAsset = async (id: string): Promise<void> => {
-    const { error } = await supabase.from('assets').delete().eq('id', id);
-    if (error) throw error;
+  return apiRequest<void>(`/api/assets/${id}`, { method: 'DELETE' });
 };
 
 export const bulkAddAssets = async (assets: AssetCreate[]): Promise<Asset[]> => {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const userId = (sessionData?.session as any)?.user?.id ?? null;
-    const orgId = await getUserOrgId();
-    const payloads = assets.map(a => ({ ...(a as any), user_id: userId, org_id: orgId }));
-    const { data, error } = await supabase.from('assets').insert(payloads).select();
-    if (error) throw error;
-    return data || [];
-}
+  return apiRequest<Asset[]>('/api/assets/bulk', {
+    method: 'POST',
+    body: JSON.stringify(assets),
+  });
+};
 
 // --- Governance: Policies ---
 
 export const getPolicies = async (): Promise<PolicyDocument[]> => {
-    const orgId = await getUserOrgId();
-    if (!orgId) return [];
-    const { data, error } = await supabase.from('policy_documents').select('*').eq('org_id', orgId).order('updated_at', { ascending: false });
-    if (error) throw error;
-    return data || [];
+  return apiRequest<PolicyDocument[]>('/api/policies');
 };
 
 export const addPolicy = async (policy: PolicyDocumentCreate): Promise<PolicyDocument> => {
-    // Attach current user id and org_id for RLS ownership enforcement
-    const { data: sessionData } = await supabase.auth.getSession();
-    const userId = (sessionData?.session as any)?.user?.id ?? null;
-    const orgId = await getUserOrgId();
-    
-    // Map policy_doc_link to url and owner to owner_name
-    // ID must be manually provided by user
-    const { owner, policy_doc_link, ...policyData } = policy as any;
-    const payload = { 
-        ...policyData, 
-        url: policy_doc_link || policyData.url, 
-        owner_name: owner || null,
-        user_id: userId, 
-        org_id: orgId 
-    };
-    
-    const { data, error } = await supabase.from('policy_documents').insert(payload).select().single();
-    if (error) throw error;
-    return data;
+  return apiRequest<PolicyDocument>('/api/policies', {
+    method: 'POST',
+    body: JSON.stringify(policy),
+  });
 };
 
 export const updatePolicy = async (id: string, updates: PolicyDocumentUpdate): Promise<PolicyDocument> => {
-    // Map policy_doc_link to url and owner to owner_name
-    const { owner, policy_doc_link, ...updateData } = updates as any;
-    
-    // If policy_doc_link is provided, use it as url value
-    if (policy_doc_link !== undefined) {
-        updateData.url = policy_doc_link;
-    }
-    
-    // If owner is provided, map to owner_name
-    if (owner !== undefined) {
-        updateData.owner_name = owner || null;
-    }
-    
-    const { data, error } = await supabase.from('policy_documents').update(updateData).eq('id', id).select().single();
-    if (error) throw error;
-    return data;
+  return apiRequest<PolicyDocument>(`/api/policies/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
 };
 
 export const deletePolicy = async (id: string): Promise<void> => {
-    const { data, error } = await supabase.from('policy_documents').delete().eq('id', id);
-    if (error) throw error;
+  return apiRequest<void>(`/api/policies/${id}`, { method: 'DELETE' });
 };
 
 // --- Governance: Vulnerability Management ---
+
 export const getVulnerabilities = async (): Promise<Vulnerability[]> => {
-    // Step 0: Get organization ID
-    const orgId = await getUserOrgId();
-    if (!orgId) return [];
-    
-    // Step 1: Fetch all assets for this organization and create a lookup map for efficient joining.
-    const { data: assetsData, error: assetsError } = await supabase
-        .from('assets')
-        .select('id, asset_id, name')
-        .eq('org_id', orgId);
-    if (assetsError) throw assetsError;
-    const assetMap = new Map(assetsData.map(asset => [asset.id, { asset_id: asset.asset_id, name: asset.name }]));
-
-    // Step 2: Fetch all vulnerabilities for this organization without trying to join at the DB level.
-    const { data: vulnerabilitiesData, error: vulnerabilitiesError } = await supabase
-        .from('vulnerability_management')
-        .select('id:vuln_id, name, description, derived_from, status, created_at, updated_at, asset_id')
-        .eq('org_id', orgId)
-        .order('updated_at', { ascending: false });
-    if (vulnerabilitiesError) throw vulnerabilitiesError;
-
-    // Step 3: Manually "join" the data in the application layer.
-    const enrichedVulnerabilities = vulnerabilitiesData.map(vuln => ({
-        ...vuln,
-        assets: vuln.asset_id ? assetMap.get(vuln.asset_id) || null : null
-    }));
-
-    return (enrichedVulnerabilities as Vulnerability[]) || [];
+  return apiRequest<Vulnerability[]>('/api/vulnerabilities');
 };
 
 export const addVulnerability = async (vulnerability: VulnerabilityCreate): Promise<Vulnerability> => {
-    // Insert the new vulnerability data with current user ownership and org_id for RLS
-    const { data: sessionData } = await supabase.auth.getSession();
-    const userId = (sessionData?.session as any)?.user?.id ?? null;
-    const orgId = await getUserOrgId();
-    const payload = { ...(vulnerability as any), user_id: userId, org_id: orgId };
-    const { data: insertedData, error: insertError } = await supabase.from('vulnerability_management')
-        .insert(payload)
-        .select('id:vuln_id, name, description, derived_from, status, created_at, updated_at, asset_id')
-        .single();
-    if (insertError) throw insertError;
-
-    // If an asset is associated, fetch its details to return the complete object.
-    if (insertedData.asset_id) {
-        const { data: assetData, error: assetError } = await supabase
-            .from('assets')
-            .select('asset_id, name')
-            .eq('id', insertedData.asset_id)
-            .single();
-        
-        (insertedData as any).assets = assetError ? null : assetData;
-    } else {
-        (insertedData as any).assets = null;
-    }
-
-    return insertedData as Vulnerability;
+  return apiRequest<Vulnerability>('/api/vulnerabilities', {
+    method: 'POST',
+    body: JSON.stringify(vulnerability),
+  });
 };
 
 export const updateVulnerability = async (id: string, updates: VulnerabilityUpdate): Promise<Vulnerability> => {
-    // Update the vulnerability data.
-    const { data: updatedData, error: updateError } = await supabase.from('vulnerability_management')
-        .update(updates)
-        .eq('vuln_id', id)
-        .select('id:vuln_id, name, description, derived_from, status, created_at, updated_at, asset_id')
-        .single();
-    if (updateError) throw updateError;
-    
-    // If an asset is associated, fetch its details to return the complete object.
-    if (updatedData.asset_id) {
-        const { data: assetData, error: assetError } = await supabase
-            .from('assets')
-            .select('asset_id, name')
-            .eq('id', updatedData.asset_id)
-            .single();
-        
-        (updatedData as any).assets = assetError ? null : assetData;
-    } else {
-        (updatedData as any).assets = null;
-    }
-            
-    return updatedData as Vulnerability;
+  return apiRequest<Vulnerability>(`/api/vulnerabilities/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
 };
-
 
 export const deleteVulnerability = async (id: string): Promise<void> => {
-    const { error } = await supabase.from('vulnerability_management').delete().eq('vuln_id', id);
-    if (error) throw error;
+  return apiRequest<void>(`/api/vulnerabilities/${id}`, { method: 'DELETE' });
 };
 
+// --- Compliance ---
 
-// --- Compliance Functions ---
 export const getCompliances = async (): Promise<Compliance[]> => {
-    const { data, error } = await supabase.from('compliance').select('*');
-    if (error) throw error;
-    return (data || []).map((item: any) => ({
-        ...item,
-        compliance_id: item.compliance_id ?? item.id,
-    }));
+  return apiRequest<Compliance[]>('/api/compliance');
 };
 
 export const addCompliance = async (compliance: ComplianceCreate): Promise<Compliance> => {
-    const orgId = await getUserOrgId();
-    const payload = { ...(compliance as any), org_id: orgId };
-    const { data, error } = await supabase.from('compliance').insert(payload).select().single();
-    if (error) throw error;
-    return data;
+  return apiRequest<Compliance>('/api/compliance', {
+    method: 'POST',
+    body: JSON.stringify(compliance),
+  });
 };
 
 export const updateCompliance = async (id: string, updates: ComplianceUpdate): Promise<Compliance> => {
-    const { data, error } = await supabase.from('compliance').update(updates).eq('id', id).select().single();
-    if (error) throw error;
-    return data;
+  return apiRequest<Compliance>(`/api/compliance/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
 };
 
 export const deleteCompliance = async (id: string): Promise<void> => {
-    const { error } = await supabase.from('compliance').delete().eq('id', id);
-    if (error) throw error;
+  return apiRequest<void>(`/api/compliance/${id}`, { method: 'DELETE' });
 };
 
 // --- Organisation: Contacts ---
+
 export const getContacts = async (): Promise<Contact[]> => {
-    const orgId = await getUserOrgId();
-    if (!orgId) return [];
-    const { data, error } = await supabase.from('contacts').select('*').eq('org_id', orgId).order('level', { ascending: true });
-    if (error) throw error;
-    return data || [];
+  return apiRequest<Contact[]>('/api/contacts');
 };
 
 export const addContact = async (contact: ContactCreate): Promise<Contact> => {
-    const orgId = await getUserOrgId();
-    const payload = { ...(contact as any), org_id: orgId };
-    const { data, error } = await supabase.from('contacts').insert(payload).select().single();
-    if (error) throw error;
-    return data;
+  return apiRequest<Contact>('/api/contacts', {
+    method: 'POST',
+    body: JSON.stringify(contact),
+  });
 };
 
 export const updateContact = async (id: string, updates: ContactUpdate): Promise<Contact> => {
-    const { data, error } = await supabase.from('contacts').update(updates).eq('id', id).select().single();
-    if (error) throw error;
-    return data;
+  return apiRequest<Contact>(`/api/contacts/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
 };
 
 export const deleteContact = async (id: string): Promise<void> => {
-    const { error } = await supabase.from('contacts').delete().eq('id', id);
-    if (error) throw error;
+  return apiRequest<void>(`/api/contacts/${id}`, { method: 'DELETE' });
 };
 
 export const bulkAddContacts = async (contacts: ContactCreate[]): Promise<Contact[]> => {
-    const orgId = await getUserOrgId();
-    const payloads = contacts.map(c => ({ ...(c as any), org_id: orgId }));
-    const { data, error } = await supabase.from('contacts').insert(payloads).select();
-    if (error) throw error;
-    return data || [];
+  return apiRequest<Contact[]>('/api/contacts/bulk', {
+    method: 'POST',
+    body: JSON.stringify(contacts),
+  });
 };
 
-// --- All Activity Log Functions ---
-export const logAllActivity = async (logData: {
-    action: string;
-    module: string;
-    entity_id?: string;
-    entity_name?: string;
-    event_data?: Record<string, any>;
-    severity?: 'info' | 'warning' | 'error';
-}, userParam?: { id?: string; email?: string } | null): Promise<boolean> => {
-    try {
-        // prefer provided user (from caller) to avoid race conditions during auth callbacks
-        let user: any = null;
-        if (userParam) {
-            user = userParam;
-        } else {
-            const { data: userData } = await supabase.auth.getUser();
-            user = (userData as any)?.user ?? null;
-        }
+// --- Activity Log ---
 
-        // Get org_id for the user
-        const orgId = await getUserOrgId();
-
-        const insertPayload: any = {
-            ...logData,
-            user_id: user?.id ?? null,
-            org_id: orgId,
-            // attach user email into event_data to avoid relying on an extra DB column
-            event_data: {
-                ...(logData.event_data || {}),
-                user_email: user?.email ?? null,
-            },
-            user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
-        };
-
-        const { data, error } = await supabase.from('all_activity_log').insert(insertPayload).select();
-        if (error) {
-            console.error('Error logging global activity:', error);
-            return false;
-        }
-        if (data && data.length > 0) {
-            console.debug('Activity logged:', data[0]);
-        } else {
-            console.debug('Activity logged (no response data)');
-        }
-        return true;
-    } catch (err) {
-        console.error('Unexpected error while logging activity:', err);
-        return false;
-    }
+export const logAllActivity = async (
+  logData: { action: string; module: string; entity_id?: string; entity_name?: string; event_data?: Record<string, any>; severity?: 'info' | 'warning' | 'error'; },
+  _userParam?: any
+): Promise<boolean> => {
+  try {
+    await apiRequest('/api/activity', {
+      method: 'POST',
+      body: JSON.stringify(logData),
+    });
+    return true;
+  } catch (err) {
+    console.error('Error logging activity:', err);
+    return false;
+  }
 };
 
 export const getAllActivityLogs = async (): Promise<AllActivityLog[]> => {
-    const orgId = await getUserOrgId();
-    if (!orgId) return [];
-    
-    try {
-        // Fetch all activity logs for the organization
-        const { data: activityLogs, error: logsError } = await supabase
-            .from('all_activity_log')
-            .select('*')
-            .eq('org_id', orgId)
-            .order('created_at', { ascending: false })
-            .limit(200);
-        
-        if (logsError) throw logsError;
-        if (!activityLogs || activityLogs.length === 0) return [];
-
-        // Fetch organization name
-        const { data: orgData, error: orgError } = await supabase
-            .from('organizations')
-            .select('id, name')
-            .eq('id', orgId)
-            .single();
-        
-        const orgName = orgError ? 'Unknown Org' : (orgData?.name || 'Unknown Org');
-
-        // Fetch all org_onboarding data for this org to map user_id to roles
-        const { data: orgOnboarding, error: onboardingError } = await supabase
-            .from('org_onboarding')
-            .select('user_id, role')
-            .eq('org_id', orgId);
-        
-        const roleMap = new Map(
-            (orgOnboarding || []).map(record => [record.user_id, record.role])
-        );
-
-        // Enrich activity logs with org name and user role
-        const enrichedLogs = activityLogs.map(log => ({
-            ...log,
-            org_name: orgName,
-            user_role: roleMap.get(log.user_id) || 'Unknown',
-        }));
-
-        return enrichedLogs as AllActivityLog[];
-    } catch (error) {
-        console.error('Error fetching activity logs with org details:', error);
-        return [];
-    }
+  try {
+    return await apiRequest<AllActivityLog[]>('/api/activity');
+  } catch {
+    return [];
+  }
 };
 
-// Insert into per-user activity_logs table. Uses currently authenticated user id.
-export const addUserActivityLog = async (payload: { action: string; details?: Record<string, any> } ) : Promise<{ data: any | null; error: any | null }> => {
-    try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const user = sessionData?.session?.user ?? null;
-        const insertPayload: any = {
-            action: payload.action,
-            details: payload.details || {},
-            user_id: user?.id ?? null,
-        };
-        const { data, error } = await supabase.from('activity_logs').insert(insertPayload).select();
-        if (error) {
-            console.error('addUserActivityLog error:', error);
-            return { data: null, error };
-        }
-        return { data, error: null };
-    } catch (err) {
-        console.error('Unexpected error in addUserActivityLog:', err);
-        return { data: null, error: err };
-    }
+export const addUserActivityLog = async (payload: { action: string; details?: Record<string, any> }): Promise<{ data: any | null; error: any | null }> => {
+  try {
+    await apiRequest('/api/activity', {
+      method: 'POST',
+      body: JSON.stringify({ action: payload.action, module: 'User', event_data: payload.details }),
+    });
+    return { data: true, error: null };
+  } catch (err) {
+    return { data: null, error: err };
+  }
 };
 
-// --- Policy Manager Functions (Mock/Persistent Storage Logic) ---
+// --- Policy Manager (localStorage-based mock — unchanged) ---
 
 export const getPolicyNodes = async (): Promise<PolicyNode[]> => {
-    // In a real app, this would be a table `policy_nodes`
-    // Using local storage for demo persistence if table not available
-    const stored = localStorage.getItem('grc_policy_nodes');
-    if (stored) return JSON.parse(stored);
-    
-    const initial: PolicyNode[] = [
-        { id: '1', name: 'Master Information Security Policy', sections: ['1. Introduction', '2. Roles', '3. DLP', '4. Assets'], google_doc_url: '#', status: 'Approved' },
-        { id: '2', name: 'DLP Policy', sections: ['1. Scope', '2. Controls', '3. Enforcement'], google_doc_url: '#', status: 'Draft' },
-        { id: '3', name: 'Asset Management Policy', sections: ['1. Inventory', '2. Classification', '3. Disposal'], google_doc_url: '#', status: 'Approved' }
-    ];
-    return initial;
+  const stored = localStorage.getItem('grc_policy_nodes');
+  if (stored) return JSON.parse(stored);
+  return [
+    { id: '1', name: 'Master Information Security Policy', sections: ['1. Introduction', '2. Roles', '3. DLP', '4. Assets'], google_doc_url: '#', status: 'Approved' },
+    { id: '2', name: 'DLP Policy', sections: ['1. Scope', '2. Controls', '3. Enforcement'], google_doc_url: '#', status: 'Draft' },
+    { id: '3', name: 'Asset Management Policy', sections: ['1. Inventory', '2. Classification', '3. Disposal'], google_doc_url: '#', status: 'Approved' },
+  ];
 };
 
 export const savePolicyNodes = async (nodes: PolicyNode[]) => {
-    localStorage.setItem('grc_policy_nodes', JSON.stringify(nodes));
+  localStorage.setItem('grc_policy_nodes', JSON.stringify(nodes));
 };
 
 export const getPolicyLinks = async (): Promise<PolicyLink[]> => {
-    const stored = localStorage.getItem('grc_policy_links');
-    if (stored) return JSON.parse(stored);
-    return [];
+  const stored = localStorage.getItem('grc_policy_links');
+  if (stored) return JSON.parse(stored);
+  return [];
 };
 
 export const savePolicyLinks = async (links: PolicyLink[]) => {
-    localStorage.setItem('grc_policy_links', JSON.stringify(links));
+  localStorage.setItem('grc_policy_links', JSON.stringify(links));
 };
 
 export const getWorkflowTemplates = async (): Promise<WorkflowTemplate[]> => {
-    const stored = localStorage.getItem('grc_workflow_templates');
-    if (stored) return JSON.parse(stored);
-    
-    const initial: WorkflowTemplate[] = [
-        { id: 't1', name: 'Standard Approval Template', steps: [
-            { id: 's1', label: 'Draft', status: 'Completed' },
-            { id: 's2', label: 'Peer Review', approverEmail: 'peer@company.com', status: 'Pending' },
-            { id: 's3', label: 'CISO Approval', approverEmail: 'ciso@company.com', status: 'Pending' },
-            { id: 's4', label: 'Approved', status: 'Pending' }
-        ]}
-    ];
-    return initial;
+  const stored = localStorage.getItem('grc_workflow_templates');
+  if (stored) return JSON.parse(stored);
+  return [{
+    id: 't1', name: 'Standard Approval Template', steps: [
+      { id: 's1', label: 'Draft', status: 'Completed' },
+      { id: 's2', label: 'Peer Review', approverEmail: 'peer@company.com', status: 'Pending' },
+      { id: 's3', label: 'CISO Approval', approverEmail: 'ciso@company.com', status: 'Pending' },
+      { id: 's4', label: 'Approved', status: 'Pending' },
+    ]
+  }];
 };
 
 export const saveWorkflowTemplates = async (templates: WorkflowTemplate[]) => {
-    localStorage.setItem('grc_workflow_templates', JSON.stringify(templates));
+  localStorage.setItem('grc_workflow_templates', JSON.stringify(templates));
 };
-/**
- * Send feedback email to support team using Resend REST API
- */
+
+// --- Feedback ---
+
 export const sendFeedbackEmail = async (rating: number, description: string): Promise<boolean> => {
-    try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const userId = (sessionData?.session as any)?.user?.id ?? 'Unknown';
-        const userEmail = (sessionData?.session as any)?.user?.email ?? 'Unknown';
-        const resendApiKey = import.meta.env.VITE_RESEND_API_KEY;
-
-        if (!resendApiKey) {
-            console.warn('Resend API key not configured. Feedback will not be sent via email.');
-            return true;
-        }
-
-        const fromEmail = import.meta.env.VITE_RESEND_FROM_EMAIL || 'feedback@cloudstory.ind.in';
-
-        const emailSubject = `New Feedback Submission - Rating: ${rating}/5`;
-        const emailHtml = `
-<!DOCTYPE html>
-<html>
-<head>
-    <style>
-        body { font-family: Arial, sans-serif; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { border-bottom: 2px solid #3b82f6; padding-bottom: 15px; margin-bottom: 20px; }
-        .rating { font-size: 24px; color: #fbbf24; margin: 10px 0; }
-        .section { margin: 15px 0; }
-        .label { font-weight: bold; color: #1f2937; }
-        .value { background: #f3f4f6; padding: 10px; border-radius: 5px; margin-top: 5px; }
-        .feedback-text { white-space: pre-wrap; background: #f9fafb; border-left: 4px solid #3b82f6; padding: 15px; border-radius: 5px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h2 style="margin: 0; color: #1f2937;">New Feedback Received</h2>
-        </div>
-        
-        <div class="section">
-            <div class="label">Rating:</div>
-            <div class="rating">${'⭐'.repeat(rating)} ${rating}/5 stars</div>
-        </div>
-
-        <div class="section">
-            <div class="label">User Information:</div>
-            <div class="value">
-                <p><strong>User ID:</strong> ${userId}</p>
-                <p><strong>Email:</strong> ${userEmail}</p>
-                <p><strong>Submitted:</strong> ${new Date().toLocaleString()}</p>
-            </div>
-        </div>
-
-        <div class="section">
-            <div class="label">Feedback Description:</div>
-            <div class="feedback-text">${(description || '(No description provided)').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
-        </div>
-
-        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 12px;">
-            <p>This is an automated email from the Zeroto1 GRC feedback system.</p>
-        </div>
-    </div>
-</body>
-</html>
-        `;
-
-        console.log('Sending feedback email...', { from: fromEmail, to: 'haripriya.kusnur@cloudstory.ind.in', rating, description });
-
-        const response = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${resendApiKey}`,
-            },
-            body: JSON.stringify({
-                from: fromEmail,
-                to: 'haripriya.kusnur@cloudstory.ind.in',
-                subject: emailSubject,
-                html: emailHtml,
-                reply_to: userEmail,
-            }),
-        });
-
-        const responseData = await response.json();
-        console.log('Resend API Response:', responseData);
-
-        if (!response.ok) {
-            console.error('Failed to send feedback email via Resend:', responseData);
-            return true; // Continue even if email fails
-        }
-
-        console.log('Email sent successfully:', responseData);
-        return true;
-    } catch (error) {
-        console.error('Error sending feedback email:', error);
-        return true; // Continue even if email fails
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const userId = (sessionData?.session as any)?.user?.id ?? 'Unknown';
+    const userEmail = (sessionData?.session as any)?.user?.email ?? 'Unknown';
+    const response = await fetch(`${API_BASE_URL}/api/feedback/email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rating, description, userId, userEmail }),
+    });
+    if (!response.ok) {
+      console.error('Feedback email failed');
     }
+    return true;
+  } catch (error) {
+    console.error('Error sending feedback email:', error);
+    return true;
+  }
 };
