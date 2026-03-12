@@ -7,6 +7,8 @@ RUN npm install
 
 COPY . .
 
+RUN cd server && npm install
+
 ARG VITE_SUPABASE_URL
 ARG VITE_SUPABASE_ANON_KEY
 ARG VITE_API_BASE_URL
