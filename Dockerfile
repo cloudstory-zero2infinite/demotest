@@ -1,14 +1,22 @@
-# syntax=docker/dockerfile:1.7
-
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+RUN npm install
 
 COPY . .
 
-EXPOSE 5173
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+ARG VITE_API_BASE_URL
 
-CMD ["npm", "run", "dev"]
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+
+RUN npm run build
+
+EXPOSE 8080
+
+CMD ["node","server/src/index.js"]
