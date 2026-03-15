@@ -1,0 +1,467 @@
+import React, { useState, useEffect, useCallback, useRef, ChangeEvent, useMemo } from 'react';
+import { Asset, AssetCreate, AssetUpdate, AssetCriticality, AssetGovernedStatus, AssetExposure, AssetCategory } from '../../types';
+import * as SupabaseService from '../../services/supabase';
+import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon } from '../Icons';
+import { Modal } from '../common/Modal';
+import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
+
+interface AssetModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onSave: (asset: AssetCreate | AssetUpdate) => void;
+    assetToEdit: Asset | null;
+    mode: 'add' | 'edit' | 'view';
+}
+
+const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetToEdit, mode }) => {
+    const [formData, setFormData] = useState<Partial<AssetCreate>>({});
+    const isViewMode = mode === 'view';
+
+    useEffect(() => {
+        if (assetToEdit) {
+            const { asset_id, name, asset_owner, business_owner, criticality, details, governed_status, vulnerability_count, exposure, category } = assetToEdit;
+            setFormData({ asset_id, name, asset_owner, business_owner, criticality, details, governed_status, vulnerability_count, exposure, category });
+        } else {
+            setFormData({ asset_id: '', name: '', asset_owner: '', business_owner: '', criticality: 'Low', category: 'Technology', exposure: 'Internal', governed_status: 'Non-Governed', vulnerability_count: 0, details: '' });
+        }
+    }, [assetToEdit, isOpen, mode]);
+
+    const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        const isNumeric = ['vulnerability_count'].includes(name);
+        setFormData(prev => ({ ...prev, [name]: isNumeric ? Number(value) : value }));
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        onSave(formData as AssetCreate | AssetUpdate);
+    };
+
+    const title = mode === 'add' ? 'Add New Asset' : mode === 'edit' ? 'Edit Asset' : 'View Asset';
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={title}>
+            <form onSubmit={handleSubmit} className="space-y-4">
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asset ID</label>
+                        <input type="text" name="asset_id" value={formData.asset_id || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asset Name</label>
+                        <input type="text" name="name" value={formData.name || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asset Owner</label>
+                        <input type="text" name="asset_owner" value={formData.asset_owner || ''} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Business Owner</label>
+                        <input type="text" name="business_owner" value={formData.business_owner || ''} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Criticality</label>
+                        <select name="criticality" value={formData.criticality} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                           <option>Low</option><option>Medium</option><option>High</option>
+                        </select>
+                    </div>
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category</label>
+                        <select name="category" value={formData.category} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                           <option>Technology</option><option>Information</option><option>Service</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Exposure</label>
+                        <select name="exposure" value={formData.exposure} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                           <option>Internal</option><option>External</option><option>DMZ</option>
+                        </select>
+                    </div>
+                     <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Governed Status</label>
+                        <select name="governed_status" value={formData.governed_status} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                           <option>Non-Governed</option><option>Governed</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Vulnerability Count</label>
+                        <input type="number" name="vulnerability_count" value={formData.vulnerability_count || 0} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                    </div>
+                     <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Details</label>
+                        <textarea name="details" value={formData.details || ''} onChange={handleChange} readOnly={isViewMode} rows={3} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
+                    </div>
+                </div>
+                 {!isViewMode && (
+                <div className="mt-6 flex justify-end space-x-3">
+                    <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
+                    <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">Save</button>
+                </div>
+                )}
+            </form>
+        </Modal>
+    );
+};
+
+export const AssetsView: React.FC = () => {
+    const [assets, setAssets] = useState<Asset[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string|null>(null);
+    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | 'import' | null; asset?: Asset | null }>({ type: null });
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [filter, setFilter] = useState('');
+    const [sortConfig, setSortConfig] = useState<{ key: keyof Asset; direction: 'ascending' | 'descending' } | null>(null);
+    const [importData, setImportData] = useState<{ newAssets: AssetCreate[]; duplicates: string[] }>({ newAssets: [], duplicates: [] });
+
+    const fetchAssets = useCallback(async () => {
+        try {
+            setLoading(true);
+            setError(null);
+            const data = await SupabaseService.getAssets();
+            setAssets(data);
+        } catch (e) {
+            setError("Failed to load assets.");
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchAssets();
+    }, [fetchAssets]);
+    
+    const filteredAndSortedAssets = useMemo(() => {
+        let filteredItems = [...assets];
+        if (filter) {
+            const lowerCaseFilter = filter.toLowerCase();
+            filteredItems = filteredItems.filter(item =>
+                String(item.asset_id ?? '').toLowerCase().includes(lowerCaseFilter) ||
+                String(item.name ?? '').toLowerCase().includes(lowerCaseFilter) ||
+                String(item.asset_owner ?? '').toLowerCase().includes(lowerCaseFilter) ||
+                String(item.business_owner ?? '').toLowerCase().includes(lowerCaseFilter) ||
+                String(item.details ?? '').toLowerCase().includes(lowerCaseFilter)
+            );
+        }
+        
+        if (sortConfig !== null) {
+            filteredItems.sort((a, b) => {
+                const aValue = a[sortConfig.key];
+                const bValue = b[sortConfig.key];
+                if (aValue === null || aValue === undefined) return 1;
+                if (bValue === null || bValue === undefined) return -1;
+    
+                if (aValue < bValue) {
+                    return sortConfig.direction === 'ascending' ? -1 : 1;
+                }
+                if (aValue > bValue) {
+                    return sortConfig.direction === 'ascending' ? 1 : -1;
+                }
+                return 0;
+            });
+        }
+        return filteredItems;
+    }, [assets, filter, sortConfig]);
+
+    const requestSort = (key: keyof Asset) => {
+        let direction: 'ascending' | 'descending' = 'ascending';
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
+            direction = 'descending';
+        }
+        setSortConfig({ key, direction });
+    };
+    
+    const getSortIconFor = (key: keyof Asset) => {
+        if (!sortConfig || sortConfig.key !== key) {
+            return <SortUpDownIcon className="h-4 w-4 ml-1 text-gray-400" />;
+        }
+        return sortConfig.direction === 'ascending' ? <SortUpIcon className="h-4 w-4 ml-1" /> : <SortDownIcon className="h-4 w-4 ml-1" />;
+    };
+
+    const closeModal = () => setModalState({ type: null });
+
+    const handleSaveAsset = async (formData: AssetCreate | AssetUpdate) => {
+        try {
+            if (modalState.type === 'edit' && modalState.asset) {
+                const updatedAsset = await SupabaseService.updateAsset(modalState.asset.id, formData);
+                await SupabaseService.logAllActivity({
+                    action: 'Updated Asset',
+                    module: 'Governance',
+                    entity_id: updatedAsset.id,
+                    entity_name: updatedAsset.name,
+                    event_data: { changes: formData }
+                });
+            } else if (modalState.type === 'add') {
+                const addedAsset = await SupabaseService.addAsset(formData as AssetCreate);
+                await SupabaseService.logAllActivity({
+                    action: 'Created Asset',
+                    module: 'Governance',
+                    entity_id: addedAsset.id,
+                    entity_name: addedAsset.name,
+                    event_data: { details: formData }
+                });
+            }
+            fetchAssets();
+            closeModal();
+        } catch (err) {
+            setError('Failed to save asset.');
+        }
+    };
+    
+    const handleDeleteAsset = async () => {
+        if (modalState.type === 'delete' && modalState.asset) {
+            try {
+                await SupabaseService.deleteAsset(modalState.asset.id);
+                await SupabaseService.logAllActivity({
+                    action: 'Deleted Asset',
+                    module: 'Governance',
+                    entity_id: modalState.asset.id,
+                    entity_name: modalState.asset.name
+                });
+                fetchAssets();
+                closeModal();
+            } catch (err) {
+                setError('Failed to delete asset.');
+            }
+        }
+    };
+
+    const handleImportCSV = (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            const text = e.target?.result as string;
+            if(!text) return;
+
+            const lines = text.split('\n').slice(1);
+            const parsedAssets: AssetCreate[] = lines
+                .map(line => {
+                    const [asset_id, name, criticality, details, governed_status, vulnerability_count, exposure, category, asset_owner, business_owner] = line.split(',').map(s => s.trim());
+                    if (!asset_id || !name || !criticality || !governed_status || !exposure || !category) return null;
+
+                    // Basic validation for enum types
+                    const validCriticality: AssetCriticality[] = ['High', 'Medium', 'Low'];
+                    const validGovernedStatus: AssetGovernedStatus[] = ['Governed', 'Non-Governed'];
+                    const validExposure: AssetExposure[] = ['Internal', 'External', 'DMZ'];
+                    const validCategory: AssetCategory[] = ['Information', 'Technology', 'Service'];
+
+                    if (!validCriticality.includes(criticality as AssetCriticality) ||
+                        !validGovernedStatus.includes(governed_status as AssetGovernedStatus) ||
+                        !validExposure.includes(exposure as AssetExposure) ||
+                        !validCategory.includes(category as AssetCategory)) {
+                        return null;
+                    }
+
+                    return {
+                        asset_id,
+                        name,
+                        criticality: criticality as AssetCriticality,
+                        details: details || '',
+                        governed_status: governed_status as AssetGovernedStatus,
+                        vulnerability_count: Number(vulnerability_count) || 0,
+                        exposure: exposure as AssetExposure,
+                        category: category as AssetCategory,
+                        asset_owner: asset_owner || '',
+                        business_owner: business_owner || '',
+                    };
+                })
+                .filter((asset): asset is AssetCreate => asset !== null);
+            
+            // Check for duplicates by asset_id
+            const existingAssetIds = new Set(assets.map(a => a.asset_id));
+            const newAssets = parsedAssets.filter(a => !existingAssetIds.has(a.asset_id));
+            const duplicates = parsedAssets.filter(a => existingAssetIds.has(a.asset_id)).map(a => a.asset_id);
+            
+            setImportData({ newAssets, duplicates });
+            setModalState({ type: 'import' });
+        };
+        reader.readAsText(file);
+        if(fileInputRef.current) fileInputRef.current.value = '';
+    };
+    
+    const handleConfirmImport = async () => {
+        if (importData.newAssets.length > 0) {
+            try {
+                await SupabaseService.bulkAddAssets(importData.newAssets);
+                await SupabaseService.logAllActivity({
+                    action: 'Bulk Imported Assets',
+                    module: 'Governance',
+                    event_data: { count: importData.newAssets.length, duplicateCount: importData.duplicates.length }
+                });
+                setModalState({ type: null });
+                fetchAssets();
+            } catch (err) {
+                setError('Failed to import assets.');
+                console.error(err);
+            }
+        }
+    };
+
+    const handleExportCSV = () => {
+        const headers = ['asset_id', 'name', 'criticality', 'details', 'governed_status', 'vulnerability_count', 'exposure', 'category', 'asset_owner', 'business_owner'];
+        const csvContent = [
+            headers.join(','),
+            ...filteredAndSortedAssets.map(asset =>
+                [
+                    asset.asset_id,
+                    `"${(asset.name || '').replace(/"/g, '""')}"`,
+                    asset.criticality,
+                    `"${(asset.details || '').replace(/"/g, '""')}"`,
+                    asset.governed_status,
+                    asset.vulnerability_count,
+                    asset.exposure,
+                    asset.category,
+                    `"${(asset.asset_owner || '').replace(/"/g, '""')}"`,
+                    `"${(asset.business_owner || '').replace(/"/g, '""')}"`,
+                ].join(',')
+            ),
+        ].join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `assets-${new Date().toISOString().split('T')[0]}.csv`;
+        link.click();
+    };
+
+    return (
+        <div>
+            <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
+                <div className="w-full sm:w-1/3">
+                    <input 
+                        type="text"
+                        placeholder="Filter assets..."
+                        value={filter}
+                        onChange={e => setFilter(e.target.value)}
+                        className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        aria-label="Filter assets"
+                    />
+                </div>
+                <div className="flex space-x-2">
+                    <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
+                    <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <UploadIcon className="h-5 w-5" />
+                    </button>
+                    <button onClick={handleExportCSV} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <DownloadIcon className="h-5 w-5" />
+                    </button>
+                    <button onClick={() => setModalState({ type: 'add' })} title="Add Asset" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <PlusIcon className="h-5 w-5" />
+                    </button>
+                </div>
+            </div>
+            
+            {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">{error}</div>}
+
+            <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg dark:border-gray-700">
+                <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead className="bg-gray-50 dark:bg-gray-800">
+                            <tr>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                    <button onClick={() => requestSort('asset_id')} className="flex items-center w-full text-left focus:outline-none">
+                                        Asset ID {getSortIconFor('asset_id')}
+                                    </button>
+                                </th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                    <button onClick={() => requestSort('name')} className="flex items-center w-full text-left focus:outline-none">
+                                        Name {getSortIconFor('name')}
+                                    </button>
+                                </th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                    <button onClick={() => requestSort('criticality')} className="flex items-center w-full text-left focus:outline-none">
+                                        Criticality {getSortIconFor('criticality')}
+                                    </button>
+                                </th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                    <button onClick={() => requestSort('business_owner')} className="flex items-center w-full text-left focus:outline-none">
+                                        Business Owner {getSortIconFor('business_owner')}
+                                    </button>
+                                </th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                    <button onClick={() => requestSort('category')} className="flex items-center w-full text-left focus:outline-none">
+                                        Type {getSortIconFor('category')}
+                                    </button>
+                                </th>
+                                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
+                            </tr>
+                        </thead>
+                         <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
+                            {loading ? (
+                                <tr><td colSpan={6} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading assets...</td></tr>
+                            ) : filteredAndSortedAssets.length === 0 ? (
+                                <tr><td colSpan={6} className="text-center py-4 text-gray-500 dark:text-gray-400">No assets found.</td></tr>
+                            ) : filteredAndSortedAssets.map(asset => (
+                                <tr key={asset.id}>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{asset.asset_id}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">{asset.name}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{asset.criticality}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{asset.business_owner || '-'}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{asset.category}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                        <div className="flex justify-end items-center space-x-2">
+                                            <button onClick={() => setModalState({ type: 'view', asset })} className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
+                                            <button onClick={() => setModalState({ type: 'edit', asset })} className="text-gray-400 hover:text-yellow-500"><PencilIcon className="h-5 w-5" /></button>
+                                            <button onClick={() => setModalState({ type: 'delete', asset })} className="text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5" /></button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <AssetModal
+                isOpen={modalState.type === 'add' || modalState.type === 'edit' || modalState.type === 'view'}
+                onClose={closeModal}
+                onSave={handleSaveAsset}
+                assetToEdit={modalState.asset || null}
+                mode={modalState.type as 'add' | 'edit' | 'view'}
+            />
+            <DeleteConfirmationModal
+                isOpen={modalState.type === 'delete'}
+                onClose={closeModal}
+                onConfirm={handleDeleteAsset}
+                itemName="asset"
+            />
+            <Modal isOpen={modalState.type === 'import'} onClose={closeModal} title="Import CSV Preview">
+                <div className="space-y-4">
+                    <div>
+                        <h4 className="font-semibold text-gray-900 dark:text-white mb-2">New Assets to Import ({importData.newAssets.length})</h4>
+                        {importData.newAssets.length > 0 ? (
+                            <div className="max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-md p-3">
+                                {importData.newAssets.map((asset, idx) => (
+                                    <div key={idx} className="py-2 px-2 border-b border-gray-100 dark:border-gray-700 last:border-b-0 text-sm dark:text-gray-300">
+                                        <div className="font-medium">{asset.asset_id} - {asset.name}</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400">Criticality: {asset.criticality} | Category: {asset.category}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-gray-500 dark:text-gray-400 text-sm">No new assets to import.</div>
+                        )}
+                    </div>
+                    {importData.duplicates.length > 0 && (
+                        <div>
+                            <h4 className="font-semibold text-yellow-600 dark:text-yellow-400 mb-2">Duplicates (Not Imported - {importData.duplicates.length})</h4>
+                            <div className="max-h-48 overflow-y-auto border border-yellow-200 dark:border-yellow-700 rounded-md p-3 bg-yellow-50 dark:bg-gray-800">
+                                {importData.duplicates.map((assetId, idx) => (
+                                    <div key={idx} className="py-1 px-2 text-sm text-yellow-800 dark:text-yellow-200">
+                                        {assetId} (already exists)
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+                <div className="mt-6 flex justify-end space-x-3">
+                    <button onClick={closeModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
+                    <button onClick={handleConfirmImport} disabled={importData.newAssets.length === 0} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed">
+                        Import {importData.newAssets.length} Asset{importData.newAssets.length !== 1 ? 's' : ''}
+                    </button>
+                </div>
+            </Modal>
+        </div>
+    );
+};

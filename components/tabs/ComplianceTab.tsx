@@ -1,0 +1,226 @@
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Compliance, ComplianceStatus } from '../../types';
+import * as SupabaseService from '../../services/supabase';
+import { EyeIcon, SortUpDownIcon, SortUpIcon, SortDownIcon } from '../Icons';
+import { Modal } from '../common/Modal';
+import { StatusBadge } from '../common/StatusBadge';
+
+interface ComplianceModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    complianceToView: Compliance | null;
+}
+
+const ComplianceModal: React.FC<ComplianceModalProps> = ({ isOpen, onClose, complianceToView }) => {
+    if (!complianceToView) return null;
+
+    const renderDetail = (label: string, value: string | number | null | undefined) => (
+        <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-400">{label}</label>
+            <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">{value || 'N/A'}</p>
+        </div>
+    );
+    
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={`View Framework: ${complianceToView.framework}`}>
+            <div className="space-y-4">
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {renderDetail('Compliance ID', complianceToView.compliance_id)}
+                    {renderDetail('Framework', complianceToView.framework)}
+                    <div className="md:col-span-2">
+                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-400">Description</label>
+                         <p className="mt-1 text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">{complianceToView.description || 'N/A'}</p>
+                    </div>
+                     {renderDetail('Status', complianceToView.status)}
+                    <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-400">Associated Controls</label>
+                        <div className="flex flex-wrap gap-2 p-2 mt-1 border rounded-md min-h-[40px] bg-gray-50 dark:bg-gray-700 dark:border-gray-600">
+                            {Array.isArray(complianceToView.associated_int_ctls) && complianceToView.associated_int_ctls.length > 0 ? (
+                                complianceToView.associated_int_ctls.map(tag => (
+                                    <span key={tag} className="flex items-center gap-1 bg-blue-100 text-blue-800 text-sm font-medium px-2.5 py-0.5 rounded-full dark:bg-blue-900 dark:text-blue-300">
+                                        {tag}
+                                    </span>
+                                ))
+                            ) : <p className="text-sm text-gray-500 dark:text-gray-400">No controls associated.</p>}
+                        </div>
+                    </div>
+                 </div>
+            </div>
+        </Modal>
+    );
+};
+
+export const ComplianceTab: React.FC = () => {
+    const [compliances, setCompliances] = useState<Compliance[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string|null>(null);
+    const [modalState, setModalState] = useState<{ type: 'view' | null; compliance?: Compliance | null }>({ type: null });
+    const [selectedFramework, setSelectedFramework] = useState<string>('All Frameworks');
+    const [sortConfig, setSortConfig] = useState<{ key: keyof Compliance; direction: 'ascending' | 'descending' } | null>(null);
+
+    const complianceStatusStyles: Record<ComplianceStatus, string> = {
+        'Achieved': 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
+        'In Progress': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300',
+        'Not Started': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
+    };
+
+    const fetchCompliances = useCallback(async () => {
+        try {
+            setLoading(true);
+            setError(null);
+            const data = await SupabaseService.getCompliances();
+            setCompliances(data);
+        } catch(e) {
+            setError("Failed to load compliance frameworks.");
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchCompliances();
+    }, [fetchCompliances]);
+
+    const uniqueFrameworks = useMemo(() => {
+        return ['All Frameworks', ...Array.from(new Set(compliances.map(c => c.framework)))];
+    }, [compliances]);
+    
+    const filteredAndSortedCompliances = useMemo(() => {
+        let filteredItems = [...compliances];
+        
+        if (selectedFramework !== 'All Frameworks') {
+            filteredItems = filteredItems.filter(item => item.framework === selectedFramework);
+        }
+        
+        if (sortConfig !== null) {
+            filteredItems.sort((a, b) => {
+                let aValue: any = a[sortConfig.key];
+                let bValue: any = b[sortConfig.key];
+                
+                if (sortConfig.key === 'associated_int_ctls') {
+                    aValue = a.associated_int_ctls?.length || 0;
+                    bValue = b.associated_int_ctls?.length || 0;
+                }
+
+                if (aValue === null || aValue === undefined) return 1;
+                if (bValue === null || bValue === undefined) return -1;
+    
+                if (aValue < bValue) {
+                    return sortConfig.direction === 'ascending' ? -1 : 1;
+                }
+                if (aValue > bValue) {
+                    return sortConfig.direction === 'ascending' ? 1 : -1;
+                }
+                return 0;
+            });
+        }
+        return filteredItems;
+    }, [compliances, selectedFramework, sortConfig]);
+
+    const requestSort = (key: keyof Compliance) => {
+        let direction: 'ascending' | 'descending' = 'ascending';
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
+            direction = 'descending';
+        }
+        setSortConfig({ key, direction });
+    };
+    
+    const getSortIconFor = (key: keyof Compliance) => {
+        if (!sortConfig || sortConfig.key !== key) {
+            return <SortUpDownIcon className="h-4 w-4 ml-1 text-gray-400" />;
+        }
+        return sortConfig.direction === 'ascending' ? <SortUpIcon className="h-4 w-4 ml-1" /> : <SortDownIcon className="h-4 w-4 ml-1" />;
+    };
+
+    const closeModal = () => setModalState({ type: null });
+
+    return (
+        <div className="px-4 py-6 sm:px-0">
+            <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4">Compliance Frameworks</h2>
+            
+            <div className="flex flex-wrap gap-2 mb-4">
+                {uniqueFrameworks.map(framework => (
+                    <button
+                        key={framework}
+                        onClick={() => setSelectedFramework(framework)}
+                        className={`px-3 py-1.5 text-sm font-medium rounded-full transition-colors duration-200 ${
+                            selectedFramework === framework
+                                ? 'bg-blue-600 text-white shadow-md'
+                                : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 border dark:border-gray-600'
+                        }`}
+                    >
+                        {framework}
+                    </button>
+                ))}
+            </div>
+
+            {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">{error}</div>}
+
+            <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg dark:border-gray-700">
+                <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead className="bg-gray-50 dark:bg-gray-800">
+                           <tr>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                    <button onClick={() => requestSort('compliance_id')} className="flex items-center w-full text-left focus:outline-none">
+                                        Compliance ID {getSortIconFor('compliance_id')}
+                                    </button>
+                                </th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                    <button onClick={() => requestSort('framework')} className="flex items-center w-full text-left focus:outline-none">
+                                        Framework {getSortIconFor('framework')}
+                                    </button>
+                                </th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                    <button onClick={() => requestSort('status')} className="flex items-center w-full text-left focus:outline-none">
+                                        Status {getSortIconFor('status')}
+                                    </button>
+                                </th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                    <button onClick={() => requestSort('associated_int_ctls')} className="flex items-center w-full text-left focus:outline-none">
+                                        Associated Controls {getSortIconFor('associated_int_ctls')}
+                                    </button>
+                                </th>
+                                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
+                            </tr>
+                        </thead>
+                         <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
+                            {loading ? (
+                                <tr><td colSpan={5} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading frameworks...</td></tr>
+                            ) : filteredAndSortedCompliances.length === 0 ? (
+                                <tr><td colSpan={5} className="text-center py-4 text-gray-500 dark:text-gray-400">No frameworks found.</td></tr>
+                            ) : filteredAndSortedCompliances.map(item => (
+                                <tr key={item.id}>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                                        <span title={item.description || 'No description available'}>
+                                            {item.compliance_id}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <div className="text-sm font-medium text-gray-900 dark:text-white">{item.framework}</div>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        {item.status && <StatusBadge status={item.status} colorMap={complianceStatusStyles} />}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                        {Array.isArray(item.associated_int_ctls) ? item.associated_int_ctls.length : 0}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                        <div className="flex justify-end items-center space-x-2">
+                                            <button onClick={() => setModalState({ type: 'view', compliance: item })} className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <ComplianceModal
+                isOpen={modalState.type === 'view'}
+                onClose={closeModal}
+                complianceToView={modalState.compliance || null}
+            />
+        </div>
+    );
+};
