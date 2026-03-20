@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as SupabaseService from './services/supabase';
 import { UserRole } from './types';
+import { useTabRefresh } from './hooks/useTabRefresh';
 
 // Layout & Common Components
 import { Header } from './components/Header';
@@ -39,6 +40,9 @@ const App: React.FC = () => {
     const [logoutToastVisible, setLogoutToastVisible] = useState(false);
     const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
     const logoutTimerRef = useRef<number | null>(null);
+
+    // Tab refresh hook - triggers data refresh when tabs change
+    useTabRefresh(activeTab);
 
     // Theme Effect
     useEffect(() => {

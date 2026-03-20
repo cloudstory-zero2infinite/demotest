@@ -3,24 +3,27 @@ import { InternalControlsView } from '../governance/InternalControlsView';
 import { AssetsView } from '../governance/AssetsView';
 import { PoliciesView } from '../governance/PoliciesView';
 import { VulnerabilitiesView } from '../governance/VulnerabilitiesView';
+import { AssetRelationshipsView } from '../governance/AssetRelationshipsView';
 
 export const GovernanceTab: React.FC = () => {
-    type SubTab = 'controls' | 'assets' | 'policies' | 'vulnerability';
-    const [activeSubTab, setActiveSubTab] = useState<SubTab>('controls');
+    type SubTab = 'controls' | 'assets' | 'policies' | 'vulnerability' | 'relationships';
+    const [activeSubTab, setActiveSubTab] = useState<SubTab>('assets');
     
     const subTabs: { id: SubTab; label: string }[] = [
-        { id: 'controls', label: 'Internal Control Catalogue' },
+        // { id: 'controls', label: 'Internal Control Catalogue' },
         { id: 'assets', label: 'Assets' },
         { id: 'policies', label: 'Policy' },
         { id: 'vulnerability', label: 'Vulnerability' },
+        { id: 'relationships', label: 'Asset Relationships' },
     ];
     
     const renderContent = () => {
         switch(activeSubTab) {
-            case 'controls': return <InternalControlsView />;
+            // case 'controls': return <InternalControlsView />;
             case 'assets': return <AssetsView />;
             case 'policies': return <PoliciesView />;
             case 'vulnerability': return <VulnerabilitiesView />;
+            case 'relationships': return <AssetRelationshipsView />;
             default: return null;
         }
     }
@@ -33,6 +36,7 @@ export const GovernanceTab: React.FC = () => {
                         <button
                             key={tab.id}
                             onClick={() => setActiveSubTab(tab.id)}
+                            data-tab={tab.id}
                             className={`${
                                 activeSubTab === tab.id
                                     ? 'border-blue-500 text-blue-600 dark:text-blue-400'

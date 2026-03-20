@@ -3,7 +3,6 @@ import { Asset, AssetCreate, AssetUpdate, AssetCriticality, AssetGovernedStatus,
 import * as SupabaseService from '../../services/supabase';
 import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon } from '../Icons';
 import { Modal } from '../common/Modal';
-import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
 
 interface AssetModalProps {
     isOpen: boolean;
@@ -19,10 +18,10 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
     useEffect(() => {
         if (assetToEdit) {
-            const { asset_id, name, asset_owner, business_owner, criticality, details, governed_status, vulnerability_count, exposure, category } = assetToEdit;
-            setFormData({ asset_id, name, asset_owner, business_owner, criticality, details, governed_status, vulnerability_count, exposure, category });
+            const { asset_id, name, asset_owner, business_owner, physical_location, criticality, details, governed_status, vulnerability_count, exposure, category } = assetToEdit;
+            setFormData({ asset_id, name, asset_owner, business_owner, physical_location, criticality, details, governed_status, vulnerability_count, exposure, category });
         } else {
-            setFormData({ asset_id: '', name: '', asset_owner: '', business_owner: '', criticality: 'Low', category: 'Technology', exposure: 'Internal', governed_status: 'Non-Governed', vulnerability_count: 0, details: '' });
+            setFormData({ asset_id: '', name: '', asset_owner: '', business_owner: '', physical_location: '', criticality: 'Low', category: 'Technology', exposure: 'Internal', governed_status: 'Non-Governed', vulnerability_count: 0, details: '' });
         }
     }, [assetToEdit, isOpen, mode]);
 
@@ -58,6 +57,10 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Business Owner</label>
                         <input type="text" name="business_owner" value={formData.business_owner || ''} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Physical Location</label>
+                        <input type="text" name="physical_location" value={formData.physical_location || ''} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="e.g., Server Room A, Building 2, Floor 3" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Criticality</label>
@@ -105,7 +108,9 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
 export const AssetsView: React.FC = () => {
     const [assets, setAssets] = useState<Asset[]>([]);
+    const [relationships, setRelationships] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [deleting, setDeleting] = useState(false);
     const [error, setError] = useState<string|null>(null);
     const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | 'import' | null; asset?: Asset | null }>({ type: null });
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -117,8 +122,12 @@ export const AssetsView: React.FC = () => {
         try {
             setLoading(true);
             setError(null);
-            const data = await SupabaseService.getAssets();
-            setAssets(data);
+            const [assetsData, relationshipsData] = await Promise.all([
+                SupabaseService.getAssets(),
+                SupabaseService.getAssetRelationships(),
+            ]);
+            setAssets(assetsData);
+            setRelationships(relationshipsData);
         } catch (e) {
             setError("Failed to load assets.");
         } finally {
@@ -139,6 +148,7 @@ export const AssetsView: React.FC = () => {
                 String(item.name ?? '').toLowerCase().includes(lowerCaseFilter) ||
                 String(item.asset_owner ?? '').toLowerCase().includes(lowerCaseFilter) ||
                 String(item.business_owner ?? '').toLowerCase().includes(lowerCaseFilter) ||
+                String(item.physical_location ?? '').toLowerCase().includes(lowerCaseFilter) ||
                 String(item.details ?? '').toLowerCase().includes(lowerCaseFilter)
             );
         }
@@ -177,7 +187,10 @@ export const AssetsView: React.FC = () => {
         return sortConfig.direction === 'ascending' ? <SortUpIcon className="h-4 w-4 ml-1" /> : <SortDownIcon className="h-4 w-4 ml-1" />;
     };
 
-    const closeModal = () => setModalState({ type: null });
+    const closeModal = () => {
+        setError(null);
+        setModalState({ type: null });
+    };
 
     const handleSaveAsset = async (formData: AssetCreate | AssetUpdate) => {
         try {
@@ -210,6 +223,9 @@ export const AssetsView: React.FC = () => {
     const handleDeleteAsset = async () => {
         if (modalState.type === 'delete' && modalState.asset) {
             try {
+                setDeleting(true);
+                setError(null);
+                console.log('Deleting asset:', modalState.asset.id, modalState.asset.asset_id);
                 await SupabaseService.deleteAsset(modalState.asset.id);
                 await SupabaseService.logAllActivity({
                     action: 'Deleted Asset',
@@ -219,10 +235,35 @@ export const AssetsView: React.FC = () => {
                 });
                 fetchAssets();
                 closeModal();
-            } catch (err) {
-                setError('Failed to delete asset.');
+            } catch (err: any) {
+                console.error('Delete asset error:', err);
+                const errorMessage = err?.message || 'Failed to delete asset.';
+                setError(errorMessage);
+            } finally {
+                setDeleting(false);
             }
         }
+    };
+
+    const getRelatedAssetsForAsset = (asset: Asset) => {
+        const relatedAssets: string[] = [];
+        
+        // Find all relationships where this asset is involved as source or target
+        const assetRelationships = relationships.filter(r => 
+            r.source_asset_id === asset.asset_id || r.target_asset_id === asset.asset_id
+        );
+        
+        // Collect unique related asset names
+        assetRelationships.forEach(r => {
+            if (r.source_asset_id !== asset.asset_id && !relatedAssets.includes(r.source_asset_id)) {
+                relatedAssets.push(r.source_asset_id);
+            }
+            if (r.target_asset_id !== asset.asset_id && !relatedAssets.includes(r.target_asset_id)) {
+                relatedAssets.push(r.target_asset_id);
+            }
+        });
+        
+        return relatedAssets;
     };
 
     const handleImportCSV = (event: ChangeEvent<HTMLInputElement>) => {
@@ -237,7 +278,7 @@ export const AssetsView: React.FC = () => {
             const lines = text.split('\n').slice(1);
             const parsedAssets: AssetCreate[] = lines
                 .map(line => {
-                    const [asset_id, name, criticality, details, governed_status, vulnerability_count, exposure, category, asset_owner, business_owner] = line.split(',').map(s => s.trim());
+                    const [asset_id, name, criticality, details, governed_status, vulnerability_count, exposure, category, asset_owner, business_owner, physical_location] = line.split(',').map(s => s.trim());
                     if (!asset_id || !name || !criticality || !governed_status || !exposure || !category) return null;
 
                     // Basic validation for enum types
@@ -264,9 +305,19 @@ export const AssetsView: React.FC = () => {
                         category: category as AssetCategory,
                         asset_owner: asset_owner || '',
                         business_owner: business_owner || '',
+                        physical_location: physical_location || '',
                     };
                 })
-                .filter((asset): asset is AssetCreate => asset !== null);
+                .filter((asset): asset is AssetCreate => 
+    asset !== null && 
+    typeof asset.asset_id === 'string' && 
+    typeof asset.name === 'string' &&
+    typeof asset.criticality === 'string' &&
+    typeof asset.details === 'string' &&
+    typeof asset.governed_status === 'string' &&
+    typeof asset.exposure === 'string' &&
+    typeof asset.category === 'string'
+);
             
             // Check for duplicates by asset_id
             const existingAssetIds = new Set(assets.map(a => a.asset_id));
@@ -294,36 +345,37 @@ export const AssetsView: React.FC = () => {
             } catch (err) {
                 setError('Failed to import assets.');
                 console.error(err);
-            }
         }
-    };
+    }
+};
 
-    const handleExportCSV = () => {
-        const headers = ['asset_id', 'name', 'criticality', 'details', 'governed_status', 'vulnerability_count', 'exposure', 'category', 'asset_owner', 'business_owner'];
-        const csvContent = [
-            headers.join(','),
-            ...filteredAndSortedAssets.map(asset =>
-                [
-                    asset.asset_id,
-                    `"${(asset.name || '').replace(/"/g, '""')}"`,
-                    asset.criticality,
-                    `"${(asset.details || '').replace(/"/g, '""')}"`,
-                    asset.governed_status,
-                    asset.vulnerability_count,
-                    asset.exposure,
-                    asset.category,
-                    `"${(asset.asset_owner || '').replace(/"/g, '""')}"`,
-                    `"${(asset.business_owner || '').replace(/"/g, '""')}"`,
-                ].join(',')
-            ),
-        ].join('\n');
+const handleExportCSV = () => {
+    const headers = ['asset_id', 'name', 'criticality', 'details', 'governed_status', 'vulnerability_count', 'exposure', 'category', 'asset_owner', 'business_owner', 'physical_location'];
+    const csvContent = [
+        headers.join(','),
+        ...filteredAndSortedAssets.map(asset =>
+            [
+                asset.asset_id,
+                `"${(asset.name || '').replace(/"/g, '""')}"`,
+                asset.criticality || '',
+                `"${(asset.details || '').replace(/"/g, '""')}"`,
+                asset.governed_status || '',
+                asset.vulnerability_count || 0,
+                asset.exposure || '',
+                asset.category || '',
+                asset.asset_owner || '',
+                asset.business_owner || '',
+                asset.physical_location || ''
+            ].join(',')
+        )
+    ].join('\n');
 
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = `assets-${new Date().toISOString().split('T')[0]}.csv`;
-        link.click();
-    };
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `assets-${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+};
 
     return (
         <div>
@@ -380,6 +432,11 @@ export const AssetsView: React.FC = () => {
                                     </button>
                                 </th>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                    <button onClick={() => requestSort('physical_location')} className="flex items-center w-full text-left focus:outline-none">
+                                        Physical Location {getSortIconFor('physical_location')}
+                                    </button>
+                                </th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('category')} className="flex items-center w-full text-left focus:outline-none">
                                         Type {getSortIconFor('category')}
                                     </button>
@@ -389,21 +446,22 @@ export const AssetsView: React.FC = () => {
                         </thead>
                          <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
                             {loading ? (
-                                <tr><td colSpan={6} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading assets...</td></tr>
+                                <tr><td colSpan={7} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading assets...</td></tr>
                             ) : filteredAndSortedAssets.length === 0 ? (
-                                <tr><td colSpan={6} className="text-center py-4 text-gray-500 dark:text-gray-400">No assets found.</td></tr>
+                                <tr><td colSpan={7} className="text-center py-4 text-gray-500 dark:text-gray-400">No assets found.</td></tr>
                             ) : filteredAndSortedAssets.map(asset => (
                                 <tr key={asset.id}>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{asset.asset_id}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">{asset.name}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{asset.criticality}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{asset.business_owner || '-'}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{asset.physical_location || '-'}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{asset.category}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                         <div className="flex justify-end items-center space-x-2">
                                             <button onClick={() => setModalState({ type: 'view', asset })} className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
                                             <button onClick={() => setModalState({ type: 'edit', asset })} className="text-gray-400 hover:text-yellow-500"><PencilIcon className="h-5 w-5" /></button>
-                                            <button onClick={() => setModalState({ type: 'delete', asset })} className="text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5" /></button>
+                                            <button onClick={() => { setError(null); setModalState({ type: 'delete', asset }); }} className="text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5" /></button>
                                         </div>
                                     </td>
                                 </tr>
@@ -419,12 +477,60 @@ export const AssetsView: React.FC = () => {
                 assetToEdit={modalState.asset || null}
                 mode={modalState.type as 'add' | 'edit' | 'view'}
             />
-            <DeleteConfirmationModal
-                isOpen={modalState.type === 'delete'}
-                onClose={closeModal}
-                onConfirm={handleDeleteAsset}
-                itemName="asset"
-            />
+            {modalState.type === 'delete' && modalState.asset && (
+                <div className="fixed inset-0 z-50 overflow-y-auto">
+                    <div className="flex min-h-screen items-center justify-center p-4">
+                        <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
+                            <div className="px-6 py-4">
+                                <h3 className="text-lg font-medium text-gray-900 dark:text-white">Delete Asset</h3>
+                            </div>
+                            <div className="p-6">
+                                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                                    Are you sure you want to delete this asset?
+                                </p>
+                                <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded-md mb-4">
+                                    <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                        {modalState.asset.asset_id} - {modalState.asset.name}
+                                    </p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                        Criticality: {modalState.asset.criticality} | Category: {modalState.asset.category}
+                                    </p>
+                                </div>
+                                {(() => {
+                                    const relatedAssets = getRelatedAssetsForAsset(modalState.asset);
+                                    if (relatedAssets.length > 0) {
+                                        return (
+                                            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-3 rounded-md">
+                                                <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200 mb-2">
+                                                    ⚠️ This asset is connected with {relatedAssets.length} other asset{relatedAssets.length !== 1 ? 's' : ''}:
+                                                </p>
+                                                <ul className="text-sm text-yellow-700 dark:text-yellow-300 space-y-1">
+                                                    {relatedAssets.map((assetId, index) => (
+                                                        <li key={index} className="flex items-center">
+                                                            <span className="w-2 h-2 bg-yellow-400 rounded-full mr-2"></span>
+                                                            {assetId}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                                <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-2">
+                                                    Deleting this asset will also remove all relationships connected to it.
+                                                </p>
+                                            </div>
+                                        );
+                                    }
+                                    return null;
+                                })()}
+                            </div>
+                            <div className="px-6 py-4 bg-gray-50 dark:bg-gray-700 rounded-b-lg flex justify-end space-x-3">
+                                <button onClick={closeModal} disabled={deleting} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500 disabled:opacity-50 disabled:cursor-not-allowed">Cancel</button>
+                                <button onClick={handleDeleteAsset} disabled={deleting} className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md shadow-sm hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    {deleting ? 'Deleting...' : 'Delete'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
             <Modal isOpen={modalState.type === 'import'} onClose={closeModal} title="Import CSV Preview">
                 <div className="space-y-4">
                     <div>

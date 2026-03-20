@@ -26,6 +26,40 @@ export const requireAuth = async (req, res, next) => {
     req.orgId = onboarding?.org_id || null;
     req.userRole = onboarding?.role || null;
 
+    // Auto-create organization for new users
+    if (!onboarding) {
+      try {
+        // Create a default organization for the user
+        const { data: newOrg } = await supabaseAdmin
+          .from('organizations')
+          .insert({ 
+            name: `${user.email}'s Organization`,
+            created_by: user.id 
+          })
+          .select()
+          .single();
+
+        if (newOrg) {
+          // Add user to their own organization as admin
+          await supabaseAdmin
+            .from('org_onboarding')
+            .insert({
+              org_id: newOrg.id,
+              user_id: user.id,
+              email: user.email,
+              role: 'admin'
+            });
+
+          // Update request with new org info
+          req.orgId = newOrg.id;
+          req.userRole = 'admin';
+        }
+      } catch (autoOrgError) {
+        console.error('Auto-organization creation failed:', autoOrgError);
+        // Continue without org - user will need to create one manually
+      }
+    }
+
     next();
   } catch (err) {
     console.error('Auth middleware error:', err);
