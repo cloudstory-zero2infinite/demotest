@@ -40,7 +40,7 @@ const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose, onSave, poli
         custom_roles: '',
         related_documents: '',
         document_type: '',
-        owner: '',
+        owner_name: '',
         policy_doc_link: '',
     };
     
@@ -101,7 +101,7 @@ const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose, onSave, poli
                             name="id"
                             value={formData.id || ''} 
                             onChange={handleChange}
-                            readOnly={mode === 'edit' || isViewMode}
+                            readOnly={mode === 'view'}
                             required={mode === 'add'}
                             placeholder="Enter Policy ID"
                             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" 
@@ -152,7 +152,7 @@ const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose, onSave, poli
                     {renderInputField('Tags', 'tags', 'text', true, 'Critical|SOX|PCI')}
                     {renderInputField('Policy Labels', 'policy_labels', 'text', true)}
 
-                    {renderInputField('Owner', 'owner', 'text', true)}
+                    {renderInputField('Owner', 'owner_name', 'text', true)}
                     {renderInputField('PolicyDocLink', 'policy_doc_link', 'url', false)}
 
                     {renderInputField('CreatedDate', 'published_date', 'date', true)}
@@ -357,7 +357,7 @@ export const PoliciesView: React.FC = () => {
                                 policy_portal_permissions: 'private',
                                 custom_roles,
                                 related_documents,
-                                owner: owner_name,
+                                owner_name: owner_name,
                                 policy_doc_link: url,
                             };
                             

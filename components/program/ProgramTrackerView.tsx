@@ -238,7 +238,7 @@ export const ProgramTrackerView: React.FC = () => {
             if(!text) return;
 
             const lines = text.split('\n').slice(1);
-            const newTasks: ProgramTaskCreate[] = lines
+            const importedTasks: ProgramTaskCreate[] = lines
                 .map(line => {
                     const [program_name, description, month, status, progress_percent] = line.split(',').map(s => s.trim());
                     if (!program_name || !month || !status) return null;
@@ -252,19 +252,99 @@ export const ProgramTrackerView: React.FC = () => {
                 })
                 .filter((task): task is ProgramTaskCreate => task !== null);
             
-            if (newTasks.length > 0) {
+            if (importedTasks.length > 0) {
                 try {
-                    await SupabaseService.bulkAddTasks(newTasks);
-                     await SupabaseService.logAllActivity({
-                        action: 'Bulk Imported Milestones',
-                        module: 'Program',
-                        event_data: { count: newTasks.length }
-                    });
-                    alert(`${newTasks.length} milestones imported successfully!`);
-                    fetchTasks();
+                    // Get existing tasks to find duplicates
+                    const existingTasks = await SupabaseService.getTasks();
+                    const tasksToUpdate: { id: string; updates: ProgramTaskUpdate }[] = [];
+                    const tasksToAdd: ProgramTaskCreate[] = [];
+                    const duplicateNames = new Set<string>();
+                    
+                    for (const importedTask of importedTasks) {
+                        // Find existing task by program_name and month (strict match)
+                        const existingTask = existingTasks.find(
+                            t => t.program_name.trim() === importedTask.program_name.trim() && 
+                                 t.month.trim() === importedTask.month.trim()
+                        );
+                        
+                        if (existingTask) {
+                            duplicateNames.add(`${importedTask.program_name} (${importedTask.month})`);
+                            
+                            // Check if anything actually changed
+                            const hasChanges = 
+                                (existingTask.description || '').trim() !== (importedTask.description || '').trim() ||
+                                existingTask.status !== importedTask.status ||
+                                existingTask.progress_percent !== importedTask.progress_percent;
+                            
+                            if (hasChanges) {
+                                tasksToUpdate.push({
+                                    id: existingTask.id,
+                                    updates: {
+                                        description: importedTask.description,
+                                        status: importedTask.status,
+                                        progress_percent: importedTask.progress_percent
+                                    }
+                                });
+                            }
+                        } else {
+                            tasksToAdd.push(importedTask);
+                        }
+                    }
+                    
+                    let totalProcessed = 0;
+                    
+                    // Add new tasks first
+                    if (tasksToAdd.length > 0) {
+                        await SupabaseService.bulkAddTasks(tasksToAdd);
+                        totalProcessed += tasksToAdd.length;
+                    }
+                    
+                    // Update existing tasks
+                    if (tasksToUpdate.length > 0) {
+                        for (const { id, updates } of tasksToUpdate) {
+                            await SupabaseService.updateTask(id, updates);
+                            totalProcessed++;
+                        }
+                    }
+                    
+                    if (totalProcessed > 0) {
+                        await SupabaseService.logAllActivity({
+                            action: 'Imported Milestones',
+                            module: 'Program',
+                            event_data: { 
+                                total: importedTasks.length,
+                                added: tasksToAdd.length,
+                                updated: tasksToUpdate.length,
+                                duplicates: Array.from(duplicateNames)
+                            }
+                        });
+                        
+                        let message = `${totalProcessed} milestones processed:\n`;
+                        message += `• ${tasksToAdd.length} new milestones added\n`;
+                        message += `• ${tasksToUpdate.length} existing milestones updated`;
+                        
+                        if (duplicateNames.size > 0) {
+                            message += `\n\nDuplicates found (not added):\n${Array.from(duplicateNames).slice(0, 5).join('\n')}`;
+                            if (duplicateNames.size > 5) {
+                                message += `\n... and ${duplicateNames.size - 5} more`;
+                            }
+                        }
+                        
+                        alert(message);
+                        fetchTasks();
+                    } else {
+                        if (duplicateNames.size > 0) {
+                            alert(`All ${duplicateNames.size} imported milestones already exist and no changes were detected.`);
+                        } else {
+                            alert('No changes detected in imported data.');
+                        }
+                    }
                 } catch (err) {
-                    alert('Failed to import milestones.');
+                    console.error('Import error:', err);
+                    alert('Failed to import milestones. Please check the file format and try again.');
                 }
+            } else {
+                alert('No valid data found in the CSV file.');
             }
         };
         reader.readAsText(file);

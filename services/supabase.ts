@@ -2,14 +2,19 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate } from '../types';
 
 // Supabase client is kept ONLY for Google Auth (OAuth sign-in/sign-out/session)
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL as string;
+const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY as string;
+
+// Handle missing environment variables gracefully
+if (!supabaseUrl || !supabaseAnonKey || supabaseUrl === 'undefined' || supabaseAnonKey === 'undefined') {
+  console.warn('Supabase environment variables not properly configured. Auth features will be disabled.');
+}
 
 export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
   auth: { persistSession: true, autoRefreshToken: true },
 });
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:3001';
+const API_BASE_URL = ((import.meta as any).env.VITE_API_BASE_URL as string) || 'http://localhost:3001';
 
 // Internal helper — attaches the user's JWT to every backend request
 const apiRequest = async <T>(path: string, options: RequestInit = {}): Promise<T> => {
@@ -107,10 +112,18 @@ export const addTask = async (task: ProgramTaskCreate): Promise<ProgramTask> => 
 };
 
 export const bulkAddTasks = async (tasks: ProgramTaskCreate[]): Promise<ProgramTask[]> => {
-  return apiRequest<ProgramTask[]>('/api/program/bulk', {
+  const response = await apiRequest<{ data: ProgramTask[], duplicates: number, added: number }>('/api/program/bulk', {
     method: 'POST',
     body: JSON.stringify(tasks),
   });
+  
+  // Handle the new response format
+  if (response && typeof response === 'object' && 'data' in response) {
+    return response.data || [];
+  }
+  
+  // Fallback for old format (if any)
+  return Array.isArray(response) ? response : [];
 };
 
 export const updateTask = async (id: string, updates: ProgramTaskUpdate): Promise<ProgramTask> => {
@@ -432,6 +445,47 @@ export const sendFeedbackEmail = async (rating: number, description: string): Pr
     return true;
   } catch (error) {
     console.error('Error sending feedback email:', error);
+    return false;
+  }
+};
+
+export const getAssetRelationships = async (): Promise<any[]> => {
+  try {
+    return await apiRequest<any[]>('/api/assets/relationships');
+  } catch {
+    return [];
+  }
+};
+
+export const addAssetRelationship = async (relationship: any): Promise<any> => {
+  try {
+    return await apiRequest<any>('/api/assets/relationships', {
+      method: 'POST',
+      body: JSON.stringify(relationship),
+    });
+  } catch {
+    return null;
+  }
+};
+
+export const updateAssetRelationship = async (id: string, relationship: any): Promise<any> => {
+  try {
+    return await apiRequest<any>(`/api/assets/relationships/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(relationship),
+    });
+  } catch {
+    return null;
+  }
+};
+
+export const deleteAssetRelationship = async (id: string): Promise<boolean> => {
+  try {
+    await apiRequest(`/api/assets/relationships/${id}`, {
+      method: 'DELETE',
+    });
     return true;
+  } catch {
+    return false;
   }
 };

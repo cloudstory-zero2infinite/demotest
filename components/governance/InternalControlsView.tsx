@@ -62,7 +62,10 @@ const InternalControlModal: React.FC<InternalControlModalProps> = ({ isOpen, onC
             };
             setFormData(sanitizedControlData);
         } else {
-            setFormData(defaultState);
+            setFormData({
+                ...defaultState,
+                ctl_id: `CTL-${Date.now()}`
+            });
         }
         setEvidenceFile(null);
         setTagInput('');
@@ -303,9 +306,13 @@ export const InternalControlsView: React.FC = () => {
             }
             fetchControls();
             closeModal();
-        } catch (err) {
-            setError('Failed to save control.');
+        } catch (err: any) {
             console.error(err);
+            if (err.status === 409) {
+                setError('Control with this CTL ID already exists. Please use a different CTL ID.');
+            } else {
+                setError('Failed to save control.');
+            }
         }
     };
 
@@ -334,42 +341,105 @@ export const InternalControlsView: React.FC = () => {
         const reader = new FileReader();
         reader.onload = async (e) => {
             const text = e.target?.result as string;
-            if(!text) return;
+            if (!text) return;
 
-            const lines = text.split('\n').slice(1); // Skip header row
-            const newControls: InternalControlCreate[] = lines
-                .map((line): InternalControlCreate | null => {
-                    const [ctl_id, name, description, status, compliance_tags] = line.split(',').map(s => s ? s.trim() : '');
-                    if (!ctl_id || !name || !status) return null;
+            try {
+                const lines = text.split('\n').slice(1); // Skip header row
+                const validStatuses: InternalControlStatus[] = ['Not-Enforced', 'InProgress', 'Enforced'];
+                const importedControls: InternalControlCreate[] = lines
+                    .map((line): InternalControlCreate | null => {
+                        const [ctl_id, name, description, status, compliance_tags] = line.split(',').map(s => s ? s.trim() : '');
+                        if (!ctl_id || !name || !status) return null;
+                        if (!validStatuses.includes(status as InternalControlStatus)) return null;
 
-                    return {
-                        ctl_id,
-                        name,
-                        description: description || null,
-                        status: status as InternalControlStatus,
-                        compliance_tag3: compliance_tags ? compliance_tags.split('|').map(t => t.trim()) : [],
-                    };
-                })
-                .filter((control): control is InternalControlCreate => control !== null);
-            
-            if (newControls.length > 0) {
-                try {
-                    await SupabaseService.bulkAddInternalControls(newControls);
-                    await SupabaseService.logAllActivity({
-                        action: 'Bulk Imported Controls',
-                        module: 'Governance',
-                        event_data: { count: newControls.length }
-                    });
-                    alert(`${newControls.length} controls imported successfully!`);
-                    fetchControls();
-                } catch (err) {
-                    alert('Failed to import controls.');
-                    console.error(err);
+                        return {
+                            ctl_id,
+                            name,
+                            description: description || null,
+                            status: status as InternalControlStatus,
+                            compliance_tag3: compliance_tags ? compliance_tags.split('|').map(t => t.trim()).filter(t => t) : [],
+                        };
+                    })
+                    .filter((control): control is InternalControlCreate => control !== null);
+                
+                if (importedControls.length > 0) {
+                    // Get existing controls to find duplicates
+                    const existingControls = await SupabaseService.getInternalControls();
+                    const controlsToUpdate: { id: string; updates: InternalControlUpdate }[] = [];
+                    const controlsToAdd: InternalControlCreate[] = [];
+                    
+                    for (const importedControl of importedControls) {
+                        // Find existing control by ctl_id
+                        const existingControl = existingControls.find(
+                            c => c.ctl_id === importedControl.ctl_id
+                        );
+                        
+                        if (existingControl) {
+                            // Check if anything actually changed
+                            const hasChanges = 
+                                existingControl.name !== importedControl.name ||
+                                existingControl.description !== importedControl.description ||
+                                existingControl.status !== importedControl.status ||
+                                JSON.stringify(existingControl.compliance_tag3 || []) !== JSON.stringify(importedControl.compliance_tag3 || []);
+                            
+                            if (hasChanges) {
+                                controlsToUpdate.push({
+                                    id: existingControl.id,
+                                    updates: {
+                                        name: importedControl.name,
+                                        description: importedControl.description,
+                                        status: importedControl.status,
+                                        compliance_tag3: importedControl.compliance_tag3
+                                    }
+                                });
+                            }
+                        } else {
+                            controlsToAdd.push(importedControl);
+                        }
+                    }
+                    
+                    let totalProcessed = 0;
+                    
+                    // Update existing controls
+                    if (controlsToUpdate.length > 0) {
+                        for (const { id, updates } of controlsToUpdate) {
+                            await SupabaseService.updateInternalControl(id, updates);
+                            totalProcessed++;
+                        }
+                    }
+                    
+                    // Add new controls
+                    if (controlsToAdd.length > 0) {
+                        await SupabaseService.bulkAddInternalControls(controlsToAdd);
+                        totalProcessed += controlsToAdd.length;
+                    }
+                    
+                    if (totalProcessed > 0) {
+                        await SupabaseService.logAllActivity({
+                            action: 'Imported Controls',
+                            module: 'Governance',
+                            event_data: { 
+                                total: importedControls.length,
+                                added: controlsToAdd.length,
+                                updated: controlsToUpdate.length
+                            }
+                        });
+                        
+                        alert(`${totalProcessed} controls processed (${controlsToAdd.length} added, ${controlsToUpdate.length} updated) successfully!`);
+                        fetchControls();
+                    } else {
+                        alert('No changes detected in imported data.');
+                    }
+                } else {
+                    alert('No valid data found in the CSV file.');
                 }
+            } catch (err) {
+                console.error('Import error:', err);
+                alert('Failed to import controls. Please check the file format and ensure all required fields are present.');
             }
         };
         reader.readAsText(file);
-        if(fileInputRef.current) fileInputRef.current.value = '';
+        if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
     const handleExportCSV = () => {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Asset, Compliance, InternalControl, PolicyDocument, ProgramTask, Vulnerability, AssetCriticality, InternalControlStatus, ProgramStatus } from '../../types';
 import * as SupabaseService from '../../services/supabase';
+import { useDataRefresh } from '../../hooks/useDataRefresh';
 
 // Sub-components
 import { SecurityScoreCard } from '../dashboard/SecurityScoreCard';
@@ -25,42 +26,36 @@ const stringToColor = (str: string) => {
 };
 
 export const DashboardTab: React.FC = () => {
-    const [loading, setLoading] = useState(true);
-    const [stats, setStats] = useState({
+    const [assetFilter, setAssetFilter] = useState<AssetCriticality | 'All'>('All');
+
+    const fetchData = useCallback(async () => {
+        const [assets, compliances, controls, policies, tasks, vulnerabilities] = await Promise.all([
+            SupabaseService.getAssets(),
+            SupabaseService.getCompliances(),
+            SupabaseService.getInternalControls(),
+            SupabaseService.getPolicies(),
+            SupabaseService.getTasks(),
+            SupabaseService.getVulnerabilities(),
+        ]);
+        return { assets, compliances, controls, policies, tasks, vulnerabilities };
+    }, []);
+
+    const { data: stats, loading, error, refresh } = useDataRefresh(fetchData, []);
+
+    // Default stats object to prevent undefined errors
+    const defaultStats = {
         assets: [] as Asset[],
         compliances: [] as Compliance[],
         controls: [] as InternalControl[],
         policies: [] as PolicyDocument[],
         tasks: [] as ProgramTask[],
         vulnerabilities: [] as Vulnerability[],
-    });
-    const [assetFilter, setAssetFilter] = useState<AssetCriticality | 'All'>('All');
-
-    const fetchData = useCallback(async () => {
-        try {
-            setLoading(true);
-            const [assets, compliances, controls, policies, tasks, vulnerabilities] = await Promise.all([
-                SupabaseService.getAssets(),
-                SupabaseService.getCompliances(),
-                SupabaseService.getInternalControls(),
-                SupabaseService.getPolicies(),
-                SupabaseService.getTasks(),
-                SupabaseService.getVulnerabilities(),
-            ]);
-            setStats({ assets, compliances, controls, policies, tasks, vulnerabilities });
-        } catch (error) {
-            console.error("Failed to load dashboard data", error);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
+    };
+    
+    const currentStats = stats || defaultStats;
 
     const securityScore = useMemo(() => {
-        const { controls, tasks, assets, policies, vulnerabilities } = stats;
+        const { controls, tasks, assets, policies, vulnerabilities } = currentStats;
         if (!controls.length || !tasks.length || !assets.length || !policies.length || !vulnerabilities) return 0;
         
         const controlScore = (controls.filter(c => c.status === 'Enforced').length / controls.length) * 30;
@@ -74,21 +69,21 @@ export const DashboardTab: React.FC = () => {
         const vulnerabilityScore = relevantVulnerabilities.length > 0 ? (remediatedCount / relevantVulnerabilities.length) * 20 : 20;
 
         return Math.round(controlScore + programScore + vulnerabilityScore + assetScore + policyScore);
-    }, [stats]);
+    }, [currentStats]);
     
     const programStatusData = useMemo(() => {
-        const counts = stats.tasks.reduce((acc, task) => {
+        const counts = currentStats.tasks.reduce((acc, task) => {
             acc[task.status] = (acc[task.status] || 0) + 1;
             return acc;
         }, {} as Record<ProgramStatus, number>);
         return Object.entries(counts).map(([name, value]) => ({ name, value }));
-    }, [stats.tasks]);
+    }, [currentStats.tasks]);
 
     const controlMetrics = useMemo(() => {
-        const totalControls = stats.controls.length;
+        const totalControls = currentStats.controls.length;
         if (totalControls === 0) return { data: [], percent: 100 };
 
-        const counts = stats.controls.reduce((acc, control) => {
+        const counts = currentStats.controls.reduce((acc, control) => {
             const status = control.status || 'Not-Enforced';
             acc[status] = (acc[status] || 0) + 1;
             return acc;
@@ -101,11 +96,11 @@ export const DashboardTab: React.FC = () => {
         ].filter(d => d.value > 0);
 
         return { data, percent: ((counts.Enforced || 0) / totalControls) * 100 };
-    }, [stats.controls]);
+    }, [currentStats.controls]);
 
     const filteredAssets = useMemo(() => {
-        return assetFilter === 'All' ? stats.assets : stats.assets.filter(a => a.criticality === assetFilter);
-    }, [stats.assets, assetFilter]);
+        return assetFilter === 'All' ? currentStats.assets : currentStats.assets.filter(a => a.criticality === assetFilter);
+    }, [currentStats.assets, assetFilter]);
     
     const assetMetrics = useMemo(() => {
         const totalAssets = filteredAssets.length;
@@ -117,19 +112,19 @@ export const DashboardTab: React.FC = () => {
     }, [filteredAssets]);
 
     const vulnerabilityMetrics = useMemo(() => {
-        const relevantVulnerabilities = stats.vulnerabilities.filter(v => v.status !== 'NA');
+        const relevantVulnerabilities = currentStats.vulnerabilities.filter(v => v.status !== 'NA');
         const remediatedCount = relevantVulnerabilities.filter(v => v.status === 'Remediated').length;
         const outstandingCount = relevantVulnerabilities.length - remediatedCount;
         const data = [{ name: 'Remediated', value: remediatedCount }, { name: 'Outstanding', value: outstandingCount }].filter(d => d.value > 0);
         const percent = relevantVulnerabilities.length > 0 ? (remediatedCount / relevantVulnerabilities.length) * 100 : 100;
         return { data, percent };
-    }, [stats.vulnerabilities]);
+    }, [currentStats.vulnerabilities]);
 
     const frameworkComplianceData = useMemo(() => {
-        if (!stats.compliances || !stats.controls) return {};
-        const controlsMap = new Map<string, InternalControl>(stats.controls.map(c => [c.ctl_id, c]));
+        if (!currentStats.compliances || !currentStats.controls) return {};
+        const controlsMap = new Map<string, InternalControl>(currentStats.controls.map(c => [c.ctl_id, c]));
 
-        return stats.compliances.reduce((acc, compliance) => {
+        return currentStats.compliances.reduce((acc, compliance) => {
             const frameworkKey = compliance.framework;
             if (!acc[frameworkKey]) acc[frameworkKey] = { 'Compliant': 0, 'NonCompliant': 0, 'NotMapped': 0, total: 0 };
 
@@ -150,16 +145,16 @@ export const DashboardTab: React.FC = () => {
             acc[frameworkKey].total++;
             return acc;
         }, {} as Record<string, { 'Compliant': number; 'NonCompliant': number; 'NotMapped': number; total: number }>);
-    }, [stats.compliances, stats.controls]);
+    }, [currentStats.compliances, currentStats.controls]);
 
-    const frameworkNames = useMemo(() => new Set(stats.compliances.map(c => c.framework)), [stats.compliances]);
-    const internalControlNames = useMemo(() => new Set(stats.controls.map(c => c.ctl_id)), [stats.controls]);
+    const frameworkNames = useMemo(() => new Set(currentStats.compliances.map(c => c.framework)), [currentStats.compliances]);
+    const internalControlNames = useMemo(() => new Set(currentStats.controls.map(c => c.ctl_id)), [currentStats.controls]);
 
     const sankeyData = useMemo(() => {
-        if (!stats.compliances || !stats.controls) return { nodes: [], links: [] };
+        if (!currentStats.compliances || !currentStats.controls) return { nodes: [], links: [] };
 
         const complianceIdToFrameworkMap = new Map<string, string>();
-        stats.compliances.forEach(c => { if (c.compliance_id && c.framework) complianceIdToFrameworkMap.set(c.compliance_id, c.framework); });
+        currentStats.compliances.forEach(c => { if (c.compliance_id && c.framework) complianceIdToFrameworkMap.set(c.compliance_id, c.framework); });
         
         const nodes: { name: string; color: string }[] = [];
         const nodeMap = new Map<string, number>();
@@ -174,7 +169,7 @@ export const DashboardTab: React.FC = () => {
         const linkValues = new Map<string, number>();
         const separator = ' -> ';
         
-        stats.controls.forEach(control => {
+        currentStats.controls.forEach(control => {
             if (control.ctl_id && control.compliance_tag3?.length) {
                 const controlName = control.ctl_id;
                 addNode(controlName);
@@ -205,7 +200,7 @@ export const DashboardTab: React.FC = () => {
             }
         });
         return { nodes, links };
-    }, [stats.controls, stats.compliances]);
+    }, [currentStats.controls, currentStats.compliances]);
 
     if (loading) {
         return (

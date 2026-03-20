@@ -290,7 +290,7 @@ export const VulnerabilitiesView: React.FC = () => {
             const validSources: VulnerabilitySource[] = ['KEV', 'Scanning', 'PT', 'Reported-Ext'];
             const validStatuses: VulnerabilityStatus[] = ['Planned', 'Remediated', 'NA'];
             const lines = text.split('\n').slice(1);
-            const newVulns: VulnerabilityCreate[] = lines
+            const importedVulns: VulnerabilityCreate[] = lines
                 .map((line): VulnerabilityCreate | null => {
                     const [name, description, derived_from, status] = line.split(',').map(s => s ? s.trim() : '');
                     if (!name || !derived_from || !status) return null;
@@ -299,15 +299,82 @@ export const VulnerabilitiesView: React.FC = () => {
                     return { name, description: description || null, derived_from: derived_from as VulnerabilitySource, status: status as VulnerabilityStatus, asset_id: null };
                 })
                 .filter((v): v is VulnerabilityCreate => v !== null);
-            if (newVulns.length > 0) {
+            
+            if (importedVulns.length > 0) {
                 try {
-                    for (const v of newVulns) await SupabaseService.addVulnerability(v);
-                    await SupabaseService.logAllActivity({ action: 'Bulk Imported Vulnerabilities', module: 'Governance', event_data: { count: newVulns.length } });
-                    alert(`${newVulns.length} vulnerabilities imported successfully!`);
-                    fetchVulnerabilities();
+                    // Get existing vulnerabilities to find duplicates
+                    const existingVulns = await SupabaseService.getVulnerabilities();
+                    const vulnsToUpdate: { id: string; updates: VulnerabilityUpdate }[] = [];
+                    const vulnsToAdd: VulnerabilityCreate[] = [];
+                    
+                    for (const importedVuln of importedVulns) {
+                        // Find existing vulnerability by name
+                        const existingVuln = existingVulns.find(
+                            v => v.name === importedVuln.name
+                        );
+                        
+                        if (existingVuln) {
+                            // Check if anything actually changed
+                            const hasChanges = 
+                                existingVuln.description !== importedVuln.description ||
+                                existingVuln.derived_from !== importedVuln.derived_from ||
+                                existingVuln.status !== importedVuln.status;
+                            
+                            if (hasChanges) {
+                                vulnsToUpdate.push({
+                                    id: existingVuln.id,
+                                    updates: {
+                                        description: importedVuln.description,
+                                        derived_from: importedVuln.derived_from,
+                                        status: importedVuln.status
+                                    }
+                                });
+                            }
+                        } else {
+                            vulnsToAdd.push(importedVuln);
+                        }
+                    }
+                    
+                    let totalProcessed = 0;
+                    
+                    // Update existing vulnerabilities
+                    if (vulnsToUpdate.length > 0) {
+                        for (const { id, updates } of vulnsToUpdate) {
+                            await SupabaseService.updateVulnerability(id, updates);
+                            totalProcessed++;
+                        }
+                    }
+                    
+                    // Add new vulnerabilities
+                    if (vulnsToAdd.length > 0) {
+                        for (const vuln of vulnsToAdd) {
+                            await SupabaseService.addVulnerability(vuln);
+                            totalProcessed++;
+                        }
+                    }
+                    
+                    if (totalProcessed > 0) {
+                        await SupabaseService.logAllActivity({
+                            action: 'Imported Vulnerabilities',
+                            module: 'Governance',
+                            event_data: { 
+                                total: importedVulns.length,
+                                added: vulnsToAdd.length,
+                                updated: vulnsToUpdate.length
+                            }
+                        });
+                        
+                        alert(`${totalProcessed} vulnerabilities processed (${vulnsToAdd.length} added, ${vulnsToUpdate.length} updated) successfully!`);
+                        fetchVulnerabilities();
+                    } else {
+                        alert('No changes detected in imported data.');
+                    }
                 } catch (err) {
-                    alert('Failed to import vulnerabilities.');
+                    console.error('Import error:', err);
+                    alert('Failed to import vulnerabilities. Please check the file format.');
                 }
+            } else {
+                alert('No valid data found in the CSV file.');
             }
         };
         reader.readAsText(file);

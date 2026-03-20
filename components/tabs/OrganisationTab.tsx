@@ -5,6 +5,7 @@ import { UploadIcon, PlusIcon, EyeIcon, PencilIcon, TrashIcon } from '../Icons';
 import { Modal } from '../common/Modal';
 import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
 import { PlatformAdminTab } from '../admin/PlatformAdminTab';
+import { ViewOrganizationTab } from '../org/ViewOrganizationTab';
 
 interface ContactModalProps {
     isOpen: boolean;
@@ -309,21 +310,23 @@ interface OrganisationTabProps {
 }
 
 export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole }) => {
-    type SubTab = 'structure' | 'contacts' | 'tenant_admin';
-    const [activeSubTab, setActiveSubTab] = useState<SubTab>('structure');
+    type SubTab = 'structure' | 'contacts' | 'view_org' | 'tenant_admin';
+    const [activeSubTab, setActiveSubTab] = useState<SubTab>('view_org');
     
     const isPlatformAdmin = userRole === 'tenant_admin';
     
     const subTabs: { id: SubTab; label: string }[] = [
-        { id: 'structure', label: 'Organisation Structure' },
-        { id: 'contacts', label: 'Contacts' },
+        { id: 'view_org', label: 'View Your Organization' },
+        // { id: 'structure', label: 'Organisation Structure' },
+        // { id: 'contacts', label: 'Contacts' },
         ...(isPlatformAdmin ? [{ id: 'tenant_admin' as const, label: 'Tenant Admin' }] : [])
     ];
     
     const renderContent = () => {
         switch(activeSubTab) {
-            case 'structure': return <OrgStructureView />;
-            case 'contacts': return <ContactsView />;
+            case 'view_org': return <ViewOrganizationTab />;
+            // case 'structure': return <OrgStructureView />;
+            // case 'contacts': return <ContactsView />;
             case 'tenant_admin': return isPlatformAdmin ? <PlatformAdminTab /> : null;
             default: return null;
         }

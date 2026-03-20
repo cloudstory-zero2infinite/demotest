@@ -61,6 +61,7 @@ export interface Asset {
     name: string;
     asset_owner?: string | null;
     business_owner?: string | null;
+    physical_location?: string | null;
     criticality: AssetCriticality;
     details: string;
     governed_status: AssetGovernedStatus;
@@ -71,6 +72,18 @@ export interface Asset {
 }
 export type AssetCreate = Omit<Asset, 'id' | 'created_at'>;
 export type AssetUpdate = Partial<AssetCreate>;
+
+// Asset Relationships
+export interface AssetRelationship {
+    id: string;
+    source_asset_id: string;
+    target_asset_id: string;
+    relationship_type: string | null;
+    created_at: string;
+}
+
+export type AssetRelationshipCreate = Omit<AssetRelationship, 'id' | 'created_at'>;
+export type AssetRelationshipUpdate = Partial<AssetRelationshipCreate>;
 
 
 // Policies
