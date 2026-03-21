@@ -42,9 +42,27 @@ const apiRequest = async <T>(path: string, options: RequestInit = {}): Promise<T
 
 // --- Organisation & User Functions ---
 
+export interface OrgMeResponse {
+  userId: string;
+  orgId: string | null;
+  orgName: string | null;
+  role: string | null;
+  email: string | null;
+  isOnboarded: boolean;
+  onboardingStatus: 'active' | 'pending_approval' | null;
+}
+
+export const getOrgMe = async (): Promise<OrgMeResponse | null> => {
+  try {
+    return await apiRequest<OrgMeResponse>('/api/org/me');
+  } catch {
+    return null;
+  }
+};
+
 export const getUserOrgId = async (): Promise<string | null> => {
   try {
-    const me = await apiRequest<{ orgId: string | null }>('/api/org/me');
+    const me = await apiRequest<OrgMeResponse>('/api/org/me');
     return me.orgId;
   } catch {
     return null;
@@ -61,22 +79,14 @@ export const getOrganizationUsers = async (): Promise<any[]> => {
 
 export const getUserRole = async (): Promise<string | null> => {
   try {
-    const me = await apiRequest<{ role: string | null }>('/api/org/me');
+    const me = await apiRequest<OrgMeResponse>('/api/org/me');
     return me.role;
   } catch {
     return null;
   }
 };
 
-export const createOrganization = async (name: string): Promise<any> => {
-  return apiRequest('/api/org/create', {
-    method: 'POST',
-    body: JSON.stringify({ name }),
-  });
-};
-
 export const getUserIdByEmail = async (_email: string): Promise<string | null> => {
-  // This is a server-side-only operation now
   return null;
 };
 
@@ -85,6 +95,46 @@ export const onboardUserToOrganization = async (orgId: string, email: string, ro
     method: 'POST',
     body: JSON.stringify({ orgId, email, role, description }),
   });
+};
+
+// --- Onboarding Setup ---
+
+export const setupIndividual = async (): Promise<any> => {
+  return apiRequest('/api/org/setup/individual', { method: 'POST' });
+};
+
+export const setupCreateOrg = async (name: string, location: string, website?: string): Promise<any> => {
+  return apiRequest('/api/org/setup/create-org', {
+    method: 'POST',
+    body: JSON.stringify({ name, location, website }),
+  });
+};
+
+export const setupJoinRequest = async (adminEmail: string): Promise<any> => {
+  return apiRequest('/api/org/setup/join-request', {
+    method: 'POST',
+    body: JSON.stringify({ adminEmail }),
+  });
+};
+
+export const getPendingApprovals = async (): Promise<any[]> => {
+  try {
+    return await apiRequest<any[]>('/api/org/pending-approvals');
+  } catch {
+    return [];
+  }
+};
+
+export const approveMember = async (id: number): Promise<any> => {
+  return apiRequest(`/api/org/approve-member/${id}`, { method: 'POST' });
+};
+
+export const rejectMember = async (id: number): Promise<any> => {
+  return apiRequest(`/api/org/reject-member/${id}`, { method: 'POST' });
+};
+
+export const removeMember = async (id: number): Promise<void> => {
+  return apiRequest(`/api/org/remove-member/${id}`, { method: 'DELETE' });
 };
 
 // --- Program Milestone Functions ---

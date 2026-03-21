@@ -1,38 +1,124 @@
-import React, { useState, useEffect, FormEvent } from 'react';
+import React, { useState, useEffect, useCallback, FormEvent } from 'react';
 import * as SupabaseService from '../../services/supabase';
+import { useTableSelection } from '../../hooks/useTableSelection';
+import { SelectionActionBar } from '../common/SelectionActionBar';
+
+// ─── Status badge ────────────────────────────────────────────────────────────
+
+const StatusBadge: React.FC<{ member: any }> = ({ member }) => {
+    if (member.status === 'pending_approval') {
+        return (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
+                Pending Approval
+            </span>
+        );
+    }
+    if (!member.user_id) {
+        return (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 inline-block" />
+                Pending Signup
+            </span>
+        );
+    }
+    return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+            Active
+        </span>
+    );
+};
+
+const RoleBadge: React.FC<{ role: string }> = ({ role }) => {
+    const map: Record<string, string> = {
+        tenant_admin: 'Tenant Admin',
+        admin: 'Admin',
+        user: 'User',
+    };
+    return <span className="text-sm text-gray-600 dark:text-gray-400">{map[role] ?? role}</span>;
+};
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export const PlatformAdminTab: React.FC = () => {
-    const [emailDescriptionPairs, setEmailDescriptionPairs] = useState<Array<{email: string, description: string}>>([
-        { email: '', description: '' }
+    const [orgName, setOrgName] = useState<string | null>(null);
+    const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+    const [members, setMembers] = useState<any[]>([]);
+    const [membersLoading, setMembersLoading] = useState(true);
+
+    // Add members form
+    const [emailDescriptionPairs, setEmailDescriptionPairs] = useState<Array<{ email: string; description: string }>>([
+        { email: '', description: '' },
     ]);
-    const [loading, setLoading] = useState(false);
+    const [addLoading, setAddLoading] = useState(false);
     const [successMessage, setSuccessMessage] = useState('');
     const [errorMessage, setErrorMessage] = useState('');
-    const [onboardedUsers, setOnboardedUsers] = useState<any[]>([]);
-    const [orgName, setOrgName] = useState<string | null>(null);
 
-    useEffect(() => {
-        const fetchOrgDetails = async () => {
-            try {
-                const orgId = await SupabaseService.getUserOrgId();
-                if (orgId) {
-                    const { data } = await SupabaseService.supabase
-                        .from('organizations')
-                        .select('name')
-                        .eq('id', orgId)
-                        .single();
-                    
-                    if (data) {
-                        setOrgName(data.name);
-                    }
-                }
-            } catch (err) {
-                console.error('Error fetching organization details:', err);
-            }
-        };
-        fetchOrgDetails();
+    // Per-row action loading
+    const [actionLoading, setActionLoading] = useState<number | null>(null);
+    const [confirmRemove, setConfirmRemove] = useState<number | null>(null);
+
+    const {
+        selectedIds, isConfirmingDelete, isSaving,
+        setIsConfirmingDelete, setIsSaving,
+        toggle, toggleAll, clearAll,
+    } = useTableSelection<any>();
+
+    const loadMembers = useCallback(async () => {
+        setMembersLoading(true);
+        try {
+            const data = await SupabaseService.getOrganizationUsers();
+            setMembers(data);
+        } catch (err) {
+            console.error('Failed to load members', err);
+        } finally {
+            setMembersLoading(false);
+        }
     }, []);
 
+    useEffect(() => {
+        const init = async () => {
+            const me = await SupabaseService.getOrgMe();
+            setOrgName(me?.orgName ?? null);
+            setCurrentUserId(me?.userId ?? null);
+        };
+        init();
+        loadMembers();
+    }, [loadMembers]);
+
+    // ── Approve ────────────────────────────────────────────────────────────────
+    const handleApprove = async (id: number) => {
+        setActionLoading(id);
+        try {
+            await SupabaseService.approveMember(id);
+            await loadMembers();
+        } catch (err: any) {
+            alert(err.message || 'Failed to approve.');
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    // ── Reject / Remove ───────────────────────────────────────────────────────
+    const handleRemove = async (id: number, isPendingApproval: boolean) => {
+        setActionLoading(id);
+        try {
+            if (isPendingApproval) {
+                await SupabaseService.rejectMember(id);
+            } else {
+                await SupabaseService.removeMember(id);
+            }
+            setConfirmRemove(null);
+            await loadMembers();
+        } catch (err: any) {
+            alert(err.message || 'Failed to remove member.');
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
+    // ── Add members form ───────────────────────────────────────────────────────
     const handlePairChange = (index: number, field: 'email' | 'description', value: string) => {
         setEmailDescriptionPairs(prev => {
             const updated = [...prev];
@@ -41,165 +127,338 @@ export const PlatformAdminTab: React.FC = () => {
         });
     };
 
-    const addPair = () => {
-        setEmailDescriptionPairs(prev => [...prev, { email: '', description: '' }]);
-    };
-
-    const removePair = (index: number) => {
-        setEmailDescriptionPairs(prev => prev.filter((_, i) => i !== index));
-    };
-
     const handleOnboardUsers = async (e: FormEvent) => {
         e.preventDefault();
-        setLoading(true);
+        setAddLoading(true);
         setSuccessMessage('');
         setErrorMessage('');
 
         try {
-            const orgId = await SupabaseService.getUserOrgId();
-            if (!orgId) {
-                throw new Error('No organization found for current user');
-            }
+            const me = await SupabaseService.getOrgMe();
+            const orgId = me?.orgId;
+            if (!orgId) throw new Error('No organisation found for current user.');
 
-            const validPairs = emailDescriptionPairs.filter(pair => pair.email.trim().length > 0);
-
-            if (validPairs.length === 0) {
-                throw new Error('Please enter at least one email address');
-            }
+            const validPairs = emailDescriptionPairs.filter(p => p.email.trim().length > 0);
+            if (validPairs.length === 0) throw new Error('Please enter at least one email address.');
 
             const successfulUsers: any[] = [];
-            const failedUsers: Array<{email: string, reason: string}> = [];
+            const failedUsers: Array<{ email: string; reason: string }> = [];
 
             for (const pair of validPairs) {
                 try {
-                    const userData = await SupabaseService.onboardUserToOrganization(
-                        orgId,
-                        pair.email,
-                        'user',
-                        pair.description
-                    );
+                    const userData = await SupabaseService.onboardUserToOrganization(orgId, pair.email, 'user', pair.description);
                     successfulUsers.push({ ...pair, ...userData });
                 } catch (err) {
-                    const reason = err instanceof Error ? err.message : 'Unknown error';
-                    failedUsers.push({ email: pair.email, reason });
+                    failedUsers.push({ email: pair.email, reason: err instanceof Error ? err.message : 'Unknown error' });
                 }
             }
-
-            await SupabaseService.logAllActivity({
-                action: 'Onboarded Users',
-                module: 'Tenant Admin',
-                event_data: {
-                    usersOnboarded: successfulUsers.length,
-                    failedUsers: failedUsers.length > 0 ? failedUsers : undefined
-                }
-            });
 
             if (successfulUsers.length > 0) {
                 const pendingCount = successfulUsers.filter((u: any) => !u.user_id).length;
                 const activeCount = successfulUsers.length - pendingCount;
-                
-                let msg = `✓ Successfully added ${successfulUsers.length} user(s).`;
-                if (activeCount > 0 && pendingCount > 0) {
-                    msg += ` (${activeCount} active, ${pendingCount} pending invitation)`;
-                } else if (pendingCount > 0) {
-                    msg += ` (${pendingCount} pending - awaiting sign up)`;
-                } else if (activeCount > 0) {
-                    msg += ` (${activeCount} active)`;
-                }
-                
+                let msg = `✓ Successfully added ${successfulUsers.length} member(s).`;
+                if (activeCount > 0 && pendingCount > 0) msg += ` (${activeCount} active, ${pendingCount} pending signup)`;
+                else if (pendingCount > 0) msg += ` (${pendingCount} pending — awaiting sign up)`;
                 setSuccessMessage(msg);
-                setOnboardedUsers(prev => [...prev, ...successfulUsers]);
+                setEmailDescriptionPairs([{ email: '', description: '' }]);
+                await loadMembers();
             }
 
             if (failedUsers.length > 0) {
-                const failedMsg = failedUsers.map(f => `${f.email}: ${f.reason}`).join('\n');
-                setErrorMessage(`Failed to add ${failedUsers.length} user(s):\n${failedMsg}`);
-            }
-            
-            if (failedUsers.length === 0) {
-                setEmailDescriptionPairs([{ email: '', description: '' }]);
+                setErrorMessage(`Failed to add ${failedUsers.length} member(s):\n${failedUsers.map(f => `${f.email}: ${f.reason}`).join('\n')}`);
             }
         } catch (err) {
-            const errorMsg = err instanceof Error ? err.message : JSON.stringify(err);
-            setErrorMessage(`Failed to onboard users: ${errorMsg}`);
+            setErrorMessage(err instanceof Error ? err.message : 'Failed to add members.');
         } finally {
-            setLoading(false);
+            setAddLoading(false);
         }
     };
 
+    const pendingApprovalCount = members.filter(m => m.status === 'pending_approval').length;
+
+    const handleBulkApprove = async () => {
+        const selectedPending = members.filter(m => selectedIds.has(m.id) && m.status === 'pending_approval');
+        if (selectedPending.length === 0) return;
+        setIsSaving(true);
+        try {
+            await Promise.all(selectedPending.map(m => SupabaseService.approveMember(m.id)));
+            await loadMembers();
+            clearAll();
+        } catch (err: any) {
+            alert(err.message || 'Failed to approve members.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleBulkRemove = async () => {
+        const removable = members.filter(m => selectedIds.has(m.id) && m.user_id !== currentUserId && m.role !== 'tenant_admin');
+        if (removable.length === 0) return;
+        setIsSaving(true);
+        try {
+            await Promise.all(removable.map(m =>
+                m.status === 'pending_approval'
+                    ? SupabaseService.rejectMember(m.id)
+                    : SupabaseService.removeMember(m.id)
+            ));
+            await loadMembers();
+            clearAll();
+        } catch (err: any) {
+            alert(err.message || 'Failed to remove members.');
+        } finally {
+            setIsSaving(false);
+            setIsConfirmingDelete(false);
+        }
+    };
+
+    const selectedPendingCount = members.filter(m => selectedIds.has(m.id) && m.status === 'pending_approval').length;
+    const selectedRemovableCount = members.filter(m => selectedIds.has(m.id) && m.user_id !== currentUserId && m.role !== 'tenant_admin').length;
+    const allMemberIds = members.map(m => m.id);
+
     return (
         <div className="space-y-8">
-            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6">
-                <h3 className="text-lg font-bold text-blue-900 dark:text-blue-300 mb-2">Your Organization</h3>
-                <p className="text-sm text-blue-700 dark:text-blue-400">
-                    {orgName ? `You are managing: ${orgName}` : 'Loading organization details...'}
-                </p>
+
+            {/* Org name banner */}
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-6 py-4 flex items-center justify-between">
+                <div>
+                    <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-300">Your Organisation</h3>
+                    <p className="text-lg font-bold text-blue-800 dark:text-blue-200 mt-0.5">
+                        {orgName ?? 'Loading…'}
+                    </p>
+                </div>
+                {pendingApprovalCount > 0 && (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 text-sm font-medium">
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse inline-block" />
+                        {pendingApprovalCount} pending approval
+                    </span>
+                )}
             </div>
 
-            <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Add Members to Your Organization</h2>
-                
-                {successMessage && (
-                    <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg text-green-800 dark:bg-green-900/20 dark:border-green-800 dark:text-green-300">
-                        {successMessage}
+            {/* ── Members table ── */}
+            <div className="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                    <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                        Organisation Members
+                        <span className="ml-2 text-sm font-normal text-gray-400">({members.length})</span>
+                    </h2>
+                    <button
+                        onClick={loadMembers}
+                        className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 underline"
+                    >
+                        Refresh
+                    </button>
+                </div>
+
+                {membersLoading ? (
+                    <div className="px-6 py-10 text-center text-gray-400 text-sm">Loading members…</div>
+                ) : members.length === 0 ? (
+                    <div className="px-6 py-10 text-center text-gray-400 text-sm">No members yet.</div>
+                ) : (
+                    <div className="overflow-auto max-h-[calc(100vh-280px)]">
+                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                            <thead className="bg-gray-50 dark:bg-gray-900">
+                                <tr>
+                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 py-3 w-10">
+                                        <input
+                                            type="checkbox"
+                                            checked={allMemberIds.length > 0 && selectedIds.size === allMemberIds.length}
+                                            onChange={() => toggleAll(allMemberIds)}
+                                            className="rounded border-gray-300 dark:border-gray-600"
+                                        />
+                                    </th>
+                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Email</th>
+                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Role</th>
+                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Status</th>
+                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Added</th>
+                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800">
+                                {members.map(member => {
+                                    const isSelf = member.user_id === currentUserId;
+                                    const isTenantAdmin = member.role === 'tenant_admin';
+                                    const isPendingApproval = member.status === 'pending_approval';
+                                    const isLoading = actionLoading === member.id;
+                                    const isConfirming = confirmRemove === member.id;
+                                    const isSelected = selectedIds.has(member.id);
+
+                                    return (
+                                        <tr key={member.id} className={`${isPendingApproval ? 'bg-amber-50/40 dark:bg-amber-900/10' : ''} ${isSelected ? 'bg-blue-50 dark:bg-blue-900/10' : ''}`}>
+                                            <td className="px-4 py-4 w-10" onClick={e => e.stopPropagation()}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isSelected}
+                                                    onChange={() => toggle(member.id)}
+                                                    className="rounded border-gray-300 dark:border-gray-600"
+                                                />
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                                                {member.email}
+                                                {isSelf && <span className="ml-2 text-xs text-blue-500">(you)</span>}
+                                                {member.description && (
+                                                    <p className="text-xs text-gray-400 mt-0.5">{member.description}</p>
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <RoleBadge role={member.role} />
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <StatusBadge member={member} />
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                                                {member.created_at ? new Date(member.created_at).toLocaleDateString() : '—'}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-right">
+                                                <div className="flex items-center justify-end gap-2">
+                                                    {/* Approve button — only for pending_approval */}
+                                                    {isPendingApproval && (
+                                                        <button
+                                                            onClick={() => handleApprove(member.id)}
+                                                            disabled={isLoading}
+                                                            className="px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded-md transition-colors"
+                                                        >
+                                                            {isLoading ? '…' : 'Approve'}
+                                                        </button>
+                                                    )}
+
+                                                    {/* Remove / Reject — not for self or tenant_admin */}
+                                                    {!isSelf && !isTenantAdmin && (
+                                                        <>
+                                                            {isConfirming ? (
+                                                                <div className="flex items-center gap-1">
+                                                                    <span className="text-xs text-gray-500 dark:text-gray-400 mr-1">Sure?</span>
+                                                                    <button
+                                                                        onClick={() => handleRemove(member.id, isPendingApproval)}
+                                                                        disabled={isLoading}
+                                                                        className="px-2 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded transition-colors"
+                                                                    >
+                                                                        {isLoading ? '…' : 'Yes, remove'}
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => setConfirmRemove(null)}
+                                                                        className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                                                    >
+                                                                        Cancel
+                                                                    </button>
+                                                                </div>
+                                                            ) : (
+                                                                <button
+                                                                    onClick={() => setConfirmRemove(member.id)}
+                                                                    className="px-3 py-1.5 text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 border border-red-200 dark:border-red-800 rounded-md transition-colors"
+                                                                >
+                                                                    {isPendingApproval ? 'Reject' : 'Remove'}
+                                                                </button>
+                                                            )}
+                                                        </>
+                                                    )}
+
+                                                    {/* Placeholder for self / tenant_admin rows */}
+                                                    {(isSelf || isTenantAdmin) && !isPendingApproval && (
+                                                        <span className="text-xs text-gray-300 dark:text-gray-600">—</span>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
                     </div>
                 )}
 
+                {/* Data preservation notice */}
+                <div className="px-6 py-3 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700">
+                    <p className="text-xs text-gray-400 dark:text-gray-500">
+                        Removing a member revokes their access. All data they added to this workspace is preserved.
+                    </p>
+                </div>
+            </div>
+
+            <SelectionActionBar
+                selectedCount={selectedIds.size}
+                isEditing={false}
+                isConfirmingDelete={isConfirmingDelete}
+                isSaving={isSaving}
+                showEdit={false}
+                showDelete={selectedRemovableCount > 0}
+                extraActions={selectedPendingCount > 0 ? (
+                    <button
+                        onClick={handleBulkApprove}
+                        disabled={isSaving}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-60 rounded-full text-sm font-medium transition-colors"
+                    >
+                        Approve {selectedPendingCount}
+                    </button>
+                ) : undefined}
+                onEdit={() => {}}
+                onSaveAll={() => {}}
+                onCancelEdit={clearAll}
+                onDelete={() => setIsConfirmingDelete(true)}
+                onConfirmDelete={handleBulkRemove}
+                onCancelDelete={() => setIsConfirmingDelete(false)}
+                onClear={clearAll}
+            />
+
+            {/* ── Add Members form ── */}
+            <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-5">Add Members</h2>
+
+                {successMessage && (
+                    <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800 dark:bg-green-900/20 dark:border-green-800 dark:text-green-300">
+                        {successMessage}
+                    </div>
+                )}
                 {errorMessage && (
-                    <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300 whitespace-pre-wrap">
+                    <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300 whitespace-pre-wrap">
                         {errorMessage}
                     </div>
                 )}
 
-                <form onSubmit={handleOnboardUsers} className="space-y-6">
-                    <div className="space-y-4">
-                        <div className="flex justify-between items-center">
-                            <label className="block text-sm font-medium text-gray-900 dark:text-gray-300">
-                                Users to Onboard *
-                            </label>
-                            <button
-                                type="button"
-                                onClick={addPair}
-                                className="px-3 py-1 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-900/40"
-                            >
-                                + Add User
-                            </button>
-                        </div>
+                <form onSubmit={handleOnboardUsers} className="space-y-4">
+                    <div className="flex justify-between items-center">
+                        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Email addresses <span className="text-red-500">*</span>
+                        </label>
+                        <button
+                            type="button"
+                            onClick={() => setEmailDescriptionPairs(prev => [...prev, { email: '', description: '' }])}
+                            className="text-xs px-2 py-1 text-blue-600 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-400"
+                        >
+                            + Add row
+                        </button>
+                    </div>
 
+                    <div className="space-y-3">
                         {emailDescriptionPairs.map((pair, index) => (
-                            <div key={index} className="grid grid-cols-1 md:grid-cols-3 gap-3 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                            <div key={index} className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                                 <div>
-                                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        Email *
-                                    </label>
+                                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Email *</label>
                                     <input
                                         type="email"
                                         value={pair.email}
-                                        onChange={(e) => handlePairChange(index, 'email', e.target.value)}
+                                        onChange={e => handlePairChange(index, 'email', e.target.value)}
                                         placeholder="user@example.com"
-                                        className="block w-full rounded-md border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-600 dark:border-gray-600 dark:text-white text-sm"
+                                        className="block w-full rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white focus:ring-blue-500 focus:border-blue-500"
                                     />
                                 </div>
-                                <div className="md:col-span-1">
-                                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                        Description (Optional)
-                                    </label>
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Description (optional)</label>
                                     <input
                                         type="text"
                                         value={pair.description}
-                                        onChange={(e) => handlePairChange(index, 'description', e.target.value)}
-                                        placeholder="e.g., Manager, Team Lead"
-                                        className="block w-full rounded-md border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-600 dark:border-gray-600 dark:text-white text-sm"
+                                        onChange={e => handlePairChange(index, 'description', e.target.value)}
+                                        placeholder="e.g. Security Lead"
+                                        className="block w-full rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white focus:ring-blue-500 focus:border-blue-500"
                                     />
                                 </div>
                                 <div className="flex items-end">
                                     {emailDescriptionPairs.length > 1 && (
                                         <button
                                             type="button"
-                                            onClick={() => removePair(index)}
-                                            className="w-full px-3 py-2 text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded hover:bg-red-100 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/40"
+                                            onClick={() => setEmailDescriptionPairs(prev => prev.filter((_, i) => i !== index))}
+                                            className="w-full px-3 py-2 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded hover:bg-red-100 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400"
                                         >
-                                            Remove
+                                            Remove row
                                         </button>
                                     )}
                                 </div>
@@ -207,66 +466,24 @@ export const PlatformAdminTab: React.FC = () => {
                         ))}
                     </div>
 
-                    <div className="flex justify-end space-x-3">
+                    <div className="flex justify-end gap-3">
                         <button
                             type="button"
-                            onClick={() => setEmailDescriptionPairs([{ email: '', description: '' }])}
-                            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600"
+                            onClick={() => { setEmailDescriptionPairs([{ email: '', description: '' }]); setSuccessMessage(''); setErrorMessage(''); }}
+                            className="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600"
                         >
                             Clear
                         </button>
                         <button
                             type="submit"
-                            disabled={loading}
-                            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={addLoading}
+                            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
                         >
-                            {loading ? 'Onboarding...' : 'Onboard Users'}
+                            {addLoading ? 'Adding…' : 'Add Members'}
                         </button>
                     </div>
                 </form>
             </div>
-
-            {onboardedUsers.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Recently Onboarded Users</h3>
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                            <thead className="bg-gray-50 dark:bg-gray-900">
-                                <tr>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Email</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Description</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Role</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Status</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Onboarded At</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                                {onboardedUsers.map((user, idx) => (
-                                    <tr key={idx}>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{user.email}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{user.description || '-'}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{user.role}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                            {user.user_id ? (
-                                                <span className="inline-flex px-2 py-1 text-xs font-semibold leading-5 text-green-800 bg-green-100 rounded-full dark:bg-green-900/30 dark:text-green-300">
-                                                    Active
-                                                </span>
-                                            ) : (
-                                                <span className="inline-flex px-2 py-1 text-xs font-semibold leading-5 text-yellow-800 bg-yellow-100 rounded-full dark:bg-yellow-900/30 dark:text-yellow-300">
-                                                    Pending Signup
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                            {user.created_at ? new Date(user.created_at).toLocaleDateString() : 'Just now'}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };

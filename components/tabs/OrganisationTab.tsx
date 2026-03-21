@@ -195,16 +195,16 @@ const ContactsView: React.FC = () => {
             {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">{error}</div>}
 
             <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg dark:border-gray-700">
-                <div className="overflow-x-auto">
+                <div className="overflow-auto max-h-[calc(100vh-280px)]">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-800">
                             <tr>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Name</th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Title</th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Level</th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Email</th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Security Role</th>
-                                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Name</th>
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Title</th>
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Level</th>
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Email</th>
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Security Role</th>
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
                             </tr>
                         </thead>
                          <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
@@ -307,53 +307,22 @@ const OrgStructureView: React.FC = () => {
 
 interface OrganisationTabProps {
     userRole: UserRole | null;
+    activeSubTab: 'view_org' | 'tenant_admin';
 }
 
-export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole }) => {
-    type SubTab = 'structure' | 'contacts' | 'view_org' | 'tenant_admin';
-    const [activeSubTab, setActiveSubTab] = useState<SubTab>('view_org');
-    
-    const isPlatformAdmin = userRole === 'tenant_admin';
-    
-    const subTabs: { id: SubTab; label: string }[] = [
-        { id: 'view_org', label: 'View Your Organization' },
-        // { id: 'structure', label: 'Organisation Structure' },
-        // { id: 'contacts', label: 'Contacts' },
-        ...(isPlatformAdmin ? [{ id: 'tenant_admin' as const, label: 'Tenant Admin' }] : [])
-    ];
-    
-    const renderContent = () => {
-        switch(activeSubTab) {
-            case 'view_org': return <ViewOrganizationTab />;
-            // case 'structure': return <OrgStructureView />;
-            // case 'contacts': return <ContactsView />;
-            case 'tenant_admin': return isPlatformAdmin ? <PlatformAdminTab /> : null;
-            default: return null;
-        }
-    }
+export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, activeSubTab }) => {
+    const isPlatformAdmin = userRole === 'tenant_admin' || userRole === 'admin';
 
     return (
-        <div className="px-4 py-6 sm:px-0">
-             <div className="border-b border-gray-200 dark:border-gray-700">
-                <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-                    {subTabs.map((tab) => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setActiveSubTab(tab.id)}
-                            className={`${
-                                activeSubTab === tab.id
-                                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-200'
-                            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
-                        >
-                            {tab.label}
-                        </button>
-                    ))}
-                </nav>
+        <div className="py-6">
+            <div className={activeSubTab === 'view_org' ? '' : 'hidden'}>
+                <ViewOrganizationTab />
             </div>
-            <div className="mt-6">
-                {renderContent()}
-            </div>
+            {isPlatformAdmin && (
+                <div className={activeSubTab === 'tenant_admin' ? '' : 'hidden'}>
+                    <PlatformAdminTab />
+                </div>
+            )}
         </div>
     );
 };

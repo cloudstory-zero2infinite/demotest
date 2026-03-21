@@ -5,6 +5,8 @@ import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, Sor
 import { Modal } from '../common/Modal';
 import { StatusBadge } from '../common/StatusBadge';
 import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
+import { useTableSelection } from '../../hooks/useTableSelection';
+import { SelectionActionBar } from '../common/SelectionActionBar';
 
 interface PolicyModalProps {
     isOpen: boolean;
@@ -43,10 +45,10 @@ const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose, onSave, poli
         owner_name: '',
         policy_doc_link: '',
     };
-    
+
     useEffect(() => {
         if (policyToEdit) {
-            const { 
+            const {
                 id, name, description, document_content, content_editor_text, url, grc_contact,
                 policy_reviewer_contact, tags, published_date, next_review_date, policy_labels,
                 related_projects, status, document_type, version, policy_portal_permissions,
@@ -70,7 +72,7 @@ const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose, onSave, poli
         setFormData(prev => ({ ...prev, [name]: isNumeric ? Number(value) : value }));
     };
 
-     const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
         if (e.target.files) {
             setDocumentFile(e.target.files[0]);
         }
@@ -96,25 +98,25 @@ const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose, onSave, poli
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Policy ID</label>
-                        <input 
-                            type="text" 
+                        <input
+                            type="text"
                             name="id"
-                            value={formData.id || ''} 
+                            value={formData.id || ''}
                             onChange={handleChange}
                             readOnly={mode === 'view'}
                             required={mode === 'add'}
                             placeholder="Enter Policy ID"
-                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" 
+                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                         />
                     </div>
                     <div></div>
-                    
+
                     {renderInputField('Name', 'name', 'text', true)}
                     {renderInputField('Version', 'version', 'text', true)}
-                    
+
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
-                        <textarea name="description" value={formData.description || ''} onChange={handleChange} readOnly={isViewMode} required rows={3} 
+                        <textarea name="description" value={formData.description || ''} onChange={handleChange} readOnly={isViewMode} required rows={3}
                                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
                     </div>
 
@@ -148,7 +150,7 @@ const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose, onSave, poli
 
                     {renderInputField('GRC Contact', 'grc_contact', 'text', true, 'User-admin|Group-Admins')}
                     {renderInputField('Policy Reviewer Contact', 'policy_reviewer_contact', 'text', true, 'User-jane|Group-Reviewers')}
-                    
+
                     {renderInputField('Tags', 'tags', 'text', true, 'Critical|SOX|PCI')}
                     {renderInputField('Policy Labels', 'policy_labels', 'text', true)}
 
@@ -157,7 +159,7 @@ const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose, onSave, poli
 
                     {renderInputField('CreatedDate', 'published_date', 'date', true)}
                     {renderInputField('RefreshDate', 'next_review_date', 'date', true)}
-                    
+
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
                         <select name="status" value={formData.status ?? 0} onChange={handleChange} disabled={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
@@ -166,10 +168,10 @@ const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose, onSave, poli
                         </select>
                     </div>
                     {renderInputField('Document Type', 'document_type', 'text', true)}
-                    
+
                     {renderInputField('Related Projects', 'related_projects', 'text', true, 'Project A|Project B')}
                     {renderInputField('Related Documents', 'related_documents', 'text', true, 'Doc 1|Doc 2')}
-                    
+
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Portal Permissions</label>
                         <select name="policy_portal_permissions" value={formData.policy_portal_permissions} onChange={handleChange} disabled={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
@@ -177,7 +179,7 @@ const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose, onSave, poli
                         </select>
                     </div>
 
-                    {formData.policy_portal_permissions === 'custom-roles' && 
+                    {formData.policy_portal_permissions === 'custom-roles' &&
                         renderInputField('Custom Roles', 'custom_roles', 'text', true, 'Owners|Collaborators')
                     }
                 </div>
@@ -202,6 +204,12 @@ export const PoliciesView: React.FC = () => {
     const [sortConfig, setSortConfig] = useState<{ key: keyof PolicyDocument; direction: 'ascending' | 'descending' } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [importData, setImportData] = useState<{ newPolicies: PolicyDocumentCreate[]; policiesToUpdate: Array<{id: string; data: PolicyDocumentUpdate}>; duplicateNames: string[] }>({ newPolicies: [], policiesToUpdate: [], duplicateNames: [] });
+
+    const {
+        selectedIds, isEditing, editValues, isConfirmingDelete, isSaving,
+        setIsConfirmingDelete, setIsSaving,
+        toggle, toggleAll, clearAll, startEdit, updateField, cancelEdit,
+    } = useTableSelection<PolicyDocument>();
 
     const fetchPolicies = useCallback(async () => {
         try {
@@ -229,14 +237,14 @@ export const PoliciesView: React.FC = () => {
                 String(item.description ?? '').toLowerCase().includes(lowerCaseFilter)
             );
         }
-        
+
         if (sortConfig !== null) {
             filteredItems.sort((a, b) => {
                 const aValue = a[sortConfig.key];
                 const bValue = b[sortConfig.key];
                 if (aValue === null || aValue === undefined) return 1;
                 if (bValue === null || bValue === undefined) return -1;
-    
+
                 if (aValue < bValue) {
                     return sortConfig.direction === 'ascending' ? -1 : 1;
                 }
@@ -256,7 +264,7 @@ export const PoliciesView: React.FC = () => {
         }
         setSortConfig({ key, direction });
     };
-    
+
     const getSortIconFor = (key: keyof PolicyDocument) => {
         if (!sortConfig || sortConfig.key !== key) {
             return <SortUpDownIcon className="h-4 w-4 ml-1 text-gray-400" />;
@@ -294,7 +302,7 @@ export const PoliciesView: React.FC = () => {
                         const parts: string[] = [];
                         let current = '';
                         let inQuotes = false;
-                        
+
                         for (let i = 0; i < line.length; i++) {
                             const char = line[i];
                             const nextChar = line[i + 1];
@@ -337,7 +345,7 @@ export const PoliciesView: React.FC = () => {
                             const custom_roles = parts[16] && parts[16] !== '' ? parts[16] : null;
                             const related_documents = parts[17] && parts[17] !== '' ? parts[17] : null;
                             const owner_name = parts[18] && parts[18] !== '' ? parts[18] : null;
-                            
+
                             const policyData: PolicyDocumentCreate = {
                                 name,
                                 description,
@@ -360,7 +368,7 @@ export const PoliciesView: React.FC = () => {
                                 owner_name: owner_name,
                                 policy_doc_link: url,
                             };
-                            
+
                             return { id: policyId, data: policyData };
                         } catch (parseErr) {
                             console.error('Error parsing policy row:', line, parseErr);
@@ -397,7 +405,7 @@ export const PoliciesView: React.FC = () => {
 
         setImportLoading(true);
         try {
-            const addResults = hasNewPolicies 
+            const addResults = hasNewPolicies
                 ? await Promise.allSettled(importData.newPolicies.map(p => SupabaseService.addPolicy(p)))
                 : [];
 
@@ -418,9 +426,9 @@ export const PoliciesView: React.FC = () => {
             await SupabaseService.logAllActivity({
                 action: 'Bulk Imported/Updated Policies',
                 module: 'Governance',
-                event_data: { 
-                    addedCount: importData.newPolicies.length, 
-                    updatedCount: importData.policiesToUpdate.length 
+                event_data: {
+                    addedCount: importData.newPolicies.length,
+                    updatedCount: importData.policiesToUpdate.length
                 }
             });
             setModalState({ type: null });
@@ -486,14 +494,14 @@ export const PoliciesView: React.FC = () => {
                 if (cleanData[key] === '') cleanData[key] = null;
             });
             if (!cleanData.name || cleanData.name.trim() === '') throw new Error('Policy name is required');
-            
+
             const dataToSave: PolicyDocumentCreate | PolicyDocumentUpdate = cleanData;
             if (dataToSave.document_content === 1 && documentFile) {
                 dataToSave.url = await SupabaseService.uploadFile(documentFile, 'policies');
             } else if (dataToSave.document_content === 0) {
                 dataToSave.url = null;
             }
-            
+
             if (modalState.type === 'edit' && modalState.policy) {
                 const updatedPolicy = await SupabaseService.updatePolicy(modalState.policy.id, dataToSave);
                 await SupabaseService.logAllActivity({
@@ -519,7 +527,7 @@ export const PoliciesView: React.FC = () => {
             setError(`Failed to save policy: ${err instanceof Error ? err.message : String(err)}`);
         }
     };
-    
+
     const handleDeletePolicy = async () => {
         if (modalState.type === 'delete' && modalState.policy) {
             try {
@@ -537,7 +545,22 @@ export const PoliciesView: React.FC = () => {
             }
         }
     };
-    
+
+    const handleBulkDelete = async () => {
+        try {
+            setIsSaving(true);
+            for (const id of selectedIds) {
+                await SupabaseService.deletePolicy(id as string);
+            }
+            clearAll();
+            fetchPolicies();
+        } catch (err) {
+            setError('Failed to delete selected policies.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     const policyStatusStyles: Record<PolicyStatus, string> = {
         0: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
         1: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
@@ -547,7 +570,7 @@ export const PoliciesView: React.FC = () => {
         <div>
             <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
                  <div className="w-full sm:w-1/3">
-                    <input 
+                    <input
                         type="text"
                         placeholder="Filter policies..."
                         value={filter}
@@ -576,57 +599,74 @@ export const PoliciesView: React.FC = () => {
             </div>}
 
             <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg dark:border-gray-700">
-                <div className="overflow-x-auto">
+                <div className="overflow-auto max-h-[calc(100vh-280px)]">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-800">
                             <tr>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 w-10 px-4 py-3">
+                                    <input type="checkbox"
+                                        checked={selectedIds.size === filteredAndSortedPolicies.length && filteredAndSortedPolicies.length > 0}
+                                        onChange={() => toggleAll(filteredAndSortedPolicies.map(i => i.id))}
+                                        className="rounded border-gray-300 dark:border-gray-600 cursor-pointer" />
+                                </th>
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
                                     <button onClick={() => requestSort('id')} className="flex items-center w-full text-left focus:outline-none">
                                         Policy ID {getSortIconFor('id')}
                                     </button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
                                     <button onClick={() => requestSort('name')} className="flex items-center w-full text-left focus:outline-none">
                                         Name {getSortIconFor('name')}
                                     </button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
                                     <button onClick={() => requestSort('status')} className="flex items-center w-full text-left focus:outline-none">
                                         Status {getSortIconFor('status')}
                                     </button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
                                     <button onClick={() => requestSort('created_at')} className="flex items-center w-full text-left focus:outline-none">
                                         Created Date {getSortIconFor('created_at')}
                                     </button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
                                     <button onClick={() => requestSort('version')} className="flex items-center w-full text-left focus:outline-none">
                                         Version {getSortIconFor('version')}
                                     </button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
                                     <button onClick={() => requestSort('document_type')} className="flex items-center w-full text-left focus:outline-none">
                                         Document Type {getSortIconFor('document_type')}
                                     </button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Actions</th>
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Actions</th>
                             </tr>
                         </thead>
-                         <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
+                        <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
                             {loading ? (
-                                <tr><td colSpan={7} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading policies...</td></tr>
+                                <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading policies...</td></tr>
                             ) : filteredAndSortedPolicies.length === 0 ? (
-                                <tr><td colSpan={7} className="text-center py-4 text-gray-500 dark:text-gray-400">No policies found.</td></tr>
+                                <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">No policies found.</td></tr>
                             ) : filteredAndSortedPolicies.map(policy => (
-                                <tr key={policy.id}>
+                                <tr key={policy.id}
+                                    onClick={() => setModalState({ type: 'view', policy })}
+                                    className={`cursor-pointer transition-colors ${
+                                        selectedIds.has(policy.id) ? 'bg-blue-50 dark:bg-blue-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                                    }`}
+                                >
+                                    <td onClick={e => e.stopPropagation()} className="w-10 px-4 py-4">
+                                        <input type="checkbox"
+                                            checked={selectedIds.has(policy.id)}
+                                            onChange={() => toggle(policy.id)}
+                                            className="rounded border-gray-300 dark:border-gray-600 cursor-pointer" />
+                                    </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-500 dark:text-gray-400">{policy.id?.substring(0, 8)}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{policy.name}</td>
                                     <td className="px-6 py-4 whitespace-nowrap"><StatusBadge status={policy.status} colorMap={policyStatusStyles} /></td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{policy.created_at ? new Date(policy.created_at).toLocaleDateString() : 'N/A'}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{policy.version}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{policy.document_type || 'N/A'}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                    <td onClick={e => e.stopPropagation()} className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                         <div className="flex justify-end items-center space-x-2">
                                             {policy.url && <a href={policy.url} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-blue-500" title="View"><DownloadIcon className="h-5 w-5" /></a>}
                                             <button onClick={() => setModalState({ type: 'view', policy })} className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
@@ -694,6 +734,21 @@ export const PoliciesView: React.FC = () => {
                     </button>
                 </div>
             </Modal>
+
+            <SelectionActionBar
+                selectedCount={selectedIds.size}
+                isEditing={false}
+                isConfirmingDelete={isConfirmingDelete}
+                isSaving={isSaving}
+                showEdit={false}
+                onEdit={() => {}}
+                onSaveAll={() => {}}
+                onCancelEdit={() => {}}
+                onDelete={() => setIsConfirmingDelete(true)}
+                onConfirmDelete={handleBulkDelete}
+                onCancelDelete={() => setIsConfirmingDelete(false)}
+                onClear={clearAll}
+            />
         </div>
     );
 };

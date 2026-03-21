@@ -5,6 +5,8 @@ import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, Sor
 import { Modal } from '../common/Modal';
 import { StatusBadge } from '../common/StatusBadge';
 import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
+import { useTableSelection } from '../../hooks/useTableSelection';
+import { SelectionActionBar } from '../common/SelectionActionBar';
 
 interface VulnerabilityModalProps {
     isOpen: boolean;
@@ -163,6 +165,12 @@ export const VulnerabilitiesView: React.FC = () => {
     const [sortConfig, setSortConfig] = useState<{ key: keyof Vulnerability; direction: 'ascending' | 'descending' } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    const {
+        selectedIds, isEditing, editValues, isConfirmingDelete, isSaving,
+        setIsConfirmingDelete, setIsSaving,
+        toggle, toggleAll, clearAll, startEdit, updateField, cancelEdit,
+    } = useTableSelection<Vulnerability>();
+
     const vulnerabilityStatusStyles: Record<VulnerabilityStatus, string> = {
         'Planned': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
         'Remediated': 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
@@ -280,6 +288,36 @@ export const VulnerabilitiesView: React.FC = () => {
         }
     };
 
+    const handleBulkDelete = async () => {
+        try {
+            setIsSaving(true);
+            for (const id of selectedIds) {
+                await SupabaseService.deleteVulnerability(id as string);
+            }
+            clearAll();
+            fetchVulnerabilities();
+        } catch (err) {
+            setError('Failed to delete selected items.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleSaveAll = async () => {
+        try {
+            setIsSaving(true);
+            for (const [id, changes] of Object.entries(editValues)) {
+                await SupabaseService.updateVulnerability(id as string, changes);
+            }
+            cancelEdit();
+            fetchVulnerabilities();
+        } catch (err) {
+            setError('Failed to save changes.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     const handleImportCSV = (event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (!file) return;
@@ -299,27 +337,27 @@ export const VulnerabilitiesView: React.FC = () => {
                     return { name, description: description || null, derived_from: derived_from as VulnerabilitySource, status: status as VulnerabilityStatus, asset_id: null };
                 })
                 .filter((v): v is VulnerabilityCreate => v !== null);
-            
+
             if (importedVulns.length > 0) {
                 try {
                     // Get existing vulnerabilities to find duplicates
                     const existingVulns = await SupabaseService.getVulnerabilities();
                     const vulnsToUpdate: { id: string; updates: VulnerabilityUpdate }[] = [];
                     const vulnsToAdd: VulnerabilityCreate[] = [];
-                    
+
                     for (const importedVuln of importedVulns) {
                         // Find existing vulnerability by name
                         const existingVuln = existingVulns.find(
                             v => v.name === importedVuln.name
                         );
-                        
+
                         if (existingVuln) {
                             // Check if anything actually changed
-                            const hasChanges = 
+                            const hasChanges =
                                 existingVuln.description !== importedVuln.description ||
                                 existingVuln.derived_from !== importedVuln.derived_from ||
                                 existingVuln.status !== importedVuln.status;
-                            
+
                             if (hasChanges) {
                                 vulnsToUpdate.push({
                                     id: existingVuln.id,
@@ -334,9 +372,9 @@ export const VulnerabilitiesView: React.FC = () => {
                             vulnsToAdd.push(importedVuln);
                         }
                     }
-                    
+
                     let totalProcessed = 0;
-                    
+
                     // Update existing vulnerabilities
                     if (vulnsToUpdate.length > 0) {
                         for (const { id, updates } of vulnsToUpdate) {
@@ -344,7 +382,7 @@ export const VulnerabilitiesView: React.FC = () => {
                             totalProcessed++;
                         }
                     }
-                    
+
                     // Add new vulnerabilities
                     if (vulnsToAdd.length > 0) {
                         for (const vuln of vulnsToAdd) {
@@ -352,18 +390,18 @@ export const VulnerabilitiesView: React.FC = () => {
                             totalProcessed++;
                         }
                     }
-                    
+
                     if (totalProcessed > 0) {
                         await SupabaseService.logAllActivity({
                             action: 'Imported Vulnerabilities',
                             module: 'Governance',
-                            event_data: { 
+                            event_data: {
                                 total: importedVulns.length,
                                 added: vulnsToAdd.length,
                                 updated: vulnsToUpdate.length
                             }
                         });
-                        
+
                         alert(`${totalProcessed} vulnerabilities processed (${vulnsToAdd.length} added, ${vulnsToUpdate.length} updated) successfully!`);
                         fetchVulnerabilities();
                     } else {
@@ -403,6 +441,9 @@ export const VulnerabilitiesView: React.FC = () => {
         link.click();
     };
 
+    const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
+    const editSelectCls = "border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
+
     return (
         <div>
             <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
@@ -433,45 +474,84 @@ export const VulnerabilitiesView: React.FC = () => {
             {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">{error}</div>}
 
             <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg dark:border-gray-700">
-                <div className="overflow-x-auto">
+                <div className="overflow-auto max-h-[calc(100vh-280px)]">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-800">
                             <tr>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 w-10 px-4 py-3">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedIds.size === filteredAndSortedVulnerabilities.length && filteredAndSortedVulnerabilities.length > 0}
+                                        onChange={() => toggleAll(filteredAndSortedVulnerabilities.map(i => i.id))}
+                                        className="rounded border-gray-300 dark:border-gray-600 cursor-pointer"
+                                    />
+                                </th>
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('name')} className="flex items-center w-full text-left focus:outline-none">Name {getSortIconFor('name')}</button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Associated Asset</th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Associated Asset</th>
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('derived_from')} className="flex items-center w-full text-left focus:outline-none">Source {getSortIconFor('derived_from')}</button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('status')} className="flex items-center w-full text-left focus:outline-none">Status {getSortIconFor('status')}</button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
                             {loading ? (
-                                <tr><td colSpan={5} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading vulnerabilities...</td></tr>
+                                <tr><td colSpan={6} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading vulnerabilities...</td></tr>
                             ) : filteredAndSortedVulnerabilities.length === 0 ? (
-                                <tr><td colSpan={5} className="text-center py-4 text-gray-500 dark:text-gray-400">No vulnerabilities found.</td></tr>
+                                <tr><td colSpan={6} className="text-center py-4 text-gray-500 dark:text-gray-400">No vulnerabilities found.</td></tr>
                             ) : filteredAndSortedVulnerabilities.map(vuln => (
-                                <tr key={vuln.id}>
+                                <tr
+                                    key={vuln.id}
+                                    onClick={() => !isEditing && setModalState({ type: 'view', vulnerability: vuln })}
+                                    className={`cursor-pointer transition-colors ${
+                                        selectedIds.has(vuln.id) ? 'bg-blue-50 dark:bg-blue-900/20' :
+                                        'hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                                    } ${isEditing && !selectedIds.has(vuln.id) ? 'opacity-40 pointer-events-none' : ''}`}
+                                >
+                                    <td onClick={e => e.stopPropagation()} className="w-10 px-4 py-4">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedIds.has(vuln.id)}
+                                            onChange={() => toggle(vuln.id)}
+                                            className="rounded border-gray-300 dark:border-gray-600 cursor-pointer"
+                                        />
+                                    </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm font-medium text-gray-900 dark:text-white">{vuln.name}</div>
-                                        <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{vuln.description}</div>
+                                        {isEditing && selectedIds.has(vuln.id) ? (
+                                            <input type="text" value={editValues[vuln.id]?.name ?? vuln.name} onChange={e => updateField(vuln.id, 'name', e.target.value)} className={editInputCls} />
+                                        ) : (
+                                            <>
+                                                <div className="text-sm font-medium text-gray-900 dark:text-white">{vuln.name}</div>
+                                                <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{vuln.description}</div>
+                                            </>
+                                        )}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                         {vuln.assets ? `${vuln.assets.name} (${vuln.assets.asset_id})` : 'N/A'}
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{vuln.derived_from}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap"><StatusBadge status={vuln.status} colorMap={vulnerabilityStatusStyles} /></td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        <div className="flex justify-end items-center space-x-2">
-                                            <button onClick={() => setModalState({ type: 'view', vulnerability: vuln })} className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
-                                            <button onClick={() => setModalState({ type: 'edit', vulnerability: vuln })} className="text-gray-400 hover:text-yellow-500"><PencilIcon className="h-5 w-5" /></button>
-                                            <button onClick={() => setModalState({ type: 'delete', vulnerability: vuln })} className="text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5" /></button>
-                                        </div>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                        {isEditing && selectedIds.has(vuln.id) ? (
+                                            <select value={editValues[vuln.id]?.derived_from ?? vuln.derived_from} onChange={e => updateField(vuln.id, 'derived_from', e.target.value as any)} className={editSelectCls}><option>KEV</option><option>Scanning</option><option>PT</option><option>Reported-Ext</option></select>
+                                        ) : vuln.derived_from}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        {isEditing && selectedIds.has(vuln.id) ? (
+                                            <select value={editValues[vuln.id]?.status ?? vuln.status} onChange={e => updateField(vuln.id, 'status', e.target.value as any)} className={editSelectCls}><option>Planned</option><option>Remediated</option><option>NA</option></select>
+                                        ) : <StatusBadge status={vuln.status} colorMap={vulnerabilityStatusStyles} />}
+                                    </td>
+                                    <td onClick={e => e.stopPropagation()} className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                        {!isEditing && (
+                                            <div className="flex justify-end items-center space-x-2">
+                                                <button onClick={() => setModalState({ type: 'view', vulnerability: vuln })} className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
+                                                <button onClick={() => setModalState({ type: 'edit', vulnerability: vuln })} className="text-gray-400 hover:text-yellow-500"><PencilIcon className="h-5 w-5" /></button>
+                                                <button onClick={() => setModalState({ type: 'delete', vulnerability: vuln })} className="text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5" /></button>
+                                            </div>
+                                        )}
                                     </td>
                                 </tr>
                             ))}
@@ -487,6 +567,19 @@ export const VulnerabilitiesView: React.FC = () => {
                 mode={modalState.type as 'add' | 'edit' | 'view'}
             />
             <DeleteConfirmationModal isOpen={modalState.type === 'delete'} onClose={closeModal} onConfirm={handleDeleteVulnerability} itemName="vulnerability" />
+            <SelectionActionBar
+                selectedCount={selectedIds.size}
+                isEditing={isEditing}
+                isConfirmingDelete={isConfirmingDelete}
+                isSaving={isSaving}
+                onEdit={() => startEdit(filteredAndSortedVulnerabilities.filter(i => selectedIds.has(i.id)), i => i.id)}
+                onSaveAll={handleSaveAll}
+                onCancelEdit={cancelEdit}
+                onDelete={() => setIsConfirmingDelete(true)}
+                onConfirmDelete={handleBulkDelete}
+                onCancelDelete={() => setIsConfirmingDelete(false)}
+                onClear={clearAll}
+            />
         </div>
     );
 };

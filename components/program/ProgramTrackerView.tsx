@@ -5,6 +5,8 @@ import { UploadIcon, PlusIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDow
 import { Modal } from '../common/Modal';
 import { StatusBadge } from '../common/StatusBadge';
 import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
+import { useTableSelection } from '../../hooks/useTableSelection';
+import { SelectionActionBar } from '../common/SelectionActionBar';
 
 interface ProgramModalProps {
     isOpen: boolean;
@@ -43,9 +45,9 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
         e.preventDefault();
         onSave(formData);
     };
-    
+
     const title = mode === 'add' ? 'Add New Milestone' : mode === 'edit' ? 'Edit Milestone' : 'View Milestone';
-    
+
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={title}>
             <form onSubmit={handleSubmit}>
@@ -134,6 +136,15 @@ export const ProgramTrackerView: React.FC = () => {
     const [sortConfig, setSortConfig] = useState<{ key: keyof ProgramTask; direction: 'ascending' | 'descending' } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    const {
+        selectedIds, isEditing, editValues, isConfirmingDelete, isSaving,
+        setIsConfirmingDelete, setIsSaving,
+        toggle, toggleAll, clearAll, startEdit, updateField, cancelEdit,
+    } = useTableSelection<ProgramTask>();
+
+    const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
+    const editSelectCls = "border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
+
     const fetchTasks = useCallback(async () => {
         try {
             setLoading(true);
@@ -151,7 +162,7 @@ export const ProgramTrackerView: React.FC = () => {
     useEffect(() => {
         fetchTasks();
     }, [fetchTasks]);
-    
+
     const closeModal = () => setModalState({ type: null });
 
     const handleSaveTask = async (formData: ProgramTaskCreate | ProgramTaskUpdate) => {
@@ -159,7 +170,7 @@ export const ProgramTrackerView: React.FC = () => {
             if (modalState.type === 'edit' && modalState.task) {
                 const oldTask = modalState.task;
                 const updatedTask = await SupabaseService.updateTask(modalState.task.id, formData);
-                
+
                 await SupabaseService.logAllActivity({
                     action: 'Updated Milestone',
                     module: 'Program',
@@ -167,7 +178,7 @@ export const ProgramTrackerView: React.FC = () => {
                     entity_name: updatedTask.program_name,
                     event_data: { changes: formData }
                 });
-                
+
                 const changes: string[] = [];
                 if (oldTask.program_name !== updatedTask.program_name) {
                     changes.push(`name changed from "${oldTask.program_name}" to "${updatedTask.program_name}"`);
@@ -188,10 +199,10 @@ export const ProgramTrackerView: React.FC = () => {
                 if (changes.length > 0) {
                     await SupabaseService.addActivityLog(updatedTask.id, `Milestone updated: ${changes.join(', ')}.`);
                 }
-                
+
             } else if (modalState.type === 'add') {
                 const addedTask = await SupabaseService.addTask(formData as ProgramTaskCreate);
-                
+
                 await SupabaseService.logAllActivity({
                     action: 'Created Milestone',
                     module: 'Program',
@@ -199,7 +210,7 @@ export const ProgramTrackerView: React.FC = () => {
                     entity_name: addedTask.program_name,
                     event_data: { details: formData }
                 });
-                
+
                 await SupabaseService.addActivityLog(addedTask.id, `Milestone "${addedTask.program_name}" was created.`);
             }
             fetchTasks();
@@ -227,7 +238,7 @@ export const ProgramTrackerView: React.FC = () => {
             }
         }
     };
-    
+
     const handleImportCSV = (event: ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (!file) return;
@@ -251,7 +262,7 @@ export const ProgramTrackerView: React.FC = () => {
                     };
                 })
                 .filter((task): task is ProgramTaskCreate => task !== null);
-            
+
             if (importedTasks.length > 0) {
                 try {
                     // Get existing tasks to find duplicates
@@ -259,23 +270,23 @@ export const ProgramTrackerView: React.FC = () => {
                     const tasksToUpdate: { id: string; updates: ProgramTaskUpdate }[] = [];
                     const tasksToAdd: ProgramTaskCreate[] = [];
                     const duplicateNames = new Set<string>();
-                    
+
                     for (const importedTask of importedTasks) {
                         // Find existing task by program_name and month (strict match)
                         const existingTask = existingTasks.find(
-                            t => t.program_name.trim() === importedTask.program_name.trim() && 
+                            t => t.program_name.trim() === importedTask.program_name.trim() &&
                                  t.month.trim() === importedTask.month.trim()
                         );
-                        
+
                         if (existingTask) {
                             duplicateNames.add(`${importedTask.program_name} (${importedTask.month})`);
-                            
+
                             // Check if anything actually changed
-                            const hasChanges = 
+                            const hasChanges =
                                 (existingTask.description || '').trim() !== (importedTask.description || '').trim() ||
                                 existingTask.status !== importedTask.status ||
                                 existingTask.progress_percent !== importedTask.progress_percent;
-                            
+
                             if (hasChanges) {
                                 tasksToUpdate.push({
                                     id: existingTask.id,
@@ -290,15 +301,15 @@ export const ProgramTrackerView: React.FC = () => {
                             tasksToAdd.push(importedTask);
                         }
                     }
-                    
+
                     let totalProcessed = 0;
-                    
+
                     // Add new tasks first
                     if (tasksToAdd.length > 0) {
                         await SupabaseService.bulkAddTasks(tasksToAdd);
                         totalProcessed += tasksToAdd.length;
                     }
-                    
+
                     // Update existing tasks
                     if (tasksToUpdate.length > 0) {
                         for (const { id, updates } of tasksToUpdate) {
@@ -306,30 +317,30 @@ export const ProgramTrackerView: React.FC = () => {
                             totalProcessed++;
                         }
                     }
-                    
+
                     if (totalProcessed > 0) {
                         await SupabaseService.logAllActivity({
                             action: 'Imported Milestones',
                             module: 'Program',
-                            event_data: { 
+                            event_data: {
                                 total: importedTasks.length,
                                 added: tasksToAdd.length,
                                 updated: tasksToUpdate.length,
                                 duplicates: Array.from(duplicateNames)
                             }
                         });
-                        
+
                         let message = `${totalProcessed} milestones processed:\n`;
                         message += `• ${tasksToAdd.length} new milestones added\n`;
                         message += `• ${tasksToUpdate.length} existing milestones updated`;
-                        
+
                         if (duplicateNames.size > 0) {
                             message += `\n\nDuplicates found (not added):\n${Array.from(duplicateNames).slice(0, 5).join('\n')}`;
                             if (duplicateNames.size > 5) {
                                 message += `\n... and ${duplicateNames.size - 5} more`;
                             }
                         }
-                        
+
                         alert(message);
                         fetchTasks();
                     } else {
@@ -408,6 +419,39 @@ export const ProgramTrackerView: React.FC = () => {
         link.click();
     };
 
+    const handleSaveAll = async () => {
+        try {
+            setIsSaving(true);
+            for (const id of selectedIds) {
+                const changes = editValues[id as string];
+                if (changes) {
+                    await SupabaseService.updateTask(id as string, changes);
+                }
+            }
+            clearAll();
+            fetchTasks();
+        } catch {
+            setError('Failed to save changes.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleBulkDelete = async () => {
+        try {
+            setIsSaving(true);
+            for (const id of selectedIds) {
+                await SupabaseService.deleteTask(id as string);
+            }
+            clearAll();
+            fetchTasks();
+        } catch {
+            setError('Failed to delete selected milestones.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     const programStatusStyles: Record<ProgramStatus, string> = {
         Planned: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
         InProgress: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300',
@@ -447,50 +491,106 @@ export const ProgramTrackerView: React.FC = () => {
             {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">{error}</div>}
 
             <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg dark:border-gray-700">
-                <div className="overflow-x-auto">
+                <div className="overflow-auto max-h-[calc(100vh-280px)]">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-800">
                             <tr>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 w-10 px-4 py-3">
+                                    <input type="checkbox"
+                                        checked={selectedIds.size === filteredAndSortedTasks.length && filteredAndSortedTasks.length > 0}
+                                        onChange={() => toggleAll(filteredAndSortedTasks.map(i => i.id))}
+                                        className="rounded border-gray-300 dark:border-gray-600 cursor-pointer" />
+                                </th>
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('month')} className="flex items-center focus:outline-none">Month {getSortIconFor('month')}</button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('program_name')} className="flex items-center focus:outline-none">Name {getSortIconFor('program_name')}</button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('status')} className="flex items-center focus:outline-none">Status {getSortIconFor('status')}</button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('progress_percent')} className="flex items-center focus:outline-none">Progress {getSortIconFor('progress_percent')}</button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
                             {loading ? (
-                                <tr><td colSpan={5} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading milestones...</td></tr>
+                                <tr><td colSpan={6} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading milestones...</td></tr>
                             ) : filteredAndSortedTasks.length === 0 ? (
-                                <tr><td colSpan={5} className="text-center py-4 text-gray-500 dark:text-gray-400">No milestones found.</td></tr>
+                                <tr><td colSpan={6} className="text-center py-4 text-gray-500 dark:text-gray-400">No milestones found.</td></tr>
                             ) : filteredAndSortedTasks.map(task => (
-                                <tr key={task.id}>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{task.month}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white" title={task.description || undefined}>{task.program_name}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap"><StatusBadge status={task.status} colorMap={programStatusStyles} /></td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="flex items-center space-x-2 w-32">
-                                            <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700">
-                                                <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${task.progress_percent}%` }}></div>
-                                            </div>
-                                            <span className="text-xs text-gray-500 dark:text-gray-400">{task.progress_percent}%</span>
-                                        </div>
+                                <tr key={task.id}
+                                    onClick={() => !isEditing && setModalState({ type: 'view', task })}
+                                    className={`cursor-pointer transition-colors ${
+                                        selectedIds.has(task.id) ? 'bg-blue-50 dark:bg-blue-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                                    } ${isEditing && !selectedIds.has(task.id) ? 'opacity-40 pointer-events-none' : ''}`}
+                                >
+                                    <td onClick={e => e.stopPropagation()} className="w-10 px-4 py-4">
+                                        <input type="checkbox"
+                                            checked={selectedIds.has(task.id)}
+                                            onChange={() => toggle(task.id)}
+                                            className="rounded border-gray-300 dark:border-gray-600 cursor-pointer" />
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        <div className="flex justify-end items-center space-x-2">
-                                            <button onClick={() => setModalState({ type: 'log', task })} title="View Logs" className="text-gray-400 hover:text-blue-500"><HistoryIcon className="h-5 w-5" /></button>
-                                            <button onClick={() => setModalState({ type: 'view', task })} title="View Milestone" className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
-                                            <button onClick={() => setModalState({ type: 'edit', task })} title="Edit Milestone" className="text-gray-400 hover:text-yellow-500"><PencilIcon className="h-5 w-5" /></button>
-                                            <button onClick={() => setModalState({ type: 'delete', task })} title="Delete Milestone" className="text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5" /></button>
-                                        </div>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                        {isEditing && selectedIds.has(task.id) ? (
+                                            <select value={editValues[task.id]?.month ?? task.month} onChange={e => updateField(task.id, 'month', e.target.value)} className={editSelectCls}>
+                                                <option>January</option>
+                                                <option>February</option>
+                                                <option>March</option>
+                                                <option>April</option>
+                                                <option>May</option>
+                                                <option>June</option>
+                                                <option>July</option>
+                                                <option>August</option>
+                                                <option>September</option>
+                                                <option>October</option>
+                                                <option>November</option>
+                                                <option>December</option>
+                                            </select>
+                                        ) : task.month}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white" title={task.description || undefined}>
+                                        {isEditing && selectedIds.has(task.id) ? (
+                                            <input type="text" value={editValues[task.id]?.program_name ?? task.program_name} onChange={e => updateField(task.id, 'program_name', e.target.value)} className={editInputCls} />
+                                        ) : task.program_name}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        {isEditing && selectedIds.has(task.id) ? (
+                                            <select value={editValues[task.id]?.status ?? task.status} onChange={e => updateField(task.id, 'status', e.target.value as any)} className={editSelectCls}>
+                                                <option>Planned</option>
+                                                <option>InProgress</option>
+                                                <option>Completed</option>
+                                                <option>Blocked</option>
+                                            </select>
+                                        ) : <StatusBadge status={task.status} colorMap={programStatusStyles} />}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        {isEditing && selectedIds.has(task.id) ? (
+                                            <div className="flex items-center gap-2">
+                                                <input type="range" min="0" max="100" value={editValues[task.id]?.progress_percent ?? task.progress_percent} onChange={e => updateField(task.id, 'progress_percent', Number(e.target.value))} className="w-24" />
+                                                <span className="text-xs w-8 text-gray-500 dark:text-gray-400">{editValues[task.id]?.progress_percent ?? task.progress_percent}%</span>
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center space-x-2 w-32">
+                                                <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700">
+                                                    <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${task.progress_percent}%` }}></div>
+                                                </div>
+                                                <span className="text-xs text-gray-500 dark:text-gray-400">{task.progress_percent}%</span>
+                                            </div>
+                                        )}
+                                    </td>
+                                    <td onClick={e => e.stopPropagation()} className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                        {!isEditing && (
+                                            <div className="flex justify-end items-center space-x-2">
+                                                <button onClick={() => setModalState({ type: 'log', task })} title="View Logs" className="text-gray-400 hover:text-blue-500"><HistoryIcon className="h-5 w-5" /></button>
+                                                <button onClick={() => setModalState({ type: 'view', task })} title="View Milestone" className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
+                                                <button onClick={() => setModalState({ type: 'edit', task })} title="Edit Milestone" className="text-gray-400 hover:text-yellow-500"><PencilIcon className="h-5 w-5" /></button>
+                                                <button onClick={() => setModalState({ type: 'delete', task })} title="Delete Milestone" className="text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5" /></button>
+                                            </div>
+                                        )}
                                     </td>
                                 </tr>
                             ))}
@@ -498,7 +598,7 @@ export const ProgramTrackerView: React.FC = () => {
                     </table>
                 </div>
             </div>
-            
+
             <ProgramModal
                 isOpen={modalState.type === 'add' || modalState.type === 'edit' || modalState.type === 'view'}
                 onClose={closeModal}
@@ -506,18 +606,32 @@ export const ProgramTrackerView: React.FC = () => {
                 taskToEdit={modalState.task || null}
                 mode={modalState.type as 'add' | 'edit' | 'view'}
             />
-            
+
             <ActivityLogModal
                 isOpen={modalState.type === 'log'}
                 onClose={closeModal}
                 taskId={modalState.task?.id || null}
             />
-            
+
             <DeleteConfirmationModal
                 isOpen={modalState.type === 'delete'}
                 onClose={closeModal}
                 onConfirm={handleDeleteTask}
                 itemName="milestone"
+            />
+
+            <SelectionActionBar
+                selectedCount={selectedIds.size}
+                isEditing={isEditing}
+                isConfirmingDelete={isConfirmingDelete}
+                isSaving={isSaving}
+                onEdit={() => startEdit(filteredAndSortedTasks.filter(i => selectedIds.has(i.id)), i => i.id)}
+                onSaveAll={handleSaveAll}
+                onCancelEdit={cancelEdit}
+                onDelete={() => setIsConfirmingDelete(true)}
+                onConfirmDelete={handleBulkDelete}
+                onCancelDelete={() => setIsConfirmingDelete(false)}
+                onClear={clearAll}
             />
         </div>
     );
