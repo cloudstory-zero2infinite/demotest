@@ -3,6 +3,8 @@ import { Asset, AssetCreate, AssetUpdate, AssetCriticality, AssetGovernedStatus,
 import * as SupabaseService from '../../services/supabase';
 import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon } from '../Icons';
 import { Modal } from '../common/Modal';
+import { useTableSelection } from '../../hooks/useTableSelection';
+import { SelectionActionBar } from '../common/SelectionActionBar';
 
 interface AssetModalProps {
     isOpen: boolean;
@@ -118,6 +120,12 @@ export const AssetsView: React.FC = () => {
     const [sortConfig, setSortConfig] = useState<{ key: keyof Asset; direction: 'ascending' | 'descending' } | null>(null);
     const [importData, setImportData] = useState<{ newAssets: AssetCreate[]; duplicates: string[] }>({ newAssets: [], duplicates: [] });
 
+    const {
+        selectedIds, isEditing, editValues, isConfirmingDelete, isSaving,
+        setIsConfirmingDelete, setIsSaving,
+        toggle, toggleAll, clearAll, startEdit, updateField, cancelEdit,
+    } = useTableSelection<Asset>();
+
     const fetchAssets = useCallback(async () => {
         try {
             setLoading(true);
@@ -138,7 +146,7 @@ export const AssetsView: React.FC = () => {
     useEffect(() => {
         fetchAssets();
     }, [fetchAssets]);
-    
+
     const filteredAndSortedAssets = useMemo(() => {
         let filteredItems = [...assets];
         if (filter) {
@@ -152,14 +160,14 @@ export const AssetsView: React.FC = () => {
                 String(item.details ?? '').toLowerCase().includes(lowerCaseFilter)
             );
         }
-        
+
         if (sortConfig !== null) {
             filteredItems.sort((a, b) => {
                 const aValue = a[sortConfig.key];
                 const bValue = b[sortConfig.key];
                 if (aValue === null || aValue === undefined) return 1;
                 if (bValue === null || bValue === undefined) return -1;
-    
+
                 if (aValue < bValue) {
                     return sortConfig.direction === 'ascending' ? -1 : 1;
                 }
@@ -179,7 +187,7 @@ export const AssetsView: React.FC = () => {
         }
         setSortConfig({ key, direction });
     };
-    
+
     const getSortIconFor = (key: keyof Asset) => {
         if (!sortConfig || sortConfig.key !== key) {
             return <SortUpDownIcon className="h-4 w-4 ml-1 text-gray-400" />;
@@ -219,7 +227,7 @@ export const AssetsView: React.FC = () => {
             setError('Failed to save asset.');
         }
     };
-    
+
     const handleDeleteAsset = async () => {
         if (modalState.type === 'delete' && modalState.asset) {
             try {
@@ -245,14 +253,44 @@ export const AssetsView: React.FC = () => {
         }
     };
 
+    const handleBulkDelete = async () => {
+        try {
+            setIsSaving(true);
+            for (const id of selectedIds) {
+                await SupabaseService.deleteAsset(id as string);
+            }
+            clearAll();
+            fetchAssets();
+        } catch (err) {
+            setError('Failed to delete selected items.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleSaveAll = async () => {
+        try {
+            setIsSaving(true);
+            for (const [id, changes] of Object.entries(editValues)) {
+                await SupabaseService.updateAsset(id, changes);
+            }
+            cancelEdit();
+            fetchAssets();
+        } catch (err) {
+            setError('Failed to save changes.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     const getRelatedAssetsForAsset = (asset: Asset) => {
         const relatedAssets: string[] = [];
-        
+
         // Find all relationships where this asset is involved as source or target
-        const assetRelationships = relationships.filter(r => 
+        const assetRelationships = relationships.filter(r =>
             r.source_asset_id === asset.asset_id || r.target_asset_id === asset.asset_id
         );
-        
+
         // Collect unique related asset names
         assetRelationships.forEach(r => {
             if (r.source_asset_id !== asset.asset_id && !relatedAssets.includes(r.source_asset_id)) {
@@ -262,7 +300,7 @@ export const AssetsView: React.FC = () => {
                 relatedAssets.push(r.target_asset_id);
             }
         });
-        
+
         return relatedAssets;
     };
 
@@ -308,9 +346,9 @@ export const AssetsView: React.FC = () => {
                         physical_location: physical_location || '',
                     };
                 })
-                .filter((asset): asset is AssetCreate => 
-    asset !== null && 
-    typeof asset.asset_id === 'string' && 
+                .filter((asset): asset is AssetCreate =>
+    asset !== null &&
+    typeof asset.asset_id === 'string' &&
     typeof asset.name === 'string' &&
     typeof asset.criticality === 'string' &&
     typeof asset.details === 'string' &&
@@ -318,19 +356,19 @@ export const AssetsView: React.FC = () => {
     typeof asset.exposure === 'string' &&
     typeof asset.category === 'string'
 );
-            
+
             // Check for duplicates by asset_id
             const existingAssetIds = new Set(assets.map(a => a.asset_id));
             const newAssets = parsedAssets.filter(a => !existingAssetIds.has(a.asset_id));
             const duplicates = parsedAssets.filter(a => existingAssetIds.has(a.asset_id)).map(a => a.asset_id);
-            
+
             setImportData({ newAssets, duplicates });
             setModalState({ type: 'import' });
         };
         reader.readAsText(file);
         if(fileInputRef.current) fileInputRef.current.value = '';
     };
-    
+
     const handleConfirmImport = async () => {
         if (importData.newAssets.length > 0) {
             try {
@@ -377,11 +415,14 @@ const handleExportCSV = () => {
     link.click();
 };
 
+    const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
+    const editSelectCls = "border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
+
     return (
         <div>
             <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
                 <div className="w-full sm:w-1/3">
-                    <input 
+                    <input
                         type="text"
                         placeholder="Filter assets..."
                         value={filter}
@@ -403,66 +444,115 @@ const handleExportCSV = () => {
                     </button>
                 </div>
             </div>
-            
+
             {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">{error}</div>}
 
             <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg dark:border-gray-700">
-                <div className="overflow-x-auto">
+                <div className="overflow-auto max-h-[calc(100vh-280px)]">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-800">
                             <tr>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 w-10 px-4 py-3">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedIds.size === filteredAndSortedAssets.length && filteredAndSortedAssets.length > 0}
+                                        onChange={() => toggleAll(filteredAndSortedAssets.map(i => i.id))}
+                                        className="rounded border-gray-300 dark:border-gray-600 cursor-pointer"
+                                    />
+                                </th>
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('asset_id')} className="flex items-center w-full text-left focus:outline-none">
                                         Asset ID {getSortIconFor('asset_id')}
                                     </button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('name')} className="flex items-center w-full text-left focus:outline-none">
                                         Name {getSortIconFor('name')}
                                     </button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('criticality')} className="flex items-center w-full text-left focus:outline-none">
                                         Criticality {getSortIconFor('criticality')}
                                     </button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('business_owner')} className="flex items-center w-full text-left focus:outline-none">
                                         Business Owner {getSortIconFor('business_owner')}
                                     </button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('physical_location')} className="flex items-center w-full text-left focus:outline-none">
                                         Physical Location {getSortIconFor('physical_location')}
                                     </button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('category')} className="flex items-center w-full text-left focus:outline-none">
                                         Type {getSortIconFor('category')}
                                     </button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
                             </tr>
                         </thead>
                          <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
                             {loading ? (
-                                <tr><td colSpan={7} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading assets...</td></tr>
+                                <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading assets...</td></tr>
                             ) : filteredAndSortedAssets.length === 0 ? (
-                                <tr><td colSpan={7} className="text-center py-4 text-gray-500 dark:text-gray-400">No assets found.</td></tr>
+                                <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">No assets found.</td></tr>
                             ) : filteredAndSortedAssets.map(asset => (
-                                <tr key={asset.id}>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{asset.asset_id}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">{asset.name}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{asset.criticality}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{asset.business_owner || '-'}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{asset.physical_location || '-'}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{asset.category}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        <div className="flex justify-end items-center space-x-2">
-                                            <button onClick={() => setModalState({ type: 'view', asset })} className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
-                                            <button onClick={() => setModalState({ type: 'edit', asset })} className="text-gray-400 hover:text-yellow-500"><PencilIcon className="h-5 w-5" /></button>
-                                            <button onClick={() => { setError(null); setModalState({ type: 'delete', asset }); }} className="text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5" /></button>
-                                        </div>
+                                <tr
+                                    key={asset.id}
+                                    onClick={() => !isEditing && setModalState({ type: 'view', asset })}
+                                    className={`cursor-pointer transition-colors ${
+                                        selectedIds.has(asset.id) ? 'bg-blue-50 dark:bg-blue-900/20' :
+                                        'hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                                    } ${isEditing && !selectedIds.has(asset.id) ? 'opacity-40 pointer-events-none' : ''}`}
+                                >
+                                    <td onClick={e => e.stopPropagation()} className="w-10 px-4 py-4">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedIds.has(asset.id)}
+                                            onChange={() => toggle(asset.id)}
+                                            className="rounded border-gray-300 dark:border-gray-600 cursor-pointer"
+                                        />
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                                        {isEditing && selectedIds.has(asset.id) ? (
+                                            <input type="text" value={editValues[asset.id]?.asset_id ?? asset.asset_id} onChange={e => updateField(asset.id, 'asset_id', e.target.value)} className={editInputCls} />
+                                        ) : asset.asset_id}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                                        {isEditing && selectedIds.has(asset.id) ? (
+                                            <input type="text" value={editValues[asset.id]?.name ?? asset.name} onChange={e => updateField(asset.id, 'name', e.target.value)} className={editInputCls} />
+                                        ) : asset.name}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                        {isEditing && selectedIds.has(asset.id) ? (
+                                            <select value={editValues[asset.id]?.criticality ?? asset.criticality} onChange={e => updateField(asset.id, 'criticality', e.target.value as any)} className={editSelectCls}><option>Low</option><option>Medium</option><option>High</option></select>
+                                        ) : asset.criticality}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                        {isEditing && selectedIds.has(asset.id) ? (
+                                            <input type="text" value={editValues[asset.id]?.business_owner ?? asset.business_owner ?? ''} onChange={e => updateField(asset.id, 'business_owner', e.target.value)} className={editInputCls} />
+                                        ) : (asset.business_owner || '-')}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                        {isEditing && selectedIds.has(asset.id) ? (
+                                            <input type="text" value={editValues[asset.id]?.physical_location ?? asset.physical_location ?? ''} onChange={e => updateField(asset.id, 'physical_location', e.target.value)} className={editInputCls} />
+                                        ) : (asset.physical_location || '-')}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                        {isEditing && selectedIds.has(asset.id) ? (
+                                            <select value={editValues[asset.id]?.category ?? asset.category} onChange={e => updateField(asset.id, 'category', e.target.value as any)} className={editSelectCls}><option>Technology</option><option>Information</option><option>Service</option></select>
+                                        ) : asset.category}
+                                    </td>
+                                    <td onClick={e => e.stopPropagation()} className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                        {!isEditing && (
+                                            <div className="flex justify-end items-center space-x-2">
+                                                <button onClick={() => setModalState({ type: 'view', asset })} className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
+                                                <button onClick={() => setModalState({ type: 'edit', asset })} className="text-gray-400 hover:text-yellow-500"><PencilIcon className="h-5 w-5" /></button>
+                                                <button onClick={() => { setError(null); setModalState({ type: 'delete', asset }); }} className="text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5" /></button>
+                                            </div>
+                                        )}
                                     </td>
                                 </tr>
                             ))}
@@ -568,6 +658,19 @@ const handleExportCSV = () => {
                     </button>
                 </div>
             </Modal>
+            <SelectionActionBar
+                selectedCount={selectedIds.size}
+                isEditing={isEditing}
+                isConfirmingDelete={isConfirmingDelete}
+                isSaving={isSaving}
+                onEdit={() => startEdit(filteredAndSortedAssets.filter(i => selectedIds.has(i.id)), i => i.id)}
+                onSaveAll={handleSaveAll}
+                onCancelEdit={cancelEdit}
+                onDelete={() => setIsConfirmingDelete(true)}
+                onConfirmDelete={handleBulkDelete}
+                onCancelDelete={() => setIsConfirmingDelete(false)}
+                onClear={clearAll}
+            />
         </div>
     );
 };

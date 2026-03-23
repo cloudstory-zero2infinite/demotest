@@ -2,6 +2,8 @@ import React, { useState, useCallback, useMemo, useRef } from 'react';
 import * as SupabaseService from '../../services/supabase';
 import { AssetRelationship, AssetRelationshipCreate } from '../../types';
 import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon } from '../Icons';
+import { useTableSelection } from '../../hooks/useTableSelection';
+import { SelectionActionBar } from '../common/SelectionActionBar';
 
 const RELATIONSHIP_TYPES = ['Depends On', 'Hosts', 'Communicates With', 'Contains', 'Owned By', 'Managed By', 'Connected To', 'Backs Up', 'Replicates To'];
 
@@ -108,6 +110,15 @@ export const AssetRelationshipsView: React.FC = () => {
     const [importData, setImportData] = useState<{ newRels: AssetRelationshipCreate[]; skipped: number; addedCount?: number }>({ newRels: [], skipped: 0 });
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    const {
+        selectedIds, isEditing, editValues, isConfirmingDelete, isSaving,
+        setIsConfirmingDelete, setIsSaving,
+        toggle, toggleAll, clearAll, startEdit, updateField, cancelEdit,
+    } = useTableSelection<AssetRelationship>();
+
+    const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
+    const editSelectCls = "border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
+
     const fetchData = useCallback(async () => {
         try {
             setLoading(true);
@@ -125,9 +136,9 @@ export const AssetRelationshipsView: React.FC = () => {
         }
     }, []);
 
-    React.useEffect(() => { 
+    React.useEffect(() => {
         // Initial data fetch
-        fetchData(); 
+        fetchData();
     }, [fetchData]);
 
     // Add a visibility observer to refresh data when tab becomes visible
@@ -221,46 +232,46 @@ export const AssetRelationshipsView: React.FC = () => {
                 const existingRelationships = relationships;
                 const duplicates: string[] = [];
                 const validRels: AssetRelationshipCreate[] = [];
-                
+
                 for (const newRel of importData.newRels) {
-                    const isDuplicate = existingRelationships.some(existing => 
+                    const isDuplicate = existingRelationships.some(existing =>
                         existing.source_asset_id === newRel.source_asset_id &&
                         existing.target_asset_id === newRel.target_asset_id &&
                         existing.relationship_type === newRel.relationship_type
                     );
-                    
+
                     if (isDuplicate) {
                         duplicates.push(`${newRel.source_asset_id} → ${newRel.relationship_type} → ${newRel.target_asset_id}`);
                     } else {
                         validRels.push(newRel);
                     }
                 }
-                
+
                 // Only add non-duplicate relationships
                 const importedRelationships = [];
                 for (const rel of validRels) {
                     const savedRel = await SupabaseService.addAssetRelationship(rel);
                     importedRelationships.push(savedRel);
                 }
-                
+
                 await SupabaseService.logAllActivity({
                     action: 'Bulk Imported Asset Relationships',
                     module: 'Governance',
                     entity_id: null,
                     entity_name: `${importedRelationships.length} relationships imported`,
-                    event_data: { 
+                    event_data: {
                         count: importedRelationships.length,
                         relationships: importedRelationships,
                         skipped_count: importData.skipped
                     }
                 });
-                
+
                 setModalState({ type: null });
                 fetchData(); // Refresh data to show new relationships
-                
+
                 // Store import count for button display
                 setImportData(prev => ({ ...prev, newRels: validRels, addedCount: validRels.length }));
-                
+
             } catch {
                 setError('Failed to import relationships.');
             }
@@ -291,18 +302,18 @@ export const AssetRelationshipsView: React.FC = () => {
     const handleSave = async (data: AssetRelationshipCreate) => {
         try {
             // Check for duplicates before saving
-            const isDuplicate = relationships.some(existing => 
+            const isDuplicate = relationships.some(existing =>
                 existing.source_asset_id === data.source_asset_id &&
                 existing.target_asset_id === data.target_asset_id &&
                 existing.relationship_type === data.relationship_type &&
                 existing.id !== modalState.rel?.id // Exclude current relationship if editing
             );
-            
+
             if (isDuplicate) {
                 // Don't show error, just return silently
                 return;
             }
-            
+
             let savedRelationship;
             if (modalState.type === 'edit' && modalState.rel) {
                 savedRelationship = await SupabaseService.updateAssetRelationship(modalState.rel.id, data);
@@ -311,9 +322,9 @@ export const AssetRelationshipsView: React.FC = () => {
                     module: 'Governance',
                     entity_id: savedRelationship.id,
                     entity_name: `${data.source_asset_id} → ${data.relationship_type} → ${data.target_asset_id}`,
-                    event_data: { 
+                    event_data: {
                         old_relationship: modalState.rel,
-                        new_relationship: data 
+                        new_relationship: data
                     }
                 });
             } else {
@@ -352,25 +363,58 @@ export const AssetRelationshipsView: React.FC = () => {
         }
     };
 
+    const handleSaveAll = async () => {
+        try {
+            setIsSaving(true);
+            for (const id of selectedIds) {
+                const changes = editValues[id as string];
+                if (changes) {
+                    await SupabaseService.updateAssetRelationship(id as string, changes);
+                }
+            }
+            clearAll();
+            fetchData();
+        } catch {
+            setError('Failed to save changes.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleBulkDelete = async () => {
+        try {
+            setIsSaving(true);
+            for (const id of selectedIds) {
+                await SupabaseService.deleteAssetRelationship(id as string);
+            }
+            clearAll();
+            fetchData();
+        } catch {
+            setError('Failed to delete selected relationships.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     const getRelatedAssetsForRelationship = (relationship: AssetRelationship) => {
         const relatedAssets: string[] = [];
-        
+
         // Find all relationships where the current source asset is involved
-        const sourceRelatedRelationships = relationships.filter(r => 
+        const sourceRelatedRelationships = relationships.filter(r =>
             r.id !== relationship.id && (
-                r.source_asset_id === relationship.source_asset_id || 
+                r.source_asset_id === relationship.source_asset_id ||
                 r.target_asset_id === relationship.source_asset_id
             )
         );
-        
+
         // Find all relationships where the current target asset is involved
-        const targetRelatedRelationships = relationships.filter(r => 
+        const targetRelatedRelationships = relationships.filter(r =>
             r.id !== relationship.id && (
-                r.source_asset_id === relationship.target_asset_id || 
+                r.source_asset_id === relationship.target_asset_id ||
                 r.target_asset_id === relationship.target_asset_id
             )
         );
-        
+
         // Collect unique related asset names
         sourceRelatedRelationships.forEach(r => {
             if (r.source_asset_id !== relationship.source_asset_id && !relatedAssets.includes(r.source_asset_id)) {
@@ -380,7 +424,7 @@ export const AssetRelationshipsView: React.FC = () => {
                 relatedAssets.push(r.target_asset_id);
             }
         });
-        
+
         targetRelatedRelationships.forEach(r => {
             if (r.source_asset_id !== relationship.target_asset_id && !relatedAssets.includes(r.source_asset_id)) {
                 relatedAssets.push(r.source_asset_id);
@@ -389,7 +433,7 @@ export const AssetRelationshipsView: React.FC = () => {
                 relatedAssets.push(r.target_asset_id);
             }
         });
-        
+
         return relatedAssets;
     };
 
@@ -427,44 +471,89 @@ export const AssetRelationshipsView: React.FC = () => {
             {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4">{error}</div>}
 
             <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg dark:border-gray-700">
-                <div className="overflow-x-auto">
+                <div className="overflow-auto max-h-[calc(100vh-280px)]">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-800">
                             <tr>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 w-10 px-4 py-3">
+                                    <input type="checkbox"
+                                        checked={selectedIds.size === filteredAndSorted.length && filteredAndSorted.length > 0}
+                                        onChange={() => toggleAll(filteredAndSorted.map(i => i.id))}
+                                        className="rounded border-gray-300 dark:border-gray-600 cursor-pointer" />
+                                </th>
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('source_asset_id')} className="flex items-center w-full text-left focus:outline-none">
                                         Source Asset {getSortIconFor('source_asset_id')}
                                     </button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('relationship_type')} className="flex items-center w-full text-left focus:outline-none">
                                         Relationship {getSortIconFor('relationship_type')}
                                     </button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('target_asset_id')} className="flex items-center w-full text-left focus:outline-none">
                                         Target Asset {getSortIconFor('target_asset_id')}
                                     </button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
                             {loading ? (
-                                <tr><td colSpan={4} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading relationships...</td></tr>
+                                <tr><td colSpan={5} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading relationships...</td></tr>
                             ) : filteredAndSorted.length === 0 ? (
-                                <tr><td colSpan={4} className="text-center py-4 text-gray-500 dark:text-gray-400">No relationships found.</td></tr>
+                                <tr><td colSpan={5} className="text-center py-4 text-gray-500 dark:text-gray-400">No relationships found.</td></tr>
                             ) : filteredAndSorted.map(rel => (
-                                <tr key={rel.id}>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{rel.source_asset_id}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 dark:text-blue-400 font-medium">{rel.relationship_type}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{rel.target_asset_id}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        <div className="flex justify-end items-center space-x-2">
-                                            <button onClick={() => setModalState({ type: 'view', rel })} className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
-                                            <button onClick={() => setModalState({ type: 'edit', rel })} className="text-gray-400 hover:text-yellow-500"><PencilIcon className="h-5 w-5" /></button>
-                                            <button onClick={() => setModalState({ type: 'delete', rel })} className="text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5" /></button>
-                                        </div>
+                                <tr key={rel.id}
+                                    onClick={() => !isEditing && setModalState({ type: 'view', rel })}
+                                    className={`cursor-pointer transition-colors ${
+                                        selectedIds.has(rel.id) ? 'bg-blue-50 dark:bg-blue-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                                    } ${isEditing && !selectedIds.has(rel.id) ? 'opacity-40 pointer-events-none' : ''}`}
+                                >
+                                    <td onClick={e => e.stopPropagation()} className="w-10 px-4 py-4">
+                                        <input type="checkbox"
+                                            checked={selectedIds.has(rel.id)}
+                                            onChange={() => toggle(rel.id)}
+                                            className="rounded border-gray-300 dark:border-gray-600 cursor-pointer" />
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                                        {isEditing && selectedIds.has(rel.id) ? (
+                                            <select value={editValues[rel.id]?.source_asset_id ?? rel.source_asset_id} onChange={e => updateField(rel.id, 'source_asset_id', e.target.value)} className={editSelectCls}>
+                                                {assetIds.map(id => <option key={id} value={id}>{id}</option>)}
+                                            </select>
+                                        ) : rel.source_asset_id}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 dark:text-blue-400 font-medium">
+                                        {isEditing && selectedIds.has(rel.id) ? (
+                                            <select value={editValues[rel.id]?.relationship_type ?? rel.relationship_type} onChange={e => updateField(rel.id, 'relationship_type', e.target.value as any)} className={editSelectCls}>
+                                                <option>Depends On</option>
+                                                <option>Hosts</option>
+                                                <option>Communicates With</option>
+                                                <option>Contains</option>
+                                                <option>Owned By</option>
+                                                <option>Managed By</option>
+                                                <option>Connected To</option>
+                                                <option>Backs Up</option>
+                                                <option>Replicates To</option>
+                                            </select>
+                                        ) : rel.relationship_type}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                                        {isEditing && selectedIds.has(rel.id) ? (
+                                            <select value={editValues[rel.id]?.target_asset_id ?? rel.target_asset_id} onChange={e => updateField(rel.id, 'target_asset_id', e.target.value)} className={editSelectCls}>
+                                                {assetIds.map(id => <option key={id} value={id}>{id}</option>)}
+                                            </select>
+                                        ) : rel.target_asset_id}
+                                    </td>
+                                    <td onClick={e => e.stopPropagation()} className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                        {!isEditing && (
+                                            <div className="flex justify-end items-center space-x-2">
+                                                <button onClick={() => setModalState({ type: 'view', rel })} className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
+                                                <button onClick={() => setModalState({ type: 'edit', rel })} className="text-gray-400 hover:text-yellow-500"><PencilIcon className="h-5 w-5" /></button>
+                                                <button onClick={() => setModalState({ type: 'delete', rel })} className="text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5" /></button>
+                                            </div>
+                                        )}
                                     </td>
                                 </tr>
                             ))}
@@ -561,6 +650,20 @@ export const AssetRelationshipsView: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            <SelectionActionBar
+                selectedCount={selectedIds.size}
+                isEditing={isEditing}
+                isConfirmingDelete={isConfirmingDelete}
+                isSaving={isSaving}
+                onEdit={() => startEdit(filteredAndSorted.filter(i => selectedIds.has(i.id)), i => i.id)}
+                onSaveAll={handleSaveAll}
+                onCancelEdit={cancelEdit}
+                onDelete={() => setIsConfirmingDelete(true)}
+                onConfirmDelete={handleBulkDelete}
+                onCancelDelete={() => setIsConfirmingDelete(false)}
+                onClear={clearAll}
+            />
         </div>
     );
 };

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Compliance, ComplianceStatus } from '../../types';
 import * as SupabaseService from '../../services/supabase';
-import { EyeIcon, SortUpDownIcon, SortUpIcon, SortDownIcon } from '../Icons';
+import { SortUpDownIcon, SortUpIcon, SortDownIcon } from '../Icons';
 import { Modal } from '../common/Modal';
 import { StatusBadge } from '../common/StatusBadge';
 
@@ -157,40 +157,43 @@ export const ComplianceTab: React.FC = () => {
             {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">{error}</div>}
 
             <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg dark:border-gray-700">
-                <div className="overflow-x-auto">
+                <div className="overflow-auto max-h-[calc(100vh-280px)]">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-800">
                            <tr>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('compliance_id')} className="flex items-center w-full text-left focus:outline-none">
                                         Compliance ID {getSortIconFor('compliance_id')}
                                     </button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('framework')} className="flex items-center w-full text-left focus:outline-none">
                                         Framework {getSortIconFor('framework')}
                                     </button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('status')} className="flex items-center w-full text-left focus:outline-none">
                                         Status {getSortIconFor('status')}
                                     </button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('associated_int_ctls')} className="flex items-center w-full text-left focus:outline-none">
                                         Associated Controls {getSortIconFor('associated_int_ctls')}
                                     </button>
                                 </th>
-                                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
                             </tr>
                         </thead>
                          <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
                             {loading ? (
-                                <tr><td colSpan={5} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading frameworks...</td></tr>
+                                <tr><td colSpan={4} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading frameworks...</td></tr>
                             ) : filteredAndSortedCompliances.length === 0 ? (
-                                <tr><td colSpan={5} className="text-center py-4 text-gray-500 dark:text-gray-400">No frameworks found.</td></tr>
+                                <tr><td colSpan={4} className="text-center py-4 text-gray-500 dark:text-gray-400">No frameworks found.</td></tr>
                             ) : filteredAndSortedCompliances.map(item => (
-                                <tr key={item.id}>
+                                <tr
+                                    key={item.id}
+                                    onClick={() => setModalState({ type: 'view', compliance: item })}
+                                    className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                                >
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
                                         <span title={item.description || 'No description available'}>
                                             {item.compliance_id}
@@ -204,11 +207,6 @@ export const ComplianceTab: React.FC = () => {
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                         {Array.isArray(item.associated_int_ctls) ? item.associated_int_ctls.length : 0}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        <div className="flex justify-end items-center space-x-2">
-                                            <button onClick={() => setModalState({ type: 'view', compliance: item })} className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
-                                        </div>
                                     </td>
                                 </tr>
                             ))}

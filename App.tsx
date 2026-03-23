@@ -1,12 +1,14 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import * as SupabaseService from './services/supabase';
 import { UserRole } from './types';
 import { useTabRefresh } from './hooks/useTabRefresh';
 
 // Layout & Common Components
 import { Header } from './components/Header';
+import { Sidebar, MainTab, OrgSubTab } from './components/Sidebar';
 import { FeedbackModal } from './components/common/FeedbackModal';
 import { NameEntryModal } from './components/auth/NameEntryModal';
+import { OnboardingModal } from './components/auth/OnboardingModal';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 // Tab Components
@@ -16,16 +18,18 @@ import { ProgramTab } from './components/tabs/ProgramTab';
 import { GovernanceTab } from './components/tabs/GovernanceTab';
 import { ComplianceTab } from './components/tabs/ComplianceTab';
 import { ActivityLogsTab } from './components/tabs/ActivityLogsTab';
-// import { PolicyManagerTab } from './components/tabs/PolicyManagerTab';
-// import { RiskTab } from './components/tabs/RiskTab';
-// import { ThreatViewTab } from './components/tabs/ThreatViewTab';
-// import { ResiliencyTab } from './components/tabs/ResiliencyTab';
 
 const App: React.FC = () => {
-    type Tab = 'dashboard' | 'organisation' | 'program' | 'policymanager' | 'governance' | 'risk' | 'compliance' | 'threat' | 'resiliency' | 'logs';
     type LocalUserRole = 'security-staff' | 'cxo';
-    
-    const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+
+    // Navigation state
+    const [activeTab, setActiveTab] = useState<MainTab>('dashboard');
+    const [activeOrgSubTab, setActiveOrgSubTab] = useState<OrgSubTab>('view_org');
+    const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+        return localStorage.getItem('sidebarOpen') !== 'false';
+    });
+
+    // App state
     const [userRole, setUserRole] = useState<LocalUserRole>('security-staff');
     const [platformAdminRole, setPlatformAdminRole] = useState<UserRole | null>(null);
     const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -37,12 +41,28 @@ const App: React.FC = () => {
     const [userName, setUserName] = useState<string | null>(() => sessionStorage.getItem('grcUserName'));
     const [isNameModalOpen, setIsNameModalOpen] = useState<boolean>(false);
     const [authChecked, setAuthChecked] = useState(false);
+    const [isOnboarded, setIsOnboarded] = useState<boolean>(true);
+    const [onboardingStatus, setOnboardingStatus] = useState<'active' | 'pending_approval' | null>(null);
+    const [orgName, setOrgName] = useState<string | null>(null);
     const [logoutToastVisible, setLogoutToastVisible] = useState(false);
     const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
     const logoutTimerRef = useRef<number | null>(null);
 
-    // Tab refresh hook - triggers data refresh when tabs change
+    // Tab refresh hook
     useTabRefresh(activeTab);
+
+    const handleToggleSidebar = () => {
+        setSidebarOpen(prev => {
+            const next = !prev;
+            localStorage.setItem('sidebarOpen', String(next));
+            return next;
+        });
+    };
+
+    const handleNavigate = (tab: MainTab, subTab?: OrgSubTab) => {
+        setActiveTab(tab);
+        if (subTab) setActiveOrgSubTab(subTab);
+    };
 
     // Theme Effect
     useEffect(() => {
@@ -68,34 +88,51 @@ const App: React.FC = () => {
                     sessionStorage.setItem('grcUserName', name);
                     setUserName(name);
                     setIsNameModalOpen(false);
-                    
-                    const role = await SupabaseService.getUserRole();
-                    setPlatformAdminRole(role);
+
+                    const me = await SupabaseService.getOrgMe();
+                    setPlatformAdminRole(me?.role ?? null);
+                    setIsOnboarded(me?.isOnboarded ?? false);
+                    setOnboardingStatus(me?.onboardingStatus ?? null);
+                    setOrgName(me?.orgName ?? null);
                 } else {
                     if (!sessionStorage.getItem('grcUserName')) {
                         setIsNameModalOpen(true);
                     }
                     setPlatformAdminRole(null);
+                    setIsOnboarded(true);
+                    setOrgName(null);
                 }
                 setAuthChecked(true);
 
-                const { data: listener } = SupabaseService.supabase.auth.onAuthStateChange(async (_event, session) => {
+                const { data: listener } = SupabaseService.supabase.auth.onAuthStateChange(async (event, session) => {
+                    // TOKEN_REFRESHED and INITIAL_SESSION fire on browser tab focus / auto-refresh.
+                    // Ignoring them prevents cascading async setState calls that destabilize the component tree.
+                    if (event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') return;
+
+                    if (event === 'SIGNED_OUT') {
+                        setPlatformAdminRole(null);
+                        return;
+                    }
+
                     if (session && session.user) {
                         const name = (session.user.user_metadata as any)?.full_name || session.user.email || 'User';
                         sessionStorage.setItem('grcUserName', name);
                         setUserName(name);
                         setIsNameModalOpen(false);
-                        
-                        const role = await SupabaseService.getUserRole();
-                        setPlatformAdminRole(role);
-                        
-                        try {
-                            await SupabaseService.logAllActivity({ action: 'login', module: 'Authentication', entity_name: name }, session.user);
-                        } catch (err) {
-                            console.error('Failed to log login activity', err);
+
+                        const me = await SupabaseService.getOrgMe();
+                        setPlatformAdminRole(me?.role ?? null);
+                        setIsOnboarded(me?.isOnboarded ?? false);
+                        setOnboardingStatus(me?.onboardingStatus ?? null);
+                        setOrgName(me?.orgName ?? null);
+
+                        if (event === 'SIGNED_IN') {
+                            try {
+                                await SupabaseService.logAllActivity({ action: 'login', module: 'Authentication', entity_name: name }, session.user);
+                            } catch (err) {
+                                console.error('Failed to log login activity', err);
+                            }
                         }
-                    } else {
-                        setPlatformAdminRole(null);
                     }
                 });
                 authListener = listener;
@@ -114,6 +151,19 @@ const App: React.FC = () => {
             }
         };
     }, []);
+
+    const handleOnboardingComplete = async () => {
+        const me = await SupabaseService.getOrgMe();
+        setPlatformAdminRole(me?.role ?? null);
+        setIsOnboarded(me?.isOnboarded ?? false);
+        setOnboardingStatus(me?.onboardingStatus ?? null);
+        setOrgName(me?.orgName ?? null);
+    };
+
+    // Display "Consultant" instead of "Consultant1" etc.
+    const displayOrgName = orgName
+        ? /^Consultant\d+$/i.test(orgName) ? 'Consultant' : orgName
+        : null;
 
     const handleSignOut = async () => {
         try {
@@ -137,32 +187,49 @@ const App: React.FC = () => {
 
     useEffect(() => {
         return () => {
-            if (logoutTimerRef.current) {
-                clearTimeout(logoutTimerRef.current as any);
-            }
+            if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current as any);
         };
     }, []);
 
     const toggleDarkMode = () => setIsDarkMode(!isDarkMode);
 
-    const mainTabs: { id: Tab; label: string }[] = [
-        { id: 'dashboard', label: 'Dashboard' },
-        { id: 'organisation', label: 'Organisation' },
-        { id: 'program', label: 'Program' },
-        // { id: 'policymanager', label: 'Policy Manager' },
-        { id: 'governance', label: 'Governance' },
-        // { id: 'risk', label: 'Risk' },
-        { id: 'compliance', label: 'Compliance' },
-        { id: 'logs', label: 'Activity Logs' },
-    ];
+    const isAdmin = platformAdminRole === 'tenant_admin' || platformAdminRole === 'admin';
 
-    const availableTabs = useMemo(() => {
-        return mainTabs;
-    }, [mainTabs]);
+    const renderContent = () => {
+        if (!authChecked) {
+            return (
+                <div className="flex items-center justify-center py-24">
+                    <svg className="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                    </svg>
+                    <p className="ml-3 text-gray-500 dark:text-gray-400 font-medium">Authenticating...</p>
+                </div>
+            );
+        }
+
+        // All tabs stay mounted after auth — visibility toggled with CSS only.
+        // This prevents data refetch when switching tabs (no unmount/remount).
+        return (
+            <div
+                className={`animate-in fade-in duration-500 ${onboardingStatus === 'pending_approval' ? 'pointer-events-none select-none' : ''}`}
+                style={onboardingStatus === 'pending_approval' ? { filter: 'blur(4px)', opacity: 0.4 } : undefined}
+            >
+                <div className={activeTab === 'dashboard' ? '' : 'hidden'}><DashboardTab /></div>
+                <div className={activeTab === 'organisation' ? '' : 'hidden'}><OrganisationTab userRole={platformAdminRole} activeSubTab={activeOrgSubTab} /></div>
+                <div className={activeTab === 'program' ? '' : 'hidden'}><ProgramTab userRole={userRole} /></div>
+                <div className={activeTab === 'governance' ? '' : 'hidden'}><GovernanceTab /></div>
+                <div className={activeTab === 'compliance' ? '' : 'hidden'}><ComplianceTab /></div>
+                <div className={activeTab === 'logs' ? '' : 'hidden'}><ActivityLogsTab /></div>
+            </div>
+        );
+    };
 
     return (
         <ErrorBoundary>
-            <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
+            <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200 flex flex-col">
+
+                {/* Logout toast */}
                 {logoutToastVisible && (
                     <div role="status" aria-live="polite" className="fixed top-5 right-5 z-[200]">
                         <div className="max-w-sm w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg px-4 py-3 flex items-center space-x-3">
@@ -176,70 +243,59 @@ const App: React.FC = () => {
                         </div>
                     </div>
                 )}
-                
+
+                {/* Modals */}
                 <NameEntryModal isOpen={isNameModalOpen} />
+                {authChecked && !isNameModalOpen && !isOnboarded && onboardingStatus !== 'pending_approval' && (
+                    <OnboardingModal onComplete={handleOnboardingComplete} />
+                )}
                 <FeedbackModal isOpen={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
-                
-                <Header 
-                    userRole={userRole} 
-                    setUserRole={setUserRole} 
-                    isDarkMode={isDarkMode} 
-                    toggleDarkMode={toggleDarkMode} 
+
+                {/* Header — full width */}
+                <Header
+                    userRole={userRole}
+                    setUserRole={setUserRole}
+                    isDarkMode={isDarkMode}
+                    toggleDarkMode={toggleDarkMode}
                     onSignOut={handleSignOut}
                     userName={userName}
+                    orgName={displayOrgName}
                     openFeedback={() => setIsFeedbackOpen(true)}
                 />
 
-                <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-                    <div className="border-b border-gray-200 dark:border-gray-700 px-4 sm:px-0">
-                        <nav className="-mb-px flex space-x-8 overflow-x-auto scrollbar-hide" aria-label="Main Tabs">
-                            {availableTabs.map((tab) => (
-                                <button
-                                    key={tab.id}
-                                    onClick={() => setActiveTab(tab.id)}
-                                    className={`${
-                                        activeTab === tab.id
-                                            ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-200'
-                                    } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-lg transition-colors duration-200`}
-                                >
-                                    {tab.label}
-                                </button>
-                            ))}
-                        </nav>
-                    </div>
-                    
-                    {!authChecked ? (
-                        <div className="flex items-center justify-center py-24">
-                            <svg className="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                {/* Pending approval banner */}
+                {authChecked && onboardingStatus === 'pending_approval' && (
+                    <div className="bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-700 px-4 py-3">
+                        <div className="flex items-center gap-3 max-w-full">
+                            <svg className="w-5 h-5 text-amber-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                             </svg>
-                            <p className="ml-3 text-gray-500 dark:text-gray-400 font-medium">Authenticating...</p>
+                            <div>
+                                <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Access Pending Approval</p>
+                                <p className="text-xs text-amber-700 dark:text-amber-300">Your join request has been sent. Your organisation admin needs to approve your access before you can use the platform.</p>
+                            </div>
                         </div>
-                    ) : (
-                        <div className="animate-in fade-in duration-500">
-                            {activeTab === 'dashboard' && <DashboardTab />}
-                            {activeTab === 'organisation' && <OrganisationTab userRole={platformAdminRole} />}
-                            {activeTab === 'program' && <ProgramTab userRole={userRole} />}
-                            {activeTab === 'governance' && <GovernanceTab />}
-                            {activeTab === 'compliance' && <ComplianceTab />}
-                            {activeTab === 'logs' && <ActivityLogsTab />}
+                    </div>
+                )}
+
+                {/* Body: sidebar + content */}
+                <div className="flex flex-1 overflow-hidden">
+                    <Sidebar
+                        activeTab={activeTab}
+                        activeOrgSubTab={activeOrgSubTab}
+                        isOpen={sidebarOpen}
+                        onToggle={handleToggleSidebar}
+                        onNavigate={handleNavigate}
+                        isAdmin={isAdmin}
+                    />
+
+                    <main className="flex-1 overflow-y-auto">
+                        <div className="px-6 py-6 max-w-7xl mx-auto">
+                            {renderContent()}
                         </div>
-                    )}
-                    
-                    {/* Floating Feedback Button */}
-                    <button
-                        onClick={() => setIsFeedbackOpen(true)}
-                        className="fixed bottom-6 right-6 w-14 h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg flex items-center justify-center z-50 transition-all hover:scale-110 active:scale-95 shadow-blue-500/20"
-                        title="Send feedback"
-                        aria-label="Send feedback"
-                    >
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
-                        </svg>
-                    </button>
-                </main>
+                    </main>
+                </div>
+
             </div>
         </ErrorBoundary>
     );

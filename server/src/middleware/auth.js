@@ -19,46 +19,13 @@ export const requireAuth = async (req, res, next) => {
     // Attach org_id and role
     const { data: onboarding } = await supabaseAdmin
       .from('org_onboarding')
-      .select('org_id, role')
+      .select('org_id, role, status')
       .eq('user_id', user.id)
       .single();
 
     req.orgId = onboarding?.org_id || null;
     req.userRole = onboarding?.role || null;
-
-    // Auto-create organization for new users
-    if (!onboarding) {
-      try {
-        // Create a default organization for the user
-        const { data: newOrg } = await supabaseAdmin
-          .from('organizations')
-          .insert({ 
-            name: `${user.email}'s Organization`,
-            created_by: user.id 
-          })
-          .select()
-          .single();
-
-        if (newOrg) {
-          // Add user to their own organization as admin
-          await supabaseAdmin
-            .from('org_onboarding')
-            .insert({
-              org_id: newOrg.id,
-              user_id: user.id,
-              email: user.email,
-              role: 'admin'
-            });
-
-          // Update request with new org info
-          req.orgId = newOrg.id;
-          req.userRole = 'admin';
-        }
-      } catch (autoOrgError) {
-        console.error('Auto-organization creation failed:', autoOrgError);
-        // Continue without org - user will need to create one manually
-      }
-    }
+    req.onboardingStatus = onboarding?.status || null;
 
     next();
   } catch (err) {

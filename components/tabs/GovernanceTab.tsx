@@ -8,7 +8,18 @@ import { AssetRelationshipsView } from '../governance/AssetRelationshipsView';
 export const GovernanceTab: React.FC = () => {
     type SubTab = 'controls' | 'assets' | 'policies' | 'vulnerability' | 'relationships';
     const [activeSubTab, setActiveSubTab] = useState<SubTab>('assets');
-    
+    const [mountedSubTabs, setMountedSubTabs] = useState<Set<SubTab>>(new Set(['assets']));
+
+    const handleSubTabChange = (tab: SubTab) => {
+        setActiveSubTab(tab);
+        setMountedSubTabs(prev => {
+            if (prev.has(tab)) return prev;
+            const next = new Set(prev);
+            next.add(tab);
+            return next;
+        });
+    };
+
     const subTabs: { id: SubTab; label: string }[] = [
         // { id: 'controls', label: 'Internal Control Catalogue' },
         { id: 'assets', label: 'Assets' },
@@ -16,26 +27,15 @@ export const GovernanceTab: React.FC = () => {
         { id: 'vulnerability', label: 'Vulnerability' },
         { id: 'relationships', label: 'Asset Relationships' },
     ];
-    
-    const renderContent = () => {
-        switch(activeSubTab) {
-            // case 'controls': return <InternalControlsView />;
-            case 'assets': return <AssetsView />;
-            case 'policies': return <PoliciesView />;
-            case 'vulnerability': return <VulnerabilitiesView />;
-            case 'relationships': return <AssetRelationshipsView />;
-            default: return null;
-        }
-    }
 
     return (
         <div className="px-4 py-6 sm:px-0">
-             <div className="border-b border-gray-200 dark:border-gray-700">
+            <div className="border-b border-gray-200 dark:border-gray-700">
                 <nav className="-mb-px flex space-x-8" aria-label="Tabs">
                     {subTabs.map((tab) => (
                         <button
                             key={tab.id}
-                            onClick={() => setActiveSubTab(tab.id)}
+                            onClick={() => handleSubTabChange(tab.id)}
                             data-tab={tab.id}
                             className={`${
                                 activeSubTab === tab.id
@@ -49,7 +49,18 @@ export const GovernanceTab: React.FC = () => {
                 </nav>
             </div>
             <div className="mt-6">
-                {renderContent()}
+                {mountedSubTabs.has('assets') && (
+                    <div className={activeSubTab === 'assets' ? '' : 'hidden'}><AssetsView /></div>
+                )}
+                {mountedSubTabs.has('policies') && (
+                    <div className={activeSubTab === 'policies' ? '' : 'hidden'}><PoliciesView /></div>
+                )}
+                {mountedSubTabs.has('vulnerability') && (
+                    <div className={activeSubTab === 'vulnerability' ? '' : 'hidden'}><VulnerabilitiesView /></div>
+                )}
+                {mountedSubTabs.has('relationships') && (
+                    <div className={activeSubTab === 'relationships' ? '' : 'hidden'}><AssetRelationshipsView /></div>
+                )}
             </div>
         </div>
     );
