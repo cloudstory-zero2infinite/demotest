@@ -11,6 +11,7 @@ import { AssetsOverviewCard } from '../dashboard/AssetsOverviewCard';
 import { VulnerabilityTrackCard } from '../dashboard/VulnerabilityTrackCard';
 import { FrameworkComplianceGrid } from '../dashboard/FrameworkComplianceGrid';
 import { SankeyMappingCard } from '../dashboard/SankeyMappingCard';
+import { DataIntegrityCard } from '../dashboard/DataIntegrityCard';
 
 type DerivedComplianceStatus = 'Compliant' | 'NonCompliant' | 'NotMapped';
 
@@ -227,6 +228,8 @@ export const DashboardTab: React.FC = () => {
                 <VulnerabilityTrackCard data={vulnerabilityMetrics.data} remediatedPercent={vulnerabilityMetrics.percent} />
                 
                 <FrameworkComplianceGrid data={frameworkComplianceData} />
+                
+                <DataIntegrityCard assets={currentStats.assets} />
                 
                 <SankeyMappingCard 
                     data={sankeyData} 
