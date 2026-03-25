@@ -30,6 +30,8 @@ gemini = genai.GenerativeModel(GEMINI_MODEL)
 MODULE_TABLE_MAP = {
     "assets": "assets",
     "asset_relationships": "asset_relationships",
+    "vulnerabilities": "vulnerability_management",
+    "policies": "policy_documents",
 }
 
 # Columns managed by the system — exclude from AI generation
@@ -60,55 +62,132 @@ MODULE_SYSTEM_PROMPTS = {
         "- If multiple assets connect to one target, create one record per connection\n"
         "- Return ONLY a valid JSON array, no markdown, no explanation"
     ),
+    "vulnerabilities": (
+        "You are a GRC data assistant. Convert natural language descriptions into vulnerability management records.\n\n"
+        "Rules:\n"
+        "- name: descriptive vulnerability name (e.g. 'SQL Injection in Web App', 'XSS in Login Page')\n"
+        "- description: detailed technical description of the vulnerability\n"
+        "- derived_from: must be exactly one of: KEV, Scanning, PT, Reported-Ext\n"
+        "- status: must be exactly one of: Planned, Remediated, NA\n"
+        "- asset_id: ALWAYS use null (do not include asset_id field at all, even if asset mentioned)\n"
+        "- vuln_id: auto-generated UUID, do not include\n"
+        "- created_at and updated_at: auto-generated, do not include\n"
+        "- Return ONLY a valid JSON array, no markdown, no explanation"
+    ),
+    "policies": (
+        "You are a GRC data assistant. Convert natural language descriptions into policy document records.\n\n"
+        "Rules:\n"
+        "- name: descriptive policy name (e.g. 'Information Security Policy', 'Data Privacy Policy')\n"
+        "- description: detailed description of the policy purpose and scope\n"
+        "- document_content: must be exactly one of: 0 (Text), 1 (URL), 2 (File Upload)\n"
+        "- content_editor_text: text content if document_content is 0, otherwise null\n"
+        "- url: URL if document_content is 1, otherwise null\n"
+        "- grc_contact: contact person for GRC questions (email or name)\n"
+        "- policy_reviewer_contact: reviewer contact information\n"
+        "- tags: comma-separated tags (e.g. 'security,privacy,compliance')\n"
+        "- published_date: YYYY-MM-DD format (current date if not specified)\n"
+        "- next_review_date: YYYY-MM-DD format (1 year from published if not specified)\n"
+        "- policy_labels: comma-separated labels (e.g. 'high-risk,mandatory')\n"
+        "- related_projects: comma-separated project names\n"
+        "- status: must be exactly one of: 0 (Draft), 1 (Published)\n"
+        "- document_type: policy type (e.g. 'Security Policy', 'Procedure', 'Guideline')\n"
+        "- version: version number (e.g. '1.0', '2.1')\n"
+        "- policy_portal_permissions: must be exactly one of: public, private, custom-roles\n"
+        "- custom_roles: comma-separated roles if permissions is custom-roles\n"
+        "- related_documents: comma-separated document IDs\n"
+        "- policy_id: unique policy identifier (e.g. 'POL-001', 'SEC-101')\n"
+        "- owner_name: policy owner name\n"
+        "- id, created_at, updated_at, org_id, user_id: auto-generated, do not include\n"
+        "- Return ONLY a valid JSON array, no markdown, no explanation"
+    ),
 }
 
 
 def get_db_connection():
-    return psycopg2.connect(DATABASE_URL)
+    """Get database connection with retry logic and better error handling."""
+    if not DATABASE_URL:
+        raise HTTPException(status_code=500, detail="DATABASE_URL not configured")
+    
+    try:
+        # Add connection timeout - remove unsupported statement_timeout option
+        conn = psycopg2.connect(
+            DATABASE_URL,
+            connect_timeout=10
+        )
+        return conn
+    except psycopg2.OperationalError as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Database connection failed: {str(e)}. Check DATABASE_URL and network connectivity."
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Unexpected database error: {str(e)}"
+        )
 
 
 def get_schema(table_name: str) -> list[dict]:
     """Fetch column definitions from information_schema dynamically."""
-    conn = get_db_connection()
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
-                SELECT column_name, data_type, is_nullable
-                FROM information_schema.columns
-                WHERE table_schema = 'public' AND table_name = %s
-                ORDER BY ordinal_position
-                """,
-                (table_name,),
-            )
-            return [dict(r) for r in cur.fetchall()]
-    finally:
-        conn.close()
+        conn = get_db_connection()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT column_name, data_type, is_nullable
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = %s
+                    ORDER BY ordinal_position
+                    """,
+                    (table_name,),
+                )
+                result = [dict(r) for r in cur.fetchall()]
+                if not result:
+                    raise HTTPException(
+                        status_code=404, 
+                        detail=f"Table '{table_name}' not found in database"
+                    )
+                return result
+        finally:
+            conn.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to fetch schema for '{table_name}': {str(e)}"
+        )
 
 
 def get_check_constraints(table_name: str) -> dict[str, str]:
     """Fetch CHECK constraint clauses per column to surface allowed values."""
-    conn = get_db_connection()
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                """
-                SELECT DISTINCT kcu.column_name, cc.check_clause
-                FROM information_schema.check_constraints cc
-                JOIN information_schema.constraint_column_usage ccu
-                    ON cc.constraint_name = ccu.constraint_name
-                    AND cc.constraint_schema = ccu.constraint_schema
-                LEFT JOIN information_schema.key_column_usage kcu
-                    ON cc.constraint_name = kcu.constraint_name
-                WHERE ccu.table_name = %s
-                  AND ccu.table_schema = 'public'
-                  AND kcu.column_name IS NOT NULL
-                """,
-                (table_name,),
-            )
-            return {r["column_name"]: r["check_clause"] for r in cur.fetchall()}
-    finally:
-        conn.close()
+        conn = get_db_connection()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT DISTINCT kcu.column_name, cc.check_clause
+                    FROM information_schema.check_constraints cc
+                    JOIN information_schema.constraint_column_usage ccu
+                        ON cc.constraint_name = ccu.constraint_name
+                        AND cc.constraint_schema = ccu.constraint_schema
+                    LEFT JOIN information_schema.key_column_usage kcu
+                        ON cc.constraint_name = kcu.constraint_name
+                    WHERE ccu.table_name = %s
+                      AND ccu.table_schema = 'public'
+                      AND kcu.column_name IS NOT NULL
+                    """,
+                    (table_name,),
+                )
+                return {r["column_name"]: r["check_clause"] for r in cur.fetchall()}
+        finally:
+            conn.close()
+    except Exception as e:
+        # If constraints fail, return empty dict (not critical)
+        print(f"Warning: Could not fetch constraints for {table_name}: {e}")
+        return {}
 
 
 def build_schema_description(table_name: str) -> str:
@@ -180,3 +259,8 @@ async def process(req: ProcessRequest):
         raise HTTPException(status_code=500, detail=f"AI generation error: {str(e)}")
 
     return {"records": records, "module": req.module, "table": table_name}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8080)

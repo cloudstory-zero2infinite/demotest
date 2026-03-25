@@ -4,11 +4,21 @@ import * as SupabaseService from '../../services/supabase';
 import { Modal } from '../common/Modal';
 import { StatusBadge } from '../common/StatusBadge';
 
+// Custom event for activity updates
+const ACTIVITY_UPDATE_EVENT = 'activity-update';
+
+// Function to trigger activity update (to be called from other components)
+export const triggerActivityUpdate = () => {
+    window.dispatchEvent(new CustomEvent(ACTIVITY_UPDATE_EVENT));
+};
+
 export const ActivityLogsTab: React.FC = () => {
     const [logs, setLogs] = useState<AllActivityLog[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selectedLog, setSelectedLog] = useState<AllActivityLog | null>(null);
+    const [newActivityCount, setNewActivityCount] = useState(0);
+    const [lastLogId, setLastLogId] = useState<string | null>(null);
 
     const severityColorMap: Record<string, string> = {
         info: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
@@ -21,6 +31,25 @@ export const ActivityLogsTab: React.FC = () => {
             setLoading(true);
             setError(null);
             const data = await SupabaseService.getAllActivityLogs();
+            
+            // Check for new activities
+            if (logs.length > 0 && data.length > 0) {
+                const latestLog = data[0]; // Assuming logs are sorted by created_at desc
+                if (latestLog.id !== lastLogId) {
+                    // New activity detected
+                    setNewActivityCount(prev => prev + 1);
+                    setLastLogId(latestLog.id);
+                    
+                    // Auto-scroll to top to show new activity
+                    const tableContainer = document.querySelector('.overflow-auto');
+                    if (tableContainer) {
+                        tableContainer.scrollTop = 0;
+                    }
+                }
+            } else if (data.length > 0) {
+                setLastLogId(data[0].id);
+            }
+            
             setLogs(data);
         } catch (e) {
             setError("Failed to load activity logs.");
@@ -28,14 +57,50 @@ export const ActivityLogsTab: React.FC = () => {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [logs.length, lastLogId]);
 
-    useEffect(() => { fetchLogs(); }, [fetchLogs]);
+    useEffect(() => { 
+        fetchLogs(); 
+    }, [fetchLogs]);
+
+    // Listen for activity updates from other components
+    useEffect(() => {
+        const handleActivityUpdate = () => {
+            fetchLogs();
+        };
+
+        window.addEventListener(ACTIVITY_UPDATE_EVENT, handleActivityUpdate);
+        return () => {
+            window.removeEventListener(ACTIVITY_UPDATE_EVENT, handleActivityUpdate);
+        };
+    }, [fetchLogs]);
+
+    // Periodic polling as backup (every 30 seconds)
+    useEffect(() => {
+        const interval = setInterval(() => {
+            fetchLogs();
+        }, 30000); // 30 seconds
+
+        return () => clearInterval(interval);
+    }, [fetchLogs]);
 
     return (
         <div className="px-4 py-6 sm:px-0">
             <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">Application Activity Logs</h2>
+                <div className="flex items-center space-x-3">
+                    <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">Application Activity Logs</h2>
+                    {newActivityCount > 0 && (
+                        <span className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300 text-xs font-medium px-2.5 py-0.5 rounded-full animate-pulse">
+                            {newActivityCount} new activity{newActivityCount > 1 ? 'ies' : ''}
+                        </span>
+                    )}
+                </div>
+                <button 
+                    onClick={() => setNewActivityCount(0)}
+                    className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+                >
+                    Clear indicator
+                </button>
             </div>
             {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">{error}</div>}
 
@@ -57,11 +122,13 @@ export const ActivityLogsTab: React.FC = () => {
                         <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
                             {loading ? (
                                 <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading logs...</td></tr>
-                            ) : logs.map(log => (
+                            ) : logs.map((log, index) => (
                                 <tr
                                     key={log.id}
                                     onClick={() => setSelectedLog(log)}
-                                    className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                                    className={`cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors ${
+                                        index === 0 && newActivityCount > 0 ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500' : ''
+                                    }`}
                                 >
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{new Date(log.created_at).toLocaleString()}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{log.action}</td>

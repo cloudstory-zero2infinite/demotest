@@ -36,38 +36,14 @@ router.post('/bulk', requireAuth, async (req, res) => {
   try {
     const tasks = req.body;
     
-    // Get existing tasks to check for duplicates
-    const { data: existingTasks } = await supabaseAdmin
-      .from('program')
-      .select('program_name, month')
-      .eq('org_id', req.orgId);
-    
-    const existingSet = new Set(
-      (existingTasks || []).map(t => `${t.program_name.trim().toLowerCase()}|${t.month.trim().toLowerCase()}`)
-    );
-    
-    // Filter out duplicates
-    const uniqueTasks = tasks.filter(t => {
-      const key = `${t.program_name.trim().toLowerCase()}|${t.month.trim().toLowerCase()}`;
-      return !existingSet.has(key);
-    });
-    
-    if (uniqueTasks.length === 0) {
-      return res.status(200).json({ 
-        message: 'All tasks already exist',
-        data: [],
-        duplicates: tasks.length
-      });
-    }
-    
-    const payloads = uniqueTasks.map(t => ({ ...t, user_id: req.userId, org_id: req.orgId }));
+    // Simply insert all tasks - frontend handles duplicate detection
+    const payloads = tasks.map(t => ({ ...t, user_id: req.userId, org_id: req.orgId }));
     const { data, error } = await supabaseAdmin.from('program').insert(payloads).select();
     if (error) throw error;
     
     res.status(201).json({ 
       data: data || [],
-      duplicates: tasks.length - uniqueTasks.length,
-      added: uniqueTasks.length
+      added: tasks.length
     });
   } catch (err) {
     console.error('Bulk add error:', err);

@@ -16,7 +16,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ userRole, setUserRole, isDarkMode, toggleDarkMode, onSignOut, userName, orgName, openFeedback }) => {
     return (
-        <header className="bg-white dark:bg-gray-800 shadow-sm border-b dark:border-gray-700">
+        <header className="fixed top-0 left-0 right-0 bg-white dark:bg-gray-800 shadow-sm border-b dark:border-gray-700 z-40">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="flex items-center justify-between h-16">
                     <div className="flex items-center gap-3">

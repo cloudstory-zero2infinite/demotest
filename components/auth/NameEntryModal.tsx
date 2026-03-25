@@ -14,6 +14,17 @@ export const NameEntryModal: React.FC<NameEntryModalProps> = ({ isOpen }) => {
         try {
             setIsSigningIn(true);
 
+            // Log sign-in initiation
+            try {
+                await SupabaseService.logAllActivity({ 
+                    action: 'login_initiated', 
+                    module: 'Authentication', 
+                    entity_name: 'User'
+                });
+            } catch (logErr) {
+                console.error('Failed to log login initiation activity', logErr);
+            }
+
             await SupabaseService.supabase.auth.signInWithOAuth({
                 provider: 'google',
                 options: {
@@ -25,6 +36,20 @@ export const NameEntryModal: React.FC<NameEntryModalProps> = ({ isOpen }) => {
         } catch (err: any) {
             console.error('Sign-in error:', err?.message || err);
             setIsSigningIn(false);
+            
+            // Log failed login attempt
+            try {
+                await SupabaseService.logAllActivity({ 
+                    action: 'login_failed', 
+                    module: 'Authentication', 
+                    entity_name: 'Unknown User',
+                    severity: 'warning',
+                    event_data: { error: err?.message || 'Sign-in initiation failed' }
+                });
+            } catch (logErr) {
+                console.error('Failed to log failed login activity', logErr);
+            }
+            
             alert(`Sign-in error: ${err?.message || 'Failed to initiate sign-in. Please try again.'}`);
         }
     };

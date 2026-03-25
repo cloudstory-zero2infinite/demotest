@@ -20,6 +20,9 @@ export default defineConfig(({ mode }) => {
         alias: {
           '@': path.resolve(__dirname, '.'),
         }
+      },
+      define: {
+        'VITE_AI_AGENT_URL': JSON.stringify(env.VITE_AI_AGENT_URL || 'http://localhost:8080')
       }
     };
 });

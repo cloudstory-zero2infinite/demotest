@@ -94,6 +94,17 @@ const App: React.FC = () => {
                     setIsOnboarded(me?.isOnboarded ?? false);
                     setOnboardingStatus(me?.onboardingStatus ?? null);
                     setOrgName(me?.orgName ?? null);
+                    
+                    // Log session start for users already authenticated
+                    try {
+                        await SupabaseService.logAllActivity({ 
+                            action: 'login', 
+                            module: 'Authentication', 
+                            entity_name: name 
+                        });
+                    } catch (err) {
+                        console.error('Failed to log login activity', err);
+                    }
                 } else {
                     if (!sessionStorage.getItem('grcUserName')) {
                         setIsNameModalOpen(true);
@@ -166,11 +177,23 @@ const App: React.FC = () => {
         : null;
 
     const handleSignOut = async () => {
+        const currentUserName = userName;
         try {
             await SupabaseService.supabase.auth.signOut();
         } catch (err) {
             console.error('Sign out failed', err);
         } finally {
+            // Log sign-out activity
+            try {
+                await SupabaseService.logAllActivity({ 
+                    action: 'logout', 
+                    module: 'Authentication', 
+                    entity_name: currentUserName || 'User' 
+                });
+            } catch (err) {
+                console.error('Failed to log logout activity', err);
+            }
+            
             sessionStorage.removeItem('grcUserName');
             setUserName(null);
             setIsNameModalOpen(true);
@@ -289,7 +312,7 @@ const App: React.FC = () => {
                         isAdmin={isAdmin}
                     />
 
-                    <main className="flex-1 overflow-y-auto">
+                    <main className="flex-1 overflow-y-auto pt-16">
                         <div className="px-6 py-6 max-w-7xl mx-auto">
                             {renderContent()}
                         </div>
