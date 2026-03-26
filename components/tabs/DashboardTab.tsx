@@ -6,11 +6,11 @@ import { useDataRefresh } from '../../hooks/useDataRefresh';
 // Sub-components
 import { SecurityScoreCard } from '../dashboard/SecurityScoreCard';
 import { ProgramStatusCard } from '../dashboard/ProgramStatusCard';
-import { CapabilityMappingCard } from '../dashboard/CapabilityMappingCard';
 import { AssetsOverviewCard } from '../dashboard/AssetsOverviewCard';
 import { VulnerabilityTrackCard } from '../dashboard/VulnerabilityTrackCard';
 import { FrameworkComplianceGrid } from '../dashboard/FrameworkComplianceGrid';
 import { SankeyMappingCard } from '../dashboard/SankeyMappingCard';
+import { DataIntegrityCard } from '../dashboard/DataIntegrityCard';
 
 type DerivedComplianceStatus = 'Compliant' | 'NonCompliant' | 'NotMapped';
 
@@ -29,19 +29,38 @@ export const DashboardTab: React.FC = () => {
     const [assetFilter, setAssetFilter] = useState<AssetCriticality | 'All'>('All');
 
     const fetchData = useCallback(async () => {
-        const [assets, compliances, controls, policies, tasks, vulnerabilities] = await Promise.all([
-            SupabaseService.getAssets(),
-            SupabaseService.getCompliances(),
-            SupabaseService.getInternalControls(),
-            SupabaseService.getPolicies(),
-            SupabaseService.getTasks(),
-            SupabaseService.getVulnerabilities(),
-        ]);
-        return { assets, compliances, controls, policies, tasks, vulnerabilities };
+        console.log('DashboardTab: Starting data fetch...');
+        try {
+            const [assets, compliances, controls, policies, tasks, vulnerabilities] = await Promise.all([
+                SupabaseService.getAssets(),
+                SupabaseService.getCompliances(),
+                SupabaseService.getInternalControls(),
+                SupabaseService.getPolicies(),
+                SupabaseService.getTasks(),
+                SupabaseService.getVulnerabilities(),
+            ]);
+            
+            console.log('DashboardTab: Data fetch results:', {
+                assetsCount: assets?.length || 0,
+                compliancesCount: compliances?.length || 0,
+                controlsCount: controls?.length || 0,
+                policiesCount: policies?.length || 0,
+                tasksCount: tasks?.length || 0,
+                vulnerabilitiesCount: vulnerabilities?.length || 0
+            });
+            
+            return { assets, compliances, controls, policies, tasks, vulnerabilities };
+        } catch (error) {
+            console.error('DashboardTab: Data fetch error:', error);
+            throw error;
+        }
     }, []);
 
     const { data: stats, loading, error, refresh } = useDataRefresh(fetchData, []);
 
+    // Debug logging for data loading
+    console.log('DashboardTab data state:', { stats, loading, error });
+    
     // Default stats object to prevent undefined errors
     const defaultStats = {
         assets: [] as Asset[],
@@ -53,22 +72,77 @@ export const DashboardTab: React.FC = () => {
     };
     
     const currentStats = stats || defaultStats;
+    console.log('DashboardTab currentStats:', currentStats);
 
     const securityScore = useMemo(() => {
         const { controls, tasks, assets, policies, vulnerabilities } = currentStats;
-        if (!controls.length || !tasks.length || !assets.length || !policies.length || !vulnerabilities) return 0;
         
-        const controlScore = (controls.filter(c => c.status === 'Enforced').length / controls.length) * 30;
-        const programTasks = tasks.filter(t => t.status === 'InProgress' || t.status === 'Completed');
-        const programScore = programTasks.length > 0 ? (programTasks.reduce((acc, t) => acc + t.progress_percent, 0) / (programTasks.length * 100)) * 25 : 0;
-        const assetScore = (assets.filter(a => a.governed_status === 'Governed').length / assets.length) * 15;
-        const policyScore = (policies.filter(p => p.status === 1).length / policies.length) * 10;
+        // Calculate score based on available data (don't require all to be present)
+        let totalScore = 0;
+        let totalWeight = 0;
         
-        const relevantVulnerabilities = vulnerabilities.filter(v => v.status !== 'NA');
-        const remediatedCount = relevantVulnerabilities.filter(v => v.status === 'Remediated').length;
-        const vulnerabilityScore = relevantVulnerabilities.length > 0 ? (remediatedCount / relevantVulnerabilities.length) * 20 : 20;
-
-        return Math.round(controlScore + programScore + vulnerabilityScore + assetScore + policyScore);
+        // Controls Score (30%)
+        if (controls.length > 0) {
+            const enforcedControls = controls.filter(c => c.status === 'Enforced').length;
+            totalScore += (enforcedControls / controls.length) * 30;
+            totalWeight += 30;
+        }
+        
+        // Program Score (25%)
+        if (tasks.length > 0) {
+            const programTasks = tasks.filter(t => t.status === 'InProgress' || t.status === 'Completed');
+            if (programTasks.length > 0) {
+                const totalProgress = programTasks.reduce((acc, t) => acc + t.progress_percent, 0);
+                totalScore += (totalProgress / (programTasks.length * 100)) * 25;
+                totalWeight += 25;
+            }
+        }
+        
+        // Assets Score (15%)
+        if (assets.length > 0) {
+            const governedAssets = assets.filter(a => a.governed_status === 'Governed').length;
+            totalScore += (governedAssets / assets.length) * 15;
+            totalWeight += 15;
+        }
+        
+        // Policies Score (10%)
+        if (policies.length > 0) {
+            const activePolicies = policies.filter(p => p.status === 1).length;
+            totalScore += (activePolicies / policies.length) * 10;
+            totalWeight += 10;
+        }
+        
+        // Vulnerabilities Score (20%)
+        if (vulnerabilities.length > 0) {
+            const relevantVulnerabilities = vulnerabilities.filter(v => v.status !== 'NA');
+            if (relevantVulnerabilities.length > 0) {
+                const remediatedCount = relevantVulnerabilities.filter(v => v.status === 'Remediated').length;
+                totalScore += (remediatedCount / relevantVulnerabilities.length) * 20;
+                totalWeight += 20;
+            } else {
+                totalScore += 20; // Full score if no relevant vulnerabilities
+                totalWeight += 20;
+            }
+        } else {
+            totalScore += 20; // Full score if no vulnerabilities at all
+            totalWeight += 20;
+        }
+        
+        // Normalize to 100 if we have partial data
+        const finalScore = totalWeight > 0 ? Math.round((totalScore / totalWeight) * 100) : 0;
+        
+        console.log('Security Score Calculation:', {
+            controls: controls.length,
+            tasks: tasks.length,
+            assets: assets.length,
+            policies: policies.length,
+            vulnerabilities: vulnerabilities.length,
+            totalScore,
+            totalWeight,
+            finalScore
+        });
+        
+        return Math.min(finalScore, 100); // Cap at 100
     }, [currentStats]);
     
     const programStatusData = useMemo(() => {
@@ -79,36 +153,25 @@ export const DashboardTab: React.FC = () => {
         return Object.entries(counts).map(([name, value]) => ({ name, value }));
     }, [currentStats.tasks]);
 
-    const controlMetrics = useMemo(() => {
-        const totalControls = currentStats.controls.length;
-        if (totalControls === 0) return { data: [], percent: 100 };
-
-        const counts = currentStats.controls.reduce((acc, control) => {
-            const status = control.status || 'Not-Enforced';
-            acc[status] = (acc[status] || 0) + 1;
-            return acc;
-        }, {} as Record<InternalControlStatus, number>);
-
-        const data = [
-            { name: 'Enforced', value: counts.Enforced || 0 },
-            { name: 'InProgress', value: counts.InProgress || 0 },
-            { name: 'Not-Enforced', value: counts['Not-Enforced'] || 0 },
-        ].filter(d => d.value > 0);
-
-        return { data, percent: ((counts.Enforced || 0) / totalControls) * 100 };
-    }, [currentStats.controls]);
-
     const filteredAssets = useMemo(() => {
         return assetFilter === 'All' ? currentStats.assets : currentStats.assets.filter(a => a.criticality === assetFilter);
     }, [currentStats.assets, assetFilter]);
     
     const assetMetrics = useMemo(() => {
         const totalAssets = filteredAssets.length;
+        console.log('Asset Metrics Calculation:', { 
+            totalAssets, 
+            filteredAssets: filteredAssets.length,
+            allAssets: currentStats.assets.length 
+        });
+        
         if (totalAssets === 0) return { data: [], percent: 100 };
         const governed = filteredAssets.filter(a => a.governed_status === 'Governed').length;
         const nonGoverned = totalAssets - governed;
         const data = [{ name: 'Governed', value: governed }, { name: 'Non-Governed', value: nonGoverned }].filter(d => d.value > 0);
-        return { data, percent: (governed / totalAssets) * 100 };
+        const percent = (governed / totalAssets) * 100;
+        console.log('Asset Metrics Result:', { governed, nonGoverned, data, percent });
+        return { data, percent };
     }, [filteredAssets]);
 
     const vulnerabilityMetrics = useMemo(() => {
@@ -117,6 +180,16 @@ export const DashboardTab: React.FC = () => {
         const outstandingCount = relevantVulnerabilities.length - remediatedCount;
         const data = [{ name: 'Remediated', value: remediatedCount }, { name: 'Outstanding', value: outstandingCount }].filter(d => d.value > 0);
         const percent = relevantVulnerabilities.length > 0 ? (remediatedCount / relevantVulnerabilities.length) * 100 : 100;
+        
+        console.log('Vulnerability Metrics Calculation:', {
+            totalVulnerabilities: currentStats.vulnerabilities.length,
+            relevantVulnerabilities: relevantVulnerabilities.length,
+            remediatedCount,
+            outstandingCount,
+            data,
+            percent
+        });
+        
         return { data, percent };
     }, [currentStats.vulnerabilities]);
 
@@ -217,7 +290,7 @@ export const DashboardTab: React.FC = () => {
                 <SecurityScoreCard score={securityScore} />
                 <ProgramStatusCard data={programStatusData} />
                 
-                <CapabilityMappingCard data={controlMetrics.data} enforcedPercent={controlMetrics.percent} />
+                <DataIntegrityCard assets={currentStats.assets} />
                 <AssetsOverviewCard 
                     data={assetMetrics.data} 
                     governedPercent={assetMetrics.percent} 

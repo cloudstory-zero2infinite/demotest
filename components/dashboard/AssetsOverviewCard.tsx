@@ -12,6 +12,9 @@ interface AssetsOverviewCardProps {
 const COLORS = ['#3b82f6', '#ef4444', '#f59e0b', '#10b981', '#8b5cf6'];
 
 export const AssetsOverviewCard: React.FC<AssetsOverviewCardProps> = React.memo(({ data, governedPercent, filter, setFilter }) => {
+    // Debug logging
+    console.log('AssetsOverviewCard received:', { data, governedPercent, filter });
+    
     return (
         <div className="md:col-span-2 lg:col-span-2 p-4 bg-white dark:bg-gray-800 rounded-lg shadow transition-all hover:shadow-md border border-transparent dark:border-gray-700">
             <div className="flex justify-between items-center mb-2">

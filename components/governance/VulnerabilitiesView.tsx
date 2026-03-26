@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef, ChangeEvent, useMemo } from 'react';
 import { Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, VulnerabilityStatus, VulnerabilitySource, Asset } from '../../types';
 import * as SupabaseService from '../../services/supabase';
-import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon } from '../Icons';
+import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon } from '../Icons';
 import { Modal } from '../common/Modal';
 import { StatusBadge } from '../common/StatusBadge';
 import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
 import { useTableSelection } from '../../hooks/useTableSelection';
 import { SelectionActionBar } from '../common/SelectionActionBar';
+import { AIChatModal } from '../common/AIChatModal';
 
 interface VulnerabilityModalProps {
     isOpen: boolean;
@@ -164,6 +165,7 @@ export const VulnerabilitiesView: React.FC = () => {
     const [filter, setFilter] = useState('');
     const [sortConfig, setSortConfig] = useState<{ key: keyof Vulnerability; direction: 'ascending' | 'descending' } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [showAIChat, setShowAIChat] = useState(false);
 
     const {
         selectedIds, isEditing, editValues, isConfirmingDelete, isSaving,
@@ -189,6 +191,31 @@ export const VulnerabilitiesView: React.FC = () => {
             setLoading(false);
         }
     }, []);
+
+    const handleAIChatConfirm = async (records: Record<string, unknown>[]) => {
+        try {
+            for (const record of records) {
+                const vulnerabilityData: VulnerabilityCreate = {
+                    name: String(record.name || ''),
+                    description: String(record.description || ''),
+                    derived_from: (record.derived_from as VulnerabilitySource) || 'Scanning',
+                    status: (record.status as VulnerabilityStatus) || 'Planned',
+                    asset_id: record.asset_id ? String(record.asset_id) : null
+                };
+                await SupabaseService.addVulnerability(vulnerabilityData);
+            }
+            await SupabaseService.logAllActivity({
+                action: 'Bulk Created Vulnerabilities via AI',
+                module: 'Governance',
+                entity_id: null,
+                entity_name: `${records.length} vulnerabilities created via AI`,
+                event_data: { count: records.length, records }
+            });
+            fetchVulnerabilities();
+        } catch (err) {
+            setError('Failed to save AI-generated vulnerabilities.');
+        }
+    };
 
     useEffect(() => {
         fetchVulnerabilities();
@@ -468,6 +495,9 @@ export const VulnerabilitiesView: React.FC = () => {
                     <button onClick={() => setModalState({ type: 'add' })} title="Add Vulnerability" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <PlusIcon className="h-5 w-5" />
                     </button>
+                    <button onClick={() => setShowAIChat(true)} title="AI Generate" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <BotIcon className="h-5 w-5" />
+                    </button>
                 </div>
             </div>
 
@@ -579,6 +609,12 @@ export const VulnerabilitiesView: React.FC = () => {
                 onConfirmDelete={handleBulkDelete}
                 onCancelDelete={() => setIsConfirmingDelete(false)}
                 onClear={clearAll}
+            />
+            <AIChatModal
+                isOpen={showAIChat}
+                onClose={() => setShowAIChat(false)}
+                module="vulnerabilities"
+                onConfirm={handleAIChatConfirm}
             />
         </div>
     );

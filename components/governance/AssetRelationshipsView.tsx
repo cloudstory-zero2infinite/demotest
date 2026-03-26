@@ -1,9 +1,10 @@
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import * as SupabaseService from '../../services/supabase';
 import { AssetRelationship, AssetRelationshipCreate } from '../../types';
-import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon } from '../Icons';
+import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon } from '../Icons';
 import { useTableSelection } from '../../hooks/useTableSelection';
 import { SelectionActionBar } from '../common/SelectionActionBar';
+import { AIChatModal } from '../common/AIChatModal';
 
 const RELATIONSHIP_TYPES = ['Depends On', 'Hosts', 'Communicates With', 'Contains', 'Owned By', 'Managed By', 'Connected To', 'Backs Up', 'Replicates To'];
 
@@ -108,6 +109,7 @@ export const AssetRelationshipsView: React.FC = () => {
     const [filter, setFilter] = useState('');
     const [sortConfig, setSortConfig] = useState<{ key: keyof AssetRelationship; direction: 'ascending' | 'descending' } | null>(null);
     const [importData, setImportData] = useState<{ newRels: AssetRelationshipCreate[]; skipped: number; addedCount?: number }>({ newRels: [], skipped: 0 });
+    const [showAIChat, setShowAIChat] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const {
@@ -396,6 +398,29 @@ export const AssetRelationshipsView: React.FC = () => {
         }
     };
 
+    const handleAIChatConfirm = async (records: Record<string, unknown>[]) => {
+        try {
+            for (const record of records) {
+                const relationshipData: AssetRelationshipCreate = {
+                    source_asset_id: String(record.source_asset_id || ''),
+                    target_asset_id: String(record.target_asset_id || ''),
+                    relationship_type: String(record.relationship_type || 'Connected To')
+                };
+                await SupabaseService.addAssetRelationship(relationshipData);
+            }
+            await SupabaseService.logAllActivity({
+                action: 'Bulk Created Asset Relationships via AI',
+                module: 'Governance',
+                entity_id: null,
+                entity_name: `${records.length} relationships created via AI`,
+                event_data: { count: records.length, records }
+            });
+            fetchData();
+        } catch (err) {
+            setError('Failed to save AI-generated relationships.');
+        }
+    };
+
     const getRelatedAssetsForRelationship = (relationship: AssetRelationship) => {
         const relatedAssets: string[] = [];
 
@@ -464,6 +489,9 @@ export const AssetRelationshipsView: React.FC = () => {
                     </button>
                     <button onClick={() => setModalState({ type: 'add' })} title="Add Relationship" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <PlusIcon className="h-5 w-5" />
+                    </button>
+                    <button onClick={() => setShowAIChat(true)} title="AI Assistant" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <BotIcon className="h-5 w-5" />
                     </button>
                 </div>
             </div>
@@ -663,6 +691,12 @@ export const AssetRelationshipsView: React.FC = () => {
                 onConfirmDelete={handleBulkDelete}
                 onCancelDelete={() => setIsConfirmingDelete(false)}
                 onClear={clearAll}
+            />
+            <AIChatModal
+                isOpen={showAIChat}
+                onClose={() => setShowAIChat(false)}
+                module="asset_relationships"
+                onConfirm={handleAIChatConfirm}
             />
         </div>
     );

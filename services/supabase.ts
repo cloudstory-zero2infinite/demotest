@@ -145,6 +145,11 @@ export const addActivityLog = async (programId: string, activity: string) => {
       method: 'POST',
       body: JSON.stringify({ activity }),
     });
+    
+    // Trigger activity update event for real-time refresh
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('activity-update'));
+    }
   } catch (err) {
     console.error('Error logging activity:', err);
   }
@@ -407,6 +412,12 @@ export const logAllActivity = async (
       method: 'POST',
       body: JSON.stringify(logData),
     });
+    
+    // Trigger activity update event for real-time refresh
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('activity-update'));
+    }
+    
     return true;
   } catch (err) {
     console.error('Error logging activity:', err);

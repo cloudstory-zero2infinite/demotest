@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef, ChangeEvent, useMemo } from 'react';
-import { PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, DocumentContentType, PolicyStatus } from '../../types';
+import { PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, DocumentContentType, PolicyStatus, PolicyPermissions } from '../../types';
 import * as SupabaseService from '../../services/supabase';
-import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon } from '../Icons';
+import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon } from '../Icons';
 import { Modal } from '../common/Modal';
 import { StatusBadge } from '../common/StatusBadge';
 import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
 import { useTableSelection } from '../../hooks/useTableSelection';
 import { SelectionActionBar } from '../common/SelectionActionBar';
+import { AIChatModal } from '../common/AIChatModal';
 
 interface PolicyModalProps {
     isOpen: boolean;
@@ -204,6 +205,7 @@ export const PoliciesView: React.FC = () => {
     const [sortConfig, setSortConfig] = useState<{ key: keyof PolicyDocument; direction: 'ascending' | 'descending' } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [importData, setImportData] = useState<{ newPolicies: PolicyDocumentCreate[]; policiesToUpdate: Array<{id: string; data: PolicyDocumentUpdate}>; duplicateNames: string[] }>({ newPolicies: [], policiesToUpdate: [], duplicateNames: [] });
+    const [showAIChat, setShowAIChat] = useState(false);
 
     const {
         selectedIds, isEditing, editValues, isConfirmingDelete, isSaving,
@@ -223,6 +225,46 @@ export const PoliciesView: React.FC = () => {
             setLoading(false);
         }
     }, []);
+
+    const handleAIChatConfirm = async (records: Record<string, unknown>[]) => {
+        try {
+            for (const record of records) {
+                const policyData: PolicyDocumentCreate = {
+                    name: String(record.name || ''),
+                    description: String(record.description || ''),
+                    document_content: (record.document_content as DocumentContentType) || 0,
+                    content_editor_text: String(record.content_editor_text || ''),
+                    url: String(record.url || ''),
+                    grc_contact: String(record.grc_contact || ''),
+                    policy_reviewer_contact: String(record.policy_reviewer_contact || ''),
+                    tags: String(record.tags || ''),
+                    published_date: String(record.published_date || new Date().toISOString().split('T')[0]),
+                    next_review_date: String(record.next_review_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]),
+                    policy_labels: String(record.policy_labels || ''),
+                    related_projects: String(record.related_projects || ''),
+                    status: (record.status as PolicyStatus) || 0,
+                    document_type: String(record.document_type || ''),
+                    version: String(record.version || '1.0'),
+                    policy_portal_permissions: (record.policy_portal_permissions as PolicyPermissions) || 'public',
+                    custom_roles: String(record.custom_roles || ''),
+                    related_documents: String(record.related_documents || ''),
+                    owner_name: String(record.owner_name || ''),
+                    policy_doc_link: String(record.policy_doc_link || '')
+                };
+                await SupabaseService.addPolicy(policyData);
+            }
+            await SupabaseService.logAllActivity({
+                action: 'Bulk Created Policies via AI',
+                module: 'Governance',
+                entity_id: null,
+                entity_name: `${records.length} policies created via AI`,
+                event_data: { count: records.length, records }
+            });
+            fetchPolicies();
+        } catch (err) {
+            setError('Failed to save AI-generated policies.');
+        }
+    };
 
     useEffect(() => {
         fetchPolicies();
@@ -590,6 +632,9 @@ export const PoliciesView: React.FC = () => {
                     <button onClick={() => setModalState({ type: 'add' })} title="Add Policy" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <PlusIcon className="h-5 w-5" />
                     </button>
+                    <button onClick={() => setShowAIChat(true)} title="AI Generate" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <BotIcon className="h-5 w-5" />
+                    </button>
                 </div>
             </div>
 
@@ -748,6 +793,12 @@ export const PoliciesView: React.FC = () => {
                 onConfirmDelete={handleBulkDelete}
                 onCancelDelete={() => setIsConfirmingDelete(false)}
                 onClear={clearAll}
+            />
+            <AIChatModal
+                isOpen={showAIChat}
+                onClose={() => setShowAIChat(false)}
+                module="policies"
+                onConfirm={handleAIChatConfirm}
             />
         </div>
     );

@@ -1,0 +1,266 @@
+import os
+import json
+import re
+from dotenv import load_dotenv
+load_dotenv()  # loads .env from current directory
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import google.generativeai as genai
+import psycopg2
+import psycopg2.extras
+
+app = FastAPI(title="ZTI AI Agent Service")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+
+genai.configure(api_key=GEMINI_API_KEY)
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+gemini = genai.GenerativeModel(GEMINI_MODEL)
+
+MODULE_TABLE_MAP = {
+    "assets": "assets",
+    "asset_relationships": "asset_relationships",
+    "vulnerabilities": "vulnerability_management",
+    "policies": "policy_documents",
+}
+
+# Columns managed by the system — exclude from AI generation
+EXCLUDED_COLUMNS = {"id", "created_at", "org_id", "user_id", "owner_id"}
+
+MODULE_SYSTEM_PROMPTS = {
+    "assets": (
+        "You are a GRC data assistant. Convert natural language descriptions into structured asset data "
+        "for a Governance, Risk & Compliance platform.\n\n"
+        "Rules:\n"
+        "- Generate realistic values based on the description\n"
+        "- Always set source to \"AI\" for every generated record\n"
+        "- Generate unique asset_id values like AST-001, AST-002 (start from 001 unless context says otherwise)\n"
+        "- criticality: High / Medium / Low (infer from context, default Low)\n"
+        "- category: Technology / Information / Service (infer from context)\n"
+        "- exposure: Internal / External / DMZ (infer from context, default Internal)\n"
+        "- governed_status: Governed / Non-Governed (default Non-Governed)\n"
+        "- vulnerability_count: default 0\n"
+        "- name: derive from the description (e.g. 'Laptop-001', 'Laptop-002')\n"
+        "- Return ONLY a valid JSON array, no markdown, no explanation"
+    ),
+    "asset_relationships": (
+        "You are a GRC data assistant. Convert natural language descriptions into asset relationship records.\n\n"
+        "Rules:\n"
+        "- relationship_type must be exactly one of: Depends On, Hosts, Communicates With, Contains, "
+        "Owned By, Managed By, Connected To, Backs Up, Replicates To\n"
+        "- source_asset_id and target_asset_id must be asset IDs (e.g. AST-001) inferred from the input\n"
+        "- If multiple assets connect to one target, create one record per connection\n"
+        "- Return ONLY a valid JSON array, no markdown, no explanation"
+    ),
+    "vulnerabilities": (
+        "You are a GRC data assistant. Convert natural language descriptions into vulnerability management records.\n\n"
+        "Rules:\n"
+        "- name: descriptive vulnerability name (e.g. 'SQL Injection in Web App', 'XSS in Login Page')\n"
+        "- description: detailed technical description of the vulnerability\n"
+        "- derived_from: must be exactly one of: KEV, Scanning, PT, Reported-Ext\n"
+        "- status: must be exactly one of: Planned, Remediated, NA\n"
+        "- asset_id: ALWAYS use null (do not include asset_id field at all, even if asset mentioned)\n"
+        "- vuln_id: auto-generated UUID, do not include\n"
+        "- created_at and updated_at: auto-generated, do not include\n"
+        "- Return ONLY a valid JSON array, no markdown, no explanation"
+    ),
+    "policies": (
+        "You are a GRC data assistant. Convert natural language descriptions into policy document records.\n\n"
+        "Rules:\n"
+        "- name: descriptive policy name (e.g. 'Information Security Policy', 'Data Privacy Policy')\n"
+        "- description: detailed description of the policy purpose and scope\n"
+        "- document_content: must be exactly one of: 0 (Text), 1 (URL), 2 (File Upload)\n"
+        "- content_editor_text: text content if document_content is 0, otherwise null\n"
+        "- url: URL if document_content is 1, otherwise null\n"
+        "- grc_contact: contact person for GRC questions (email or name)\n"
+        "- policy_reviewer_contact: reviewer contact information\n"
+        "- tags: comma-separated tags (e.g. 'security,privacy,compliance')\n"
+        "- published_date: YYYY-MM-DD format (current date if not specified)\n"
+        "- next_review_date: YYYY-MM-DD format (1 year from published if not specified)\n"
+        "- policy_labels: comma-separated labels (e.g. 'high-risk,mandatory')\n"
+        "- related_projects: comma-separated project names\n"
+        "- status: must be exactly one of: 0 (Draft), 1 (Published)\n"
+        "- document_type: policy type (e.g. 'Security Policy', 'Procedure', 'Guideline')\n"
+        "- version: version number (e.g. '1.0', '2.1')\n"
+        "- policy_portal_permissions: must be exactly one of: public, private, custom-roles\n"
+        "- custom_roles: comma-separated roles if permissions is custom-roles\n"
+        "- related_documents: comma-separated document IDs\n"
+        "- policy_id: unique policy identifier (e.g. 'POL-001', 'SEC-101')\n"
+        "- owner_name: policy owner name\n"
+        "- id, created_at, updated_at, org_id, user_id: auto-generated, do not include\n"
+        "- Return ONLY a valid JSON array, no markdown, no explanation"
+    ),
+}
+
+
+def get_db_connection():
+    """Get database connection with retry logic and better error handling."""
+    if not DATABASE_URL:
+        raise HTTPException(status_code=500, detail="DATABASE_URL not configured")
+    
+    try:
+        # Add connection timeout - remove unsupported statement_timeout option
+        conn = psycopg2.connect(
+            DATABASE_URL,
+            connect_timeout=10
+        )
+        return conn
+    except psycopg2.OperationalError as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Database connection failed: {str(e)}. Check DATABASE_URL and network connectivity."
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Unexpected database error: {str(e)}"
+        )
+
+
+def get_schema(table_name: str) -> list[dict]:
+    """Fetch column definitions from information_schema dynamically."""
+    try:
+        conn = get_db_connection()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT column_name, data_type, is_nullable
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = %s
+                    ORDER BY ordinal_position
+                    """,
+                    (table_name,),
+                )
+                result = [dict(r) for r in cur.fetchall()]
+                if not result:
+                    raise HTTPException(
+                        status_code=404, 
+                        detail=f"Table '{table_name}' not found in database"
+                    )
+                return result
+        finally:
+            conn.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to fetch schema for '{table_name}': {str(e)}"
+        )
+
+
+def get_check_constraints(table_name: str) -> dict[str, str]:
+    """Fetch CHECK constraint clauses per column to surface allowed values."""
+    try:
+        conn = get_db_connection()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT DISTINCT kcu.column_name, cc.check_clause
+                    FROM information_schema.check_constraints cc
+                    JOIN information_schema.constraint_column_usage ccu
+                        ON cc.constraint_name = ccu.constraint_name
+                        AND cc.constraint_schema = ccu.constraint_schema
+                    LEFT JOIN information_schema.key_column_usage kcu
+                        ON cc.constraint_name = kcu.constraint_name
+                    WHERE ccu.table_name = %s
+                      AND ccu.table_schema = 'public'
+                      AND kcu.column_name IS NOT NULL
+                    """,
+                    (table_name,),
+                )
+                return {r["column_name"]: r["check_clause"] for r in cur.fetchall()}
+        finally:
+            conn.close()
+    except Exception as e:
+        # If constraints fail, return empty dict (not critical)
+        print(f"Warning: Could not fetch constraints for {table_name}: {e}")
+        return {}
+
+
+def build_schema_description(table_name: str) -> str:
+    columns = get_schema(table_name)
+    constraints = get_check_constraints(table_name)
+    lines = []
+    for col in columns:
+        if col["column_name"] in EXCLUDED_COLUMNS:
+            continue
+        line = f"  {col['column_name']} ({col['data_type']}"
+        if col["is_nullable"] == "NO":
+            line += ", REQUIRED"
+        if col["column_name"] in constraints:
+            line += f", CHECK: {constraints[col['column_name']]}"
+        line += ")"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def parse_ai_json(text: str) -> list[dict]:
+    """Strip markdown fences and parse JSON array from LLM response."""
+    text = re.sub(r"^```(?:json)?\s*", "", text.strip(), flags=re.MULTILINE)
+    text = re.sub(r"\s*```$", "", text.strip(), flags=re.MULTILINE)
+    data = json.loads(text.strip())
+    return data if isinstance(data, list) else [data]
+
+
+class ProcessRequest(BaseModel):
+    module: str
+    message: str
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.post("/process")
+async def process(req: ProcessRequest):
+    table_name = MODULE_TABLE_MAP.get(req.module)
+    if not table_name:
+        raise HTTPException(status_code=400, detail=f"Unknown module: {req.module}")
+
+    try:
+        schema_desc = build_schema_description(table_name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Schema fetch failed: {str(e)}")
+
+    system_prompt = MODULE_SYSTEM_PROMPTS.get(
+        req.module, "Convert user input to structured JSON matching the schema."
+    )
+
+    prompt = (
+        f"{system_prompt}\n\n"
+        f"TABLE SCHEMA ({table_name}):\n{schema_desc}\n\n"
+        f"USER INPUT: {req.message}\n\n"
+        "Return ONLY a valid JSON array:"
+    )
+
+    try:
+        response = gemini.generate_content(prompt)
+        records = parse_ai_json(response.text)
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI response could not be parsed as JSON: {e}",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI generation error: {str(e)}")
+
+    return {"records": records, "module": req.module, "table": table_name}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8080)

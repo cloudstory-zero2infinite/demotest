@@ -265,29 +265,51 @@ export const ProgramTrackerView: React.FC = () => {
 
             if (importedTasks.length > 0) {
                 try {
-                    // Get existing tasks to find duplicates
+                    // Get existing tasks to find duplicates and updates
                     const existingTasks = await SupabaseService.getTasks();
                     const tasksToUpdate: { id: string; updates: ProgramTaskUpdate }[] = [];
                     const tasksToAdd: ProgramTaskCreate[] = [];
                     const duplicateNames = new Set<string>();
 
                     for (const importedTask of importedTasks) {
-                        // Find existing task by program_name and month (strict match)
-                        const existingTask = existingTasks.find(
-                            t => t.program_name.trim() === importedTask.program_name.trim() &&
-                                 t.month.trim() === importedTask.month.trim()
-                        );
+                        // Normalize strings for better matching
+                        const normalizeString = (str: string) => str.replace(/^["']|["']$/g, '').trim().toLowerCase();
+                        
+                        const importedProgramName = normalizeString(importedTask.program_name);
+                        const importedMonth = normalizeString(importedTask.month);
+                        
+                        // Debug logging
+                        console.log('Processing imported task:', {
+                            original: `${importedTask.program_name} (${importedTask.month})`,
+                            normalized: `${importedProgramName} (${importedMonth})`
+                        });
+                        
+                        // Find existing task by normalized program_name and month
+                        const existingTask = existingTasks.find(t => {
+                            const existingProgramName = normalizeString(t.program_name);
+                            const existingMonth = normalizeString(t.month);
+                            const match = existingProgramName === importedProgramName && existingMonth === importedMonth;
+                            if (match) {
+                                console.log('Found existing task match:', {
+                                    existing: `${t.program_name} (${t.month})`,
+                                    existingNormalized: `${existingProgramName} (${existingMonth})`
+                                });
+                            }
+                            return match;
+                        });
 
                         if (existingTask) {
                             duplicateNames.add(`${importedTask.program_name} (${importedTask.month})`);
+                            console.log('Marked as duplicate:', importedTask.program_name);
 
-                            // Check if anything actually changed
+                            // Check if anything actually changed (using normalized comparison for text fields)
                             const hasChanges =
-                                (existingTask.description || '').trim() !== (importedTask.description || '').trim() ||
+                                normalizeString(existingTask.description || '') !== normalizeString(importedTask.description || '') ||
                                 existingTask.status !== importedTask.status ||
                                 existingTask.progress_percent !== importedTask.progress_percent;
 
                             if (hasChanges) {
+                                console.log('Task has changes, will update:', importedTask.program_name);
                                 tasksToUpdate.push({
                                     id: existingTask.id,
                                     updates: {
@@ -296,18 +318,23 @@ export const ProgramTrackerView: React.FC = () => {
                                         progress_percent: importedTask.progress_percent
                                     }
                                 });
+                            } else {
+                                console.log('Task has no changes, will skip:', importedTask.program_name);
                             }
                         } else {
+                            console.log('New task, will add:', importedTask.program_name);
                             tasksToAdd.push(importedTask);
                         }
                     }
 
                     let totalProcessed = 0;
+                    let message = '';
 
                     // Add new tasks first
                     if (tasksToAdd.length > 0) {
-                        await SupabaseService.bulkAddTasks(tasksToAdd);
+                        const addedTasks = await SupabaseService.bulkAddTasks(tasksToAdd);
                         totalProcessed += tasksToAdd.length;
+                        message += `• ${tasksToAdd.length} new milestones added\n`;
                     }
 
                     // Update existing tasks
@@ -316,7 +343,17 @@ export const ProgramTrackerView: React.FC = () => {
                             await SupabaseService.updateTask(id, updates);
                             totalProcessed++;
                         }
+                        message += `• ${tasksToUpdate.length} existing milestones updated\n`;
                     }
+
+                    // Summary logging
+                    console.log('CSV Import Summary:', {
+                        totalImported: importedTasks.length,
+                        newAdded: tasksToAdd.length,
+                        updated: tasksToUpdate.length,
+                        skipped: duplicateNames.size - tasksToUpdate.length,
+                        totalProcessed
+                    });
 
                     if (totalProcessed > 0) {
                         await SupabaseService.logAllActivity({
@@ -330,18 +367,28 @@ export const ProgramTrackerView: React.FC = () => {
                             }
                         });
 
-                        let message = `${totalProcessed} milestones processed:\n`;
-                        message += `• ${tasksToAdd.length} new milestones added\n`;
-                        message += `• ${tasksToUpdate.length} existing milestones updated`;
+                        let fullMessage = `${totalProcessed} milestones processed:\n${message}`;
 
-                        if (duplicateNames.size > 0) {
-                            message += `\n\nDuplicates found (not added):\n${Array.from(duplicateNames).slice(0, 5).join('\n')}`;
-                            if (duplicateNames.size > 5) {
-                                message += `\n... and ${duplicateNames.size - 5} more`;
+                        if (duplicateNames.size > tasksToUpdate.length) {
+                            const skippedCount = duplicateNames.size - tasksToUpdate.length;
+                            fullMessage += `• ${skippedCount} duplicates skipped (no changes)\n`;
+                            
+                            const skippedNames = Array.from(duplicateNames).filter(name => 
+                                !tasksToUpdate.some(update => {
+                                    const task = existingTasks.find(t => t.id === update.id);
+                                    return `${task.program_name} (${task.month})` === name;
+                                })
+                            );
+                            
+                            if (skippedNames.length > 0) {
+                                fullMessage += `\nSkipped duplicates:\n${skippedNames.slice(0, 5).join('\n')}`;
+                                if (skippedNames.length > 5) {
+                                    fullMessage += `\n... and ${skippedNames.length - 5} more`;
+                                }
                             }
                         }
 
-                        alert(message);
+                        alert(fullMessage.trim());
                         fetchTasks();
                     } else {
                         if (duplicateNames.size > 0) {
