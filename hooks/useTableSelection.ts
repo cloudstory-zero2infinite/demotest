@@ -7,6 +7,37 @@ export function useTableSelection<T>() {
     const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
+    // Bulk progress state
+    const [bulkProgress, setBulkProgress] = useState<{
+        total: number;
+        completed: number;
+        failed: number;
+        status: 'idle' | 'processing' | 'done' | 'error';
+    }>({ total: 0, completed: 0, failed: 0, status: 'idle' });
+
+    const startBulkOperation = useCallback((total: number) => {
+        setBulkProgress({ total, completed: 0, failed: 0, status: 'processing' });
+    }, []);
+
+    const incrementBulkProgress = useCallback((success: boolean) => {
+        setBulkProgress(prev => ({
+            ...prev,
+            completed: success ? prev.completed + 1 : prev.completed,
+            failed: success ? prev.failed : prev.failed + 1,
+        }));
+    }, []);
+
+    const finishBulkOperation = useCallback((hasError: boolean = false) => {
+        setBulkProgress(prev => ({
+            ...prev,
+            status: hasError ? 'error' : 'done',
+        }));
+    }, []);
+
+    const resetBulkProgress = useCallback(() => {
+        setBulkProgress({ total: 0, completed: 0, failed: 0, status: 'idle' });
+    }, []);
+
     const toggle = useCallback((id: string | number) => {
         setSelectedIds(prev => {
             const next = new Set(prev);
@@ -27,7 +58,8 @@ export function useTableSelection<T>() {
         setIsEditing(false);
         setEditValues({});
         setIsConfirmingDelete(false);
-    }, []);
+        resetBulkProgress();
+    }, [resetBulkProgress]);
 
     const startEdit = useCallback((selectedItems: T[], getId: (item: T) => string | number) => {
         const values: Record<string | number, Partial<T>> = {};
@@ -49,8 +81,8 @@ export function useTableSelection<T>() {
     }, []);
 
     return {
-        selectedIds, isEditing, editValues, isConfirmingDelete, isSaving,
-        setIsConfirmingDelete, setIsSaving,
+        selectedIds, isEditing, editValues, isConfirmingDelete, isSaving, bulkProgress,
+        setIsConfirmingDelete, setIsSaving, startBulkOperation, incrementBulkProgress, finishBulkOperation, resetBulkProgress,
         toggle, toggleAll, clearAll, startEdit, updateField, cancelEdit,
     };
 }
