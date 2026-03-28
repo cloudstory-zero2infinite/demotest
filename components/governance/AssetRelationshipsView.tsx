@@ -476,6 +476,9 @@ export const AssetRelationshipsView: React.FC = () => {
                 </div>
                 <div className="flex space-x-2">
                     <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
+                     <button onClick={() => setShowAIChat(true)} title="AI Assistant" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <BotIcon className="h-5 w-5" />
+                    </button>
                     <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md relative">
                         <UploadIcon className="h-5 w-5" />
                         {importData.addedCount && (
@@ -490,9 +493,7 @@ export const AssetRelationshipsView: React.FC = () => {
                     <button onClick={() => setModalState({ type: 'add' })} title="Add Relationship" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <PlusIcon className="h-5 w-5" />
                     </button>
-                    <button onClick={() => setShowAIChat(true)} title="AI Assistant" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-                        <BotIcon className="h-5 w-5" />
-                    </button>
+                   
                 </div>
             </div>
 

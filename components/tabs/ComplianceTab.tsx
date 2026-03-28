@@ -55,14 +55,30 @@ export const ComplianceTab: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string|null>(null);
     const [modalState, setModalState] = useState<{ type: 'view' | null; compliance?: Compliance | null }>({ type: null });
-    const [selectedFramework, setSelectedFramework] = useState<string>('All Frameworks');
+    const [selectedFramework, setSelectedFramework] = useState<string>('');
     const [sortConfig, setSortConfig] = useState<{ key: keyof Compliance; direction: 'ascending' | 'descending' } | null>(null);
+    const [neededFrameworks, setNeededFrameworks] = useState<string[] | null>(null);
 
     const complianceStatusStyles: Record<ComplianceStatus, string> = {
         'Achieved': 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
         'In Progress': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300',
         'Not Started': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
     };
+
+    const fetchOrgData = useCallback(async () => {
+        try {
+            const orgData = await SupabaseService.getOrgMe();
+            if (orgData?.neededFramework) {
+                setNeededFrameworks(orgData.neededFramework);
+                // Set first framework as default if no framework is selected
+                if (orgData.neededFramework.length > 0 && !selectedFramework) {
+                    setSelectedFramework(orgData.neededFramework[0]);
+                }
+            }
+        } catch (e) {
+            console.error('Failed to load organization data:', e);
+        }
+    }, [selectedFramework]);
 
     const fetchCompliances = useCallback(async () => {
         try {
@@ -78,17 +94,33 @@ export const ComplianceTab: React.FC = () => {
     }, []);
 
     useEffect(() => {
+        fetchOrgData();
         fetchCompliances();
-    }, [fetchCompliances]);
+    }, [fetchOrgData, fetchCompliances]);
 
     const uniqueFrameworks = useMemo(() => {
-        return ['All Frameworks', ...Array.from(new Set(compliances.map(c => c.framework)))];
-    }, [compliances]);
+        if (!neededFrameworks || neededFrameworks.length === 0) {
+            return [];
+        }
+        // Only show frameworks that are in the organization's needed_framework array
+        const availableFrameworks = compliances.map(c => c.framework);
+        return neededFrameworks.filter(framework => 
+            availableFrameworks.includes(framework)
+        );
+    }, [compliances, neededFrameworks]);
     
     const filteredAndSortedCompliances = useMemo(() => {
         let filteredItems = [...compliances];
         
-        if (selectedFramework !== 'All Frameworks') {
+        // Only show frameworks that are in the organization's needed_framework array
+        if (neededFrameworks && neededFrameworks.length > 0) {
+            filteredItems = filteredItems.filter(item => 
+                neededFrameworks.includes(item.framework)
+            );
+        }
+        
+        // Further filter by selected framework if one is selected
+        if (selectedFramework) {
             filteredItems = filteredItems.filter(item => item.framework === selectedFramework);
         }
         
@@ -115,7 +147,7 @@ export const ComplianceTab: React.FC = () => {
             });
         }
         return filteredItems;
-    }, [compliances, selectedFramework, sortConfig]);
+    }, [compliances, selectedFramework, sortConfig, neededFrameworks]);
 
     const requestSort = (key: keyof Compliance) => {
         let direction: 'ascending' | 'descending' = 'ascending';
@@ -138,21 +170,29 @@ export const ComplianceTab: React.FC = () => {
         <div className="px-4 py-6 sm:px-0">
             <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4">Compliance Frameworks</h2>
             
-            <div className="flex flex-wrap gap-2 mb-4">
-                {uniqueFrameworks.map(framework => (
-                    <button
-                        key={framework}
-                        onClick={() => setSelectedFramework(framework)}
-                        className={`px-3 py-1.5 text-sm font-medium rounded-full transition-colors duration-200 ${
-                            selectedFramework === framework
-                                ? 'bg-blue-600 text-white shadow-md'
-                                : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 border dark:border-gray-600'
-                        }`}
-                    >
-                        {framework}
-                    </button>
-                ))}
-            </div>
+            {neededFrameworks && neededFrameworks.length > 0 ? (
+                <div className="flex flex-wrap gap-2 mb-4">
+                    {uniqueFrameworks.map(framework => (
+                        <button
+                            key={framework}
+                            onClick={() => setSelectedFramework(framework)}
+                            className={`px-3 py-1.5 text-sm font-medium rounded-full transition-colors duration-200 ${
+                                selectedFramework === framework
+                                    ? 'bg-blue-600 text-white shadow-md'
+                                    : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 border dark:border-gray-600'
+                            }`}
+                        >
+                            {framework}
+                        </button>
+                    ))}
+                </div>
+            ) : (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                    <p className="text-sm text-yellow-800">
+                        No compliance frameworks have been assigned to your organization. Please contact your administrator to configure frameworks.
+                    </p>
+                </div>
+            )}
 
             {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">{error}</div>}
 

@@ -115,7 +115,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 transition-all duration-200 ease-in-out flex-shrink-0
                 ${isOpen ? 'w-56' : 'w-16'}
             `}
-            style={{ minHeight: 'calc(100vh - 64px)' }}
+            style={{ height: 'calc(100vh - 64px)' }}
         >
             {/* Toggle button */}
             <div className={`flex items-center h-12 px-4 border-b border-gray-100 dark:border-gray-700 ${isOpen ? 'justify-between' : 'justify-center'}`}>

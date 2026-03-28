@@ -50,7 +50,7 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
         } else {
 
-            setFormData({ asset_id: '', name: '', asset_owner: '', business_owner: '', physical_location: '', criticality: 'Low', category: 'Technology', exposure: 'Internal', governed_status: 'Non-Governed', vulnerability_count: 0, details: '' });
+            setFormData({ asset_id: '', name: '', asset_owner: '', business_owner: '', physical_location: '', criticality: 'Low', category: 'Technology', exposure: 'Internal', governed_status: 'Non-Governed', vulnerability_count: 0, details: '', source: 'Manual' });
 
         }
 
@@ -158,6 +158,14 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
                     <div>
 
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Source</label>
+
+                        <input type="text" name="source" value={formData.source || ''} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+
+                    </div>
+
+                    <div>
+
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Exposure</label>
 
                         <select name="exposure" value={formData.exposure} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
@@ -220,6 +228,21 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
 
 
+// Helper function to display source with file upload detection
+const displaySource = (source: string | null | undefined): string => {
+    const sourceStr = source || '';
+    if (sourceStr.toLowerCase().includes('csv') || sourceStr.toLowerCase().includes('import') || sourceStr.toLowerCase().includes('export')) {
+        return 'File Upload';
+    }
+    if (sourceStr === '-' || sourceStr.trim() === '') {
+        return 'File Upload'; // Default empty/hyphen to File Upload
+    }
+    if (sourceStr.toLowerCase().includes('ai generated')) {
+        return 'AI'; // Shorten AI Generated to AI
+    }
+    return sourceStr; // Will show 'Manual', etc.
+};
+
 export const AssetsView: React.FC = () => {
 
     const [assets, setAssets] = useState<Asset[]>([]);
@@ -240,7 +263,7 @@ export const AssetsView: React.FC = () => {
 
     const [sortConfig, setSortConfig] = useState<{ key: keyof Asset; direction: 'ascending' | 'descending' } | null>(null);
 
-    const [importData, setImportData] = useState<{ newAssets: AssetCreate[]; duplicates: string[] }>({ newAssets: [], duplicates: [] });
+    const [importData, setImportData] = useState<{ newAssets: AssetCreate[]; updatedAssets: { id: string; updates: AssetUpdate }[]; unchangedAssets: Asset[]; duplicates: string[] }>({ newAssets: [], updatedAssets: [], unchangedAssets: [], duplicates: [] });
 
     const [showAIChat, setShowAIChat] = useState(false);
 
@@ -319,6 +342,8 @@ export const AssetsView: React.FC = () => {
                 String(item.business_owner ?? '').toLowerCase().includes(lowerCaseFilter) ||
 
                 String(item.physical_location ?? '').toLowerCase().includes(lowerCaseFilter) ||
+
+                String(item.source ?? '').toLowerCase().includes(lowerCaseFilter) ||
 
                 String(item.details ?? '').toLowerCase().includes(lowerCaseFilter)
 
@@ -584,6 +609,8 @@ export const AssetsView: React.FC = () => {
 
                     name: String(record.name || ''),
 
+                    source: String(record.source || '').toLowerCase().includes('import') || String(record.source || '').toLowerCase().includes('export') ? 'File Upload' : 'AI',
+
                     asset_owner: String(record.asset_owner || ''),
 
                     business_owner: String(record.business_owner || ''),
@@ -601,8 +628,6 @@ export const AssetsView: React.FC = () => {
                     vulnerability_count: Number(record.vulnerability_count || 0),
 
                     details: String(record.details || ''),
-
-                    source: 'ai'
 
                 };
 
@@ -758,44 +783,76 @@ export const AssetsView: React.FC = () => {
 
                         physical_location: physical_location || '',
 
+                        source: 'File Upload'
+
                     };
 
                 })
 
-                .filter((asset): asset is AssetCreate =>
-
+                .filter((asset) => 
     asset !== null &&
-
-    typeof asset.asset_id === 'string' &&
-
-    typeof asset.name === 'string' &&
-
-    typeof asset.criticality === 'string' &&
-
-    typeof asset.details === 'string' &&
-
-    typeof asset.governed_status === 'string' &&
-
-    typeof asset.exposure === 'string' &&
-
-    typeof asset.category === 'string'
-
-);
+    asset.asset_id &&
+    asset.name &&
+    asset.criticality &&
+    asset.details !== undefined &&
+    asset.governed_status &&
+    asset.exposure &&
+    asset.category &&
+    asset.source
+) as AssetCreate[];
 
 
 
-            // Check for duplicates by asset_id
+            // Separate new assets from existing assets that need updates
+            const existingAssetMap = new Map(assets.map(a => [a.asset_id, a]));
+            const newAssets: AssetCreate[] = [];
+            const updatedAssets: { id: string; updates: AssetUpdate }[] = [];
+            const unchangedAssets: Asset[] = [];
 
-            const existingAssetIds = new Set(assets.map(a => a.asset_id));
+            parsedAssets.forEach(parsedAsset => {
+                const existingAsset = existingAssetMap.get(parsedAsset.asset_id) as Asset | undefined;
+                if (existingAsset) {
+                    // Check if asset actually changed
+                    const hasChanges = (
+                        existingAsset.name !== parsedAsset.name ||
+                        existingAsset.asset_owner !== parsedAsset.asset_owner ||
+                        existingAsset.business_owner !== parsedAsset.business_owner ||
+                        existingAsset.physical_location !== parsedAsset.physical_location ||
+                        existingAsset.criticality !== parsedAsset.criticality ||
+                        existingAsset.details !== parsedAsset.details ||
+                        existingAsset.governed_status !== parsedAsset.governed_status ||
+                        existingAsset.vulnerability_count !== parsedAsset.vulnerability_count ||
+                        existingAsset.exposure !== parsedAsset.exposure ||
+                        existingAsset.category !== parsedAsset.category
+                    );
 
-            const newAssets = parsedAssets.filter(a => !existingAssetIds.has(a.asset_id));
+                    if (hasChanges) {
+                        // Asset exists and has changes, prepare update
+                        const updates: AssetUpdate = {
+                            name: parsedAsset.name,
+                            asset_owner: parsedAsset.asset_owner,
+                            business_owner: parsedAsset.business_owner,
+                            physical_location: parsedAsset.physical_location,
+                            criticality: parsedAsset.criticality,
+                            details: parsedAsset.details,
+                            governed_status: parsedAsset.governed_status,
+                            vulnerability_count: parsedAsset.vulnerability_count,
+                            exposure: parsedAsset.exposure,
+                            category: parsedAsset.category,
+                            source: 'File Upload'
+                        };
+                        updatedAssets.push({ id: existingAsset.id, updates });
+                    } else {
+                        // No changes, add to unchanged list
+                        unchangedAssets.push(existingAsset);
+                    }
+                } else {
+                    // New asset, add to list
+                    newAssets.push(parsedAsset);
+                }
+            });
 
-            const duplicates = parsedAssets.filter(a => existingAssetIds.has(a.asset_id)).map(a => a.asset_id);
-
-
-
-            setImportData({ newAssets, duplicates });
-
+            setImportData({ newAssets, updatedAssets, unchangedAssets, duplicates: [] });
             setModalState({ type: 'import' });
 
         };
@@ -809,44 +866,43 @@ export const AssetsView: React.FC = () => {
 
 
     const handleConfirmImport = async () => {
-
-        if (importData.newAssets.length > 0) {
-
+        if (importData.newAssets.length > 0 || importData.updatedAssets.length > 0) {
             try {
-
-                await SupabaseService.bulkAddAssets(importData.newAssets);
+                // Add new assets
+                if (importData.newAssets.length > 0) {
+                    await SupabaseService.bulkAddAssets(importData.newAssets);
+                }
+                
+                // Update existing assets
+                if (importData.updatedAssets.length > 0) {
+                    for (const { id, updates } of importData.updatedAssets) {
+                        await SupabaseService.updateAsset(id, updates);
+                    }
+                }
 
                 await SupabaseService.logAllActivity({
-
-                    action: 'Bulk Imported Assets',
-
+                    action: 'CSV Import - Added and Updated Assets',
                     module: 'Governance',
-
-                    event_data: { count: importData.newAssets.length, duplicateCount: importData.duplicates.length }
-
+                    event_data: { 
+                        newCount: importData.newAssets.length, 
+                        updatedCount: importData.updatedAssets.length 
+                    }
                 });
 
                 setModalState({ type: null });
-
                 fetchAssets();
-
             } catch (err) {
-
                 setError('Failed to import assets.');
-
                 console.error(err);
-
+            }
         }
-
-    }
-
-};
+    };
 
 
 
 const handleExportCSV = () => {
 
-    const headers = ['asset_id', 'name', 'criticality', 'details', 'governed_status', 'vulnerability_count', 'exposure', 'category', 'asset_owner', 'business_owner', 'physical_location'];
+    const headers = ['asset_id', 'name', 'criticality', 'details', 'governed_status', 'vulnerability_count', 'exposure', 'category', 'source', 'asset_owner', 'business_owner', 'physical_location'];
 
     const csvContent = [
 
@@ -871,6 +927,8 @@ const handleExportCSV = () => {
                 asset.exposure || '',
 
                 asset.category || '',
+
+                asset.source || '',
 
                 asset.asset_owner || '',
 
@@ -935,6 +993,11 @@ const handleExportCSV = () => {
                 <div className="flex space-x-2">
 
                     <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
+                     <button onClick={() => setShowAIChat(true)} title="AI Assistant" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+
+                        <BotIcon className="h-5 w-5" />
+
+                    </button>
 
                     <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
 
@@ -954,11 +1017,7 @@ const handleExportCSV = () => {
 
                     </button>
 
-                    <button onClick={() => setShowAIChat(true)} title="AI Assistant" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
-                        <BotIcon className="h-5 w-5" />
-
-                    </button>
+                   
 
                 </div>
 
@@ -1056,6 +1115,16 @@ const handleExportCSV = () => {
 
                                 </th>
 
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+
+                                    <button onClick={() => requestSort('source')} className="flex items-center w-full text-left focus:outline-none">
+
+                                        Source {getSortIconFor('source')}
+
+                                    </button>
+
+                                </th>
+
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
 
                             </tr>
@@ -1070,7 +1139,7 @@ const handleExportCSV = () => {
 
                             ) : filteredAndSortedAssets.length === 0 ? (
 
-                                <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">No assets found.</td></tr>
+                                <tr><td colSpan={9} className="text-center py-4 text-gray-500 dark:text-gray-400">No assets found.</td></tr>
 
                             ) : filteredAndSortedAssets.map(asset => (
 
@@ -1163,6 +1232,16 @@ const handleExportCSV = () => {
                                             <select value={editValues[asset.id]?.category ?? asset.category} onChange={e => updateField(asset.id, 'category', e.target.value as any)} className={editSelectCls}><option>Technology</option><option>Information</option><option>Service</option></select>
 
                                         ) : asset.category}
+
+                                    </td>
+
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+
+                                        {isEditing && selectedIds.has(asset.id) ? (
+
+                                            <input type="text" value={editValues[asset.id]?.source ?? asset.source ?? ''} onChange={e => updateField(asset.id, 'source', e.target.value)} className={editInputCls} />
+
+                                        ) : displaySource(asset.source)}
 
                                     </td>
 
@@ -1352,19 +1431,43 @@ const handleExportCSV = () => {
 
                     </div>
 
-                    {importData.duplicates.length > 0 && (
+                    {importData.updatedAssets.length > 0 && (
 
                         <div>
 
-                            <h4 className="font-semibold text-yellow-600 dark:text-yellow-400 mb-2">Duplicates (Not Imported - {importData.duplicates.length})</h4>
+                            <h4 className="font-semibold text-blue-600 dark:text-blue-400 mb-2">Assets to Update ({importData.updatedAssets.length})</h4>
 
-                            <div className="max-h-48 overflow-y-auto border border-yellow-200 dark:border-yellow-700 rounded-md p-3 bg-yellow-50 dark:bg-gray-800">
+                            <div className="max-h-48 overflow-y-auto border border-blue-200 dark:border-blue-700 rounded-md p-3 bg-blue-50 dark:bg-gray-800">
 
-                                {importData.duplicates.map((assetId, idx) => (
+                                {importData.updatedAssets.map(({ id, updates }, idx) => (
 
-                                    <div key={idx} className="py-1 px-2 text-sm text-yellow-800 dark:text-yellow-200">
+                                    <div key={idx} className="py-1 px-2 text-sm text-blue-800 dark:text-blue-200">
 
-                                        {assetId} (already exists)
+                                        {updates.asset_id} - {updates.name} (will be updated)
+
+                                    </div>
+
+                                ))}
+
+                            </div>
+
+                        </div>
+
+                    )}
+
+                    {importData.unchangedAssets.length > 0 && (
+
+                        <div>
+
+                            <h4 className="font-semibold text-gray-600 dark:text-gray-400 mb-2">Unchanged Assets ({importData.unchangedAssets.length})</h4>
+
+                            <div className="max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-md p-3 bg-gray-50 dark:bg-gray-800">
+
+                                {importData.unchangedAssets.map((asset, idx) => (
+
+                                    <div key={idx} className="py-1 px-2 text-sm text-gray-600 dark:text-gray-400">
+
+                                        {asset.asset_id} - {asset.name} (no changes)
 
                                     </div>
 
@@ -1382,9 +1485,14 @@ const handleExportCSV = () => {
 
                     <button onClick={closeModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
 
-                    <button onClick={handleConfirmImport} disabled={importData.newAssets.length === 0} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed">
+                    <button onClick={handleConfirmImport} disabled={importData.newAssets.length === 0 && importData.updatedAssets.length === 0} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed">
 
-                        Import {importData.newAssets.length} Asset{importData.newAssets.length !== 1 ? 's' : ''}
+                        {importData.newAssets.length > 0 && importData.updatedAssets.length > 0 
+                            ? `Add ${importData.newAssets.length} & Update ${importData.updatedAssets.length} Assets`
+                            : importData.newAssets.length > 0 
+                                ? `Import ${importData.newAssets.length} Asset${importData.newAssets.length !== 1 ? 's' : ''}`
+                                : `Update ${importData.updatedAssets.length} Asset${importData.updatedAssets.length !== 1 ? 's' : ''}`
+                        }
 
                     </button>
 

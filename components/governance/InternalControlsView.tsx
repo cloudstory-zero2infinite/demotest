@@ -1,10 +1,53 @@
-import React, { useState, useEffect, useCallback, useRef, ChangeEvent, useMemo } from 'react';
+import React, { useState, useEffect, useRef, ChangeEvent, useCallback, useMemo } from 'react';
 import { InternalControl, InternalControlCreate, InternalControlUpdate, InternalControlStatus } from '../../types';
 import * as SupabaseService from '../../services/supabase';
 import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, XIcon } from '../Icons';
 import { Modal } from '../common/Modal';
 import { StatusBadge } from '../common/StatusBadge';
 import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
+
+// Helper function to parse CSV line with proper quote handling
+const parseCSVLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        
+        if (char === '"') {
+            if (inQuotes && line[i + 1] === '"') {
+                current += '"';
+                i++; // Skip next quote
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (char === ',' && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    
+    result.push(current.trim());
+    return result;
+};
+
+// Helper function to parse CSV fields from a line
+const parseCSVFields = (line: string): string[] => {
+    return parseCSVLine(line).map(field => field.replace(/^"(.*)"$/, '$1').trim());
+};
+
+// Helper function to sanitize input
+const sanitizeInput = (input: string): string => {
+    return input
+        .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '') // Remove script tags
+        .replace(/javascript:/gi, '') // Remove javascript protocols
+        .replace(/on\w+\s*=/gi, '') // Remove event handlers
+        .trim();
+};
 
 interface InternalControlModalProps {
     isOpen: boolean;
@@ -344,20 +387,60 @@ export const InternalControlsView: React.FC = () => {
             if (!text) return;
 
             try {
-                const lines = text.split('\n').slice(1); // Skip header row
+                const allLines = text.split('\n').filter(line => line.trim());
+                
+                if (allLines.length === 0) {
+                    alert('CSV file is empty or contains only whitespace.');
+                    return;
+                }
+                
+                const lines = allLines.slice(1); // Skip header row
+                
+                if (lines.length === 0) {
+                    alert('No data rows found in CSV file after header.');
+                    return;
+                }
+                
                 const validStatuses: InternalControlStatus[] = ['Not-Enforced', 'InProgress', 'Enforced'];
                 const importedControls: InternalControlCreate[] = lines
                     .map((line): InternalControlCreate | null => {
-                        const [ctl_id, name, description, status, compliance_tags] = line.split(',').map(s => s ? s.trim() : '');
-                        if (!ctl_id || !name || !status) return null;
-                        if (!validStatuses.includes(status as InternalControlStatus)) return null;
+                        // Properly parse CSV fields with quote handling
+                        const fields = parseCSVFields(line);
+                        const [ctl_id, name, description, status, compliance_tags] = fields;
+                        
+                        // Validate required fields
+                        if (!ctl_id || !ctl_id.trim()) {
+                            console.log('Skipping - missing ctl_id');
+                            return null;
+                        }
+                        
+                        if (!name || !name.trim()) {
+                            console.log('Skipping - missing name');
+                            return null;
+                        }
+                        
+                        if (!status || !status.trim()) {
+                            console.log('Skipping - missing status');
+                            return null;
+                        }
+                        
+                        // Sanitize input
+                        const cleanCtlId = sanitizeInput(ctl_id.trim());
+                        const cleanName = sanitizeInput(name.trim());
+                        const cleanDescription = description ? sanitizeInput(description.trim()) : null;
+                        const cleanStatus = sanitizeInput(status.trim());
+                        
+                        if (!validStatuses.includes(cleanStatus as InternalControlStatus)) {
+                            console.log('Skipping - invalid status:', cleanStatus);
+                            return null;
+                        }
 
                         return {
-                            ctl_id,
-                            name,
-                            description: description || null,
-                            status: status as InternalControlStatus,
-                            compliance_tag3: compliance_tags ? compliance_tags.split('|').map(t => t.trim()).filter(t => t) : [],
+                            ctl_id: cleanCtlId,
+                            name: cleanName,
+                            description: cleanDescription,
+                            status: cleanStatus as InternalControlStatus,
+                            compliance_tag3: compliance_tags ? compliance_tags.split('|').map(t => sanitizeInput(t.trim())).filter(t => t) : [],
                         };
                     })
                     .filter((control): control is InternalControlCreate => control !== null);
