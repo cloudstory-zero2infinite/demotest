@@ -8,11 +8,12 @@ import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
 import { useTableSelection } from '../../hooks/useTableSelection';
 import { SelectionActionBar } from '../common/SelectionActionBar';
 import { AIChatModal } from '../common/AIChatModal';
+import { BulkProgressModal } from '../common/BulkProgressModal';
 
 interface PolicyModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSave: (policy: PolicyDocumentCreate | PolicyDocumentUpdate, documentFile?: File | null) => void;
+    onSave: (policy: PolicyDocumentCreate | PolicyDocumentUpdate, documentFile?: File | null) => Promise<void> | void;
     policyToEdit: PolicyDocument | null;
     mode: 'add' | 'edit' | 'view';
 }
@@ -20,6 +21,7 @@ interface PolicyModalProps {
 const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose, onSave, policyToEdit, mode }) => {
     const today = new Date().toISOString().split('T')[0];
     const [formData, setFormData] = useState<Partial<PolicyDocumentCreate> & { id?: string }>({});
+    const [isSaving, setIsSaving] = useState(false);
     const [documentFile, setDocumentFile] = useState<File | null>(null);
     const isViewMode = mode === 'view';
 
@@ -79,9 +81,14 @@ const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose, onSave, poli
         }
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        onSave(formData as PolicyDocumentCreate, documentFile);
+        setIsSaving(true);
+        try {
+            await onSave(formData as PolicyDocumentCreate, documentFile);
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     const title = mode === 'add' ? 'Add New Policy' : mode === 'edit' ? 'Edit Policy' : 'View Policy';
@@ -187,7 +194,17 @@ const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose, onSave, poli
                 {!isViewMode && (
                 <div className="mt-6 flex justify-end space-x-3">
                     <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
-                    <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700">Save</button>
+                    <button type="submit" disabled={isSaving} className="flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed min-w-[5rem]">
+                        {isSaving ? (
+                            <>
+                                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Saving...
+                            </>
+                        ) : 'Save'}
+                    </button>
                 </div>
                 )}
             </form>
@@ -208,8 +225,8 @@ export const PoliciesView: React.FC = () => {
     const [showAIChat, setShowAIChat] = useState(false);
 
     const {
-        selectedIds, isEditing, editValues, isConfirmingDelete, isSaving,
-        setIsConfirmingDelete, setIsSaving,
+        selectedIds, isEditing, editValues, isConfirmingDelete, isSaving, bulkProgress,
+        setIsConfirmingDelete, setIsSaving, startBulkOperation, incrementBulkProgress, finishBulkOperation, resetBulkProgress,
         toggle, toggleAll, clearAll, startEdit, updateField, cancelEdit,
     } = useTableSelection<PolicyDocument>();
 
@@ -589,18 +606,26 @@ export const PoliciesView: React.FC = () => {
     };
 
     const handleBulkDelete = async () => {
-        try {
-            setIsSaving(true);
-            for (const id of selectedIds) {
+        setIsConfirmingDelete(false);
+        startBulkOperation(selectedIds.size);
+        let hasError = false;
+        for (const id of selectedIds) {
+            try {
                 await SupabaseService.deletePolicy(id as string);
+                incrementBulkProgress(true);
+            } catch (err) {
+                console.error('Failed to delete policy', id, err);
+                hasError = true;
+                incrementBulkProgress(false);
             }
-            clearAll();
-            fetchPolicies();
-        } catch (err) {
-            setError('Failed to delete selected policies.');
-        } finally {
-            setIsSaving(false);
         }
+        finishBulkOperation(hasError);
+        fetchPolicies();
+    };
+
+    const handleCloseBulkProgress = () => {
+        resetBulkProgress();
+        clearAll();
     };
 
     const policyStatusStyles: Record<PolicyStatus, string> = {
@@ -780,25 +805,33 @@ export const PoliciesView: React.FC = () => {
                 </div>
             </Modal>
 
-            <SelectionActionBar
-                selectedCount={selectedIds.size}
-                isEditing={false}
-                isConfirmingDelete={isConfirmingDelete}
-                isSaving={isSaving}
-                showEdit={false}
-                onEdit={() => {}}
-                onSaveAll={() => {}}
-                onCancelEdit={() => {}}
-                onDelete={() => setIsConfirmingDelete(true)}
-                onConfirmDelete={handleBulkDelete}
-                onCancelDelete={() => setIsConfirmingDelete(false)}
-                onClear={clearAll}
-            />
+            {bulkProgress.status === 'idle' && (
+                <SelectionActionBar
+                    selectedCount={selectedIds.size}
+                    isEditing={false}
+                    isConfirmingDelete={isConfirmingDelete}
+                    isSaving={isSaving}
+                    showEdit={false}
+                    onEdit={() => {}}
+                    onSaveAll={() => {}}
+                    onCancelEdit={() => {}}
+                    onDelete={() => setIsConfirmingDelete(true)}
+                    onConfirmDelete={handleBulkDelete}
+                    onCancelDelete={() => setIsConfirmingDelete(false)}
+                    onClear={clearAll}
+                />
+            )}
             <AIChatModal
                 isOpen={showAIChat}
                 onClose={() => setShowAIChat(false)}
                 module="policies"
                 onConfirm={handleAIChatConfirm}
+            />
+            <BulkProgressModal
+                isOpen={bulkProgress.status !== 'idle'}
+                title="Deleting Policies"
+                progress={bulkProgress}
+                onClose={handleCloseBulkProgress}
             />
         </div>
     );

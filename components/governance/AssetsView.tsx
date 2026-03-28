@@ -10,6 +10,8 @@ import { Modal } from '../common/Modal';
 
 import { AIChatModal } from '../common/AIChatModal';
 
+import { BulkProgressModal } from '../common/BulkProgressModal';
+
 import { useTableSelection } from '../../hooks/useTableSelection';
 
 import { SelectionActionBar } from '../common/SelectionActionBar';
@@ -22,7 +24,7 @@ interface AssetModalProps {
 
     onClose: () => void;
 
-    onSave: (asset: AssetCreate | AssetUpdate) => void;
+    onSave: (asset: AssetCreate | AssetUpdate) => Promise<void> | void;
 
     assetToEdit: Asset | null;
 
@@ -35,6 +37,7 @@ interface AssetModalProps {
 const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetToEdit, mode }) => {
 
     const [formData, setFormData] = useState<Partial<AssetCreate>>({});
+    const [isSaving, setIsSaving] = useState(false);
 
     const isViewMode = mode === 'view';
 
@@ -70,11 +73,16 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
 
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
 
         e.preventDefault();
 
-        onSave(formData as AssetCreate | AssetUpdate);
+        setIsSaving(true);
+        try {
+            await onSave(formData as AssetCreate | AssetUpdate);
+        } finally {
+            setIsSaving(false);
+        }
 
     };
 
@@ -204,7 +212,17 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
                     <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
 
-                    <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">Save</button>
+                    <button type="submit" disabled={isSaving} className="flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed min-w-[5rem]">
+                        {isSaving ? (
+                            <>
+                                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Saving...
+                            </>
+                        ) : 'Save'}
+                    </button>
 
                 </div>
 
@@ -248,9 +266,9 @@ export const AssetsView: React.FC = () => {
 
     const {
 
-        selectedIds, isEditing, editValues, isConfirmingDelete, isSaving,
+        selectedIds, isEditing, editValues, isConfirmingDelete, isSaving, bulkProgress,
 
-        setIsConfirmingDelete, setIsSaving,
+        setIsConfirmingDelete, setIsSaving, startBulkOperation, incrementBulkProgress, finishBulkOperation, resetBulkProgress,
 
         toggle, toggleAll, clearAll, startEdit, updateField, cancelEdit,
 
@@ -514,29 +532,45 @@ export const AssetsView: React.FC = () => {
 
     const handleBulkDelete = async () => {
 
-        try {
+        setIsConfirmingDelete(false);
 
-            setIsSaving(true);
+        startBulkOperation(selectedIds.size);
 
-            for (const id of selectedIds) {
+        let hasError = false;
+
+        for (const id of selectedIds) {
+
+            try {
 
                 await SupabaseService.deleteAsset(id as string);
 
+                incrementBulkProgress(true);
+
+            } catch (err) {
+
+                console.error('Failed to delete asset', id, err);
+
+                hasError = true;
+
+                incrementBulkProgress(false);
+
             }
 
-            clearAll();
-
-            fetchAssets();
-
-        } catch (err) {
-
-            setError('Failed to delete selected items.');
-
-        } finally {
-
-            setIsSaving(false);
-
         }
+
+        finishBulkOperation(hasError);
+
+        fetchAssets();
+
+    };
+
+
+
+    const handleCloseBulkProgress = () => {
+
+        resetBulkProgress();
+
+        clearAll();
 
     };
 
@@ -1392,31 +1426,21 @@ const handleExportCSV = () => {
 
             </Modal>
 
-            <SelectionActionBar
-
-                selectedCount={selectedIds.size}
-
-                isEditing={isEditing}
-
-                isConfirmingDelete={isConfirmingDelete}
-
-                isSaving={isSaving}
-
-                onEdit={() => startEdit(filteredAndSortedAssets.filter(i => selectedIds.has(i.id)), i => i.id)}
-
-                onSaveAll={handleSaveAll}
-
-                onCancelEdit={cancelEdit}
-
-                onDelete={() => setIsConfirmingDelete(true)}
-
-                onConfirmDelete={handleBulkDelete}
-
-                onCancelDelete={() => setIsConfirmingDelete(false)}
-
-                onClear={clearAll}
-
-            />
+            {bulkProgress.status === 'idle' && (
+                <SelectionActionBar
+                    selectedCount={selectedIds.size}
+                    isEditing={isEditing}
+                    isConfirmingDelete={isConfirmingDelete}
+                    isSaving={isSaving}
+                    onEdit={() => startEdit(filteredAndSortedAssets.filter(i => selectedIds.has(i.id)), i => i.id)}
+                    onSaveAll={handleSaveAll}
+                    onCancelEdit={cancelEdit}
+                    onDelete={() => setIsConfirmingDelete(true)}
+                    onConfirmDelete={handleBulkDelete}
+                    onCancelDelete={() => setIsConfirmingDelete(false)}
+                    onClear={clearAll}
+                />
+            )}
 
             <AIChatModal
 
@@ -1427,6 +1451,18 @@ const handleExportCSV = () => {
                 module="assets"
 
                 onConfirm={handleAIChatConfirm}
+
+            />
+
+            <BulkProgressModal
+
+                isOpen={bulkProgress.status !== 'idle'}
+
+                title="Deleting Assets"
+
+                progress={bulkProgress}
+
+                onClose={handleCloseBulkProgress}
 
             />
 
