@@ -1,0 +1,87 @@
+name: Deploy to Cloud Run (on merge to main)
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  PROJECT_ID: gen-lang-client-0099829502
+  REGION: asia-south1
+  SERVICE: pre-prod
+  REPOSITORY: my-repo
+  IMAGE_NAME: shankar/pre-prod
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      ###########################################
+      # Authenticate to Google Cloud
+      ###########################################
+
+      - id: auth
+        name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      ###########################################
+      # Configure Docker
+      ###########################################
+
+      - name: Configure Docker
+        run: |
+          gcloud auth configure-docker asia-southeast1-docker.pkg.dev
+
+      ###########################################
+      # Setup Buildx
+      ###########################################
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      ###########################################
+      # Build and Push Image
+      ###########################################
+
+      - name: Build and Push Docker Image
+        run: |
+          IMAGE_URI=asia-southeast1-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${{ github.sha }}
+
+          docker buildx build \
+            --platform linux/amd64 \
+            --build-arg VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }} \
+            --build-arg VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }} \
+            --build-arg VITE_AI_AGENT_URL=${{ secrets.VITE_AI_AGENT_URL }} \
+            --build-arg VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }} \
+            -t $IMAGE_URI \
+            --push .
+
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+
+      ###########################################
+      # Deploy to Cloud Run
+      ###########################################
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy $SERVICE \
+            --image $IMAGE_URI \
+            --region $REGION \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars \
+              SUPABASE_URL=${{ secrets.SUPABASE_URL }},\
+              SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
