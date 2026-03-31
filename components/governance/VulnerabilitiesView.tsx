@@ -82,6 +82,7 @@ const sanitizeInput = (input: string): string => {
         .replace(/on\w+\s*=/gi, '') // Remove event handlers
         .trim();
 };
+import { BulkProgressModal } from '../common/BulkProgressModal';
 
 interface VulnerabilityModalProps {
     isOpen: boolean;
@@ -242,8 +243,8 @@ export const VulnerabilitiesView: React.FC = () => {
     const [showAIChat, setShowAIChat] = useState(false);
 
     const {
-        selectedIds, isEditing, editValues, isConfirmingDelete, isSaving,
-        setIsConfirmingDelete, setIsSaving,
+        selectedIds, isEditing, editValues, isConfirmingDelete, isSaving, bulkProgress,
+        setIsConfirmingDelete, setIsSaving, startBulkOperation, incrementBulkProgress, finishBulkOperation, resetBulkProgress,
         toggle, toggleAll, clearAll, startEdit, updateField, cancelEdit,
     } = useTableSelection<Vulnerability>();
 
@@ -390,18 +391,26 @@ export const VulnerabilitiesView: React.FC = () => {
     };
 
     const handleBulkDelete = async () => {
-        try {
-            setIsSaving(true);
-            for (const id of selectedIds) {
+        setIsConfirmingDelete(false);
+        startBulkOperation(selectedIds.size);
+        let hasError = false;
+        for (const id of selectedIds) {
+            try {
                 await SupabaseService.deleteVulnerability(id as string);
+                incrementBulkProgress(true);
+            } catch (err) {
+                console.error('Failed to delete vulnerability', id, err);
+                hasError = true;
+                incrementBulkProgress(false);
             }
-            clearAll();
-            fetchVulnerabilities();
-        } catch (err) {
-            setError('Failed to delete selected items.');
-        } finally {
-            setIsSaving(false);
         }
+        finishBulkOperation(hasError);
+        fetchVulnerabilities();
+    };
+
+    const handleCloseBulkProgress = () => {
+        resetBulkProgress();
+        clearAll();
     };
 
     const handleSaveAll = async () => {
@@ -802,24 +811,32 @@ export const VulnerabilitiesView: React.FC = () => {
                 mode={modalState.type as 'add' | 'edit' | 'view'}
             />
             <DeleteConfirmationModal isOpen={modalState.type === 'delete'} onClose={closeModal} onConfirm={handleDeleteVulnerability} itemName="vulnerability" />
-            <SelectionActionBar
-                selectedCount={selectedIds.size}
-                isEditing={isEditing}
-                isConfirmingDelete={isConfirmingDelete}
-                isSaving={isSaving}
-                onEdit={() => startEdit(filteredAndSortedVulnerabilities.filter(i => selectedIds.has(i.id)), i => i.id)}
-                onSaveAll={handleSaveAll}
-                onCancelEdit={cancelEdit}
-                onDelete={() => setIsConfirmingDelete(true)}
-                onConfirmDelete={handleBulkDelete}
-                onCancelDelete={() => setIsConfirmingDelete(false)}
-                onClear={clearAll}
-            />
+            {bulkProgress.status === 'idle' && (
+                <SelectionActionBar
+                    selectedCount={selectedIds.size}
+                    isEditing={isEditing}
+                    isConfirmingDelete={isConfirmingDelete}
+                    isSaving={isSaving}
+                    onEdit={() => startEdit(filteredAndSortedVulnerabilities.filter(i => selectedIds.has(i.id)), i => i.id)}
+                    onSaveAll={handleSaveAll}
+                    onCancelEdit={cancelEdit}
+                    onDelete={() => setIsConfirmingDelete(true)}
+                    onConfirmDelete={handleBulkDelete}
+                    onCancelDelete={() => setIsConfirmingDelete(false)}
+                    onClear={clearAll}
+                />
+            )}
             <AIChatModal
                 isOpen={showAIChat}
                 onClose={() => setShowAIChat(false)}
                 module="vulnerabilities"
                 onConfirm={handleAIChatConfirm}
+            />
+            <BulkProgressModal
+                isOpen={bulkProgress.status !== 'idle'}
+                title="Deleting Vulnerabilities"
+                progress={bulkProgress}
+                onClose={handleCloseBulkProgress}
             />
         </div>
     );
