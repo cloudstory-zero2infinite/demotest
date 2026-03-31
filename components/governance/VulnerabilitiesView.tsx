@@ -8,6 +8,80 @@ import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
 import { useTableSelection } from '../../hooks/useTableSelection';
 import { SelectionActionBar } from '../common/SelectionActionBar';
 import { AIChatModal } from '../common/AIChatModal';
+import * as XLSX from 'xlsx';
+
+// Helper function to parse CSV line with proper quote handling
+const parseCSVLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        
+        if (char === '"') {
+            if (inQuotes && line[i + 1] === '"') {
+                current += '"';
+                i++; // Skip next quote
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (char === ',' && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    
+    result.push(current.trim());
+    return result;
+};
+
+// Helper function to parse CSV fields from a line
+const parseCSVFields = (line: string): string[] => {
+    const fields = parseCSVLine(line).map(field => field.replace(/^"(.*)"$/, '$1').trim());
+    
+    // Handle Excel scientific notation and clean up problematic values
+    return fields.map(field => {
+        // Convert Excel scientific notation back to regular string
+        if (field.includes('E+') || field.includes('E-')) {
+            // Check if it's actually a number in scientific notation
+            const scientificMatch = field.match(/^(\d+\.?\d*)[Ee]([+-]?\d+)$/);
+            if (scientificMatch) {
+                const [, base, exponent] = scientificMatch;
+                const num = parseFloat(base) * Math.pow(10, parseInt(exponent));
+                // If it's a reasonable integer, convert to string, otherwise keep as is
+                if (Number.isInteger(num) && num > 0 && num < 1e20) {
+                    return num.toString();
+                }
+            }
+        }
+        
+        // Clean up excessive quotes
+        if (field.startsWith('"') && field.endsWith('"')) {
+            // Remove outer quotes and unescape inner quotes
+            field = field.slice(1, -1).replace(/""/g, '"');
+        }
+        
+        // Handle fields that are just repeated quotes
+        if (field.match(/^"+$/)) {
+            return '';
+        }
+        
+        return field;
+    });
+};
+
+// Helper function to sanitize input
+const sanitizeInput = (input: string): string => {
+    return input
+        .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '') // Remove script tags
+        .replace(/javascript:/gi, '') // Remove javascript protocols
+        .replace(/on\w+\s*=/gi, '') // Remove event handlers
+        .trim();
+};
 import { BulkProgressModal } from '../common/BulkProgressModal';
 
 interface VulnerabilityModalProps {
@@ -358,30 +432,154 @@ export const VulnerabilitiesView: React.FC = () => {
         const file = event.target.files?.[0];
         if (!file) return;
         const reader = new FileReader();
+        
+        // Set read method based on file type
+        if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+            reader.readAsBinaryString(file);
+        } else {
+            reader.readAsText(file);
+        }
+        
         reader.onload = async (e) => {
-            const text = e.target?.result as string;
-            if (!text) return;
+            const content = e.target?.result;
+            if (!content) return;
+            
+            let lines: string[] = [];
             const validSources: VulnerabilitySource[] = ['KEV', 'Scanning', 'PT', 'Reported-Ext'];
             const validStatuses: VulnerabilityStatus[] = ['Planned', 'Remediated', 'NA'];
-            const lines = text.split('\n').slice(1);
+            
+            // Check if it's an Excel file or CSV
+            if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+                // Parse Excel file
+                try {
+                    const workbook = XLSX.read(content, { type: 'binary' });
+                    const sheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[sheetName];
+                    const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as string[][];
+                    
+                    console.log('Excel data parsed:', data);
+                    
+                    // Skip header row and filter empty rows
+                    lines = data.slice(1).filter(row => row.some(cell => cell && cell.toString().trim()))
+                        .map(row => row.join(','));
+                    
+                    console.log('Processed lines:', lines);
+                } catch (err) {
+                    console.error('Excel parsing error:', err);
+                    alert('Failed to parse Excel file. Please check the file format.');
+                    return;
+                }
+            } else {
+                // Parse CSV file with proper quote handling
+                const text = content as string;
+                const allLines = text.split('\n').filter(line => line.trim());
+                
+                if (allLines.length === 0) {
+                    alert('CSV file is empty or contains only whitespace.');
+                    return;
+                }
+                
+                // Parse CSV with proper quote handling
+                lines = allLines.slice(1).filter(line => line.trim());
+                
+                if (lines.length === 0) {
+                    alert('No data rows found in CSV file after header.');
+                    return;
+                }
+            }
+            
+            console.log('Final lines to process:', lines);
+            
             const importedVulns: VulnerabilityCreate[] = lines
                 .map((line): VulnerabilityCreate | null => {
-                    const [name, description, derived_from, status] = line.split(',').map(s => s ? s.trim() : '');
-                    if (!name || !derived_from || !status) return null;
-                    if (!validSources.includes(derived_from as VulnerabilitySource)) return null;
-                    if (!validStatuses.includes(status as VulnerabilityStatus)) return null;
-                    return { name, description: description || null, derived_from: derived_from as VulnerabilitySource, status: status as VulnerabilityStatus, asset_id: null };
+                    // Properly parse CSV fields with quote handling
+                    const fields = parseCSVFields(line);
+                    const [name, description, derived_from, status, asset_name, asset_id] = fields;
+                    
+                    console.log('Processing line:', line, 'Fields:', fields);
+                    
+                    // Validate required fields
+                    if (!name || !name.trim()) {
+                        console.log('Skipping - missing name');
+                        return null;
+                    }
+                    
+                    if (!derived_from || !derived_from.trim()) {
+                        console.log('Skipping - missing derived_from');
+                        return null;
+                    }
+                    
+                    if (!status || !status.trim()) {
+                        console.log('Skipping - missing status');
+                        return null;
+                    }
+                    
+                    // Sanitize input
+                    const cleanName = sanitizeInput(name.trim());
+                    const cleanDescription = description ? sanitizeInput(description.trim()) : null;
+                    const cleanDerivedFrom = sanitizeInput(derived_from.trim());
+                    const cleanStatus = sanitizeInput(status.trim());
+                    const cleanAssetId = asset_id ? sanitizeInput(asset_id.trim()) : null;
+                    
+                    if (!validSources.includes(cleanDerivedFrom as VulnerabilitySource)) {
+                        console.log('Skipping - invalid source:', cleanDerivedFrom);
+                        return null;
+                    }
+                    if (!validStatuses.includes(cleanStatus as VulnerabilityStatus)) {
+                        console.log('Skipping - invalid status:', cleanStatus);
+                        return null;
+                    }
+                    
+                    return { 
+                        name: cleanName, 
+                        description: cleanDescription, 
+                        derived_from: cleanDerivedFrom as VulnerabilitySource, 
+                        status: cleanStatus as VulnerabilityStatus, 
+                        asset_id: cleanAssetId 
+                    };
                 })
                 .filter((v): v is VulnerabilityCreate => v !== null);
+            
+            console.log('Final imported vulnerabilities:', importedVulns);
 
             if (importedVulns.length > 0) {
                 try {
-                    // Get existing vulnerabilities to find duplicates
+                    // Get existing vulnerabilities and assets for lookups
                     const existingVulns = await SupabaseService.getVulnerabilities();
+                    const allAssets = await SupabaseService.getAssets();
                     const vulnsToUpdate: { id: string; updates: VulnerabilityUpdate }[] = [];
                     const vulnsToAdd: VulnerabilityCreate[] = [];
 
                     for (const importedVuln of importedVulns) {
+                        // Handle asset_id lookup - if CSV provides asset_id, find the corresponding UUID
+                        let assetUuid: string | null = null;
+                        if (importedVuln.asset_id) {
+                            console.log(`Looking up asset with asset_id: "${importedVuln.asset_id}"`);
+                            console.log('Available assets:', allAssets.map(a => ({ id: a.id, asset_id: a.asset_id, name: a.name })));
+                            
+                            const matchingAsset = allAssets.find(asset => {
+                                const assetIdMatch = asset.asset_id === importedVuln.asset_id;
+                                const uuidMatch = asset.id === importedVuln.asset_id;
+                                const nameMatch = asset.name === importedVuln.asset_id;
+                                return assetIdMatch || uuidMatch || nameMatch;
+                            });
+                            
+                            if (matchingAsset) {
+                                assetUuid = matchingAsset.id;
+                                console.log(`Found matching asset: ${matchingAsset.name} (${matchingAsset.asset_id}) -> UUID: ${assetUuid}`);
+                            } else {
+                                console.log(`Asset not found for asset_id: "${importedVuln.asset_id}", setting to null`);
+                                console.log('Tried matching against asset_id, UUID, and name fields');
+                                assetUuid = null;
+                            }
+                        }
+
+                        // Update the vulnerability with the correct UUID
+                        const vulnWithCorrectAssetId = {
+                            ...importedVuln,
+                            asset_id: assetUuid
+                        };
+
                         // Find existing vulnerability by name
                         const existingVuln = existingVulns.find(
                             v => v.name === importedVuln.name
@@ -392,7 +590,8 @@ export const VulnerabilitiesView: React.FC = () => {
                             const hasChanges =
                                 existingVuln.description !== importedVuln.description ||
                                 existingVuln.derived_from !== importedVuln.derived_from ||
-                                existingVuln.status !== importedVuln.status;
+                                existingVuln.status !== importedVuln.status ||
+                                existingVuln.asset_id !== assetUuid;
 
                             if (hasChanges) {
                                 vulnsToUpdate.push({
@@ -400,12 +599,13 @@ export const VulnerabilitiesView: React.FC = () => {
                                     updates: {
                                         description: importedVuln.description,
                                         derived_from: importedVuln.derived_from,
-                                        status: importedVuln.status
+                                        status: importedVuln.status,
+                                        asset_id: assetUuid
                                     }
                                 });
                             }
                         } else {
-                            vulnsToAdd.push(importedVuln);
+                            vulnsToAdd.push(vulnWithCorrectAssetId);
                         }
                     }
 
@@ -472,9 +672,13 @@ export const VulnerabilitiesView: React.FC = () => {
         ].join('\n');
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
+        const url = URL.createObjectURL(blob);
+        link.href = url;
         link.download = `vulnerabilities-${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     };
 
     const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
@@ -494,7 +698,10 @@ export const VulnerabilitiesView: React.FC = () => {
                     />
                 </div>
                 <div className="flex space-x-2">
-                    <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
+                    <input type="file" accept=".csv,.xlsx,.xls" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
+                    <button onClick={() => setShowAIChat(true)} title="AI Generate" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <BotIcon className="h-5 w-5" />
+                    </button>
                     <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <UploadIcon className="h-5 w-5" />
                     </button>
@@ -504,9 +711,7 @@ export const VulnerabilitiesView: React.FC = () => {
                     <button onClick={() => setModalState({ type: 'add' })} title="Add Vulnerability" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <PlusIcon className="h-5 w-5" />
                     </button>
-                    <button onClick={() => setShowAIChat(true)} title="AI Generate" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-                        <BotIcon className="h-5 w-5" />
-                    </button>
+                    
                 </div>
             </div>
 

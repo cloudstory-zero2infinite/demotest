@@ -10,13 +10,15 @@ router.get('/me', requireAuth, async (req, res) => {
     const isOnboarded = !!req.orgId;
 
     let orgName = null;
+    let neededFramework = null;
     if (req.orgId) {
       const { data: org } = await supabaseAdmin
         .from('organizations')
-        .select('name')
+        .select('name, needed_framework')
         .eq('id', req.orgId)
         .single();
       orgName = org?.name ?? null;
+      neededFramework = org?.needed_framework ?? null;
     }
 
     res.json({
@@ -27,6 +29,7 @@ router.get('/me', requireAuth, async (req, res) => {
       email: req.user?.email,
       isOnboarded,
       onboardingStatus: req.onboardingStatus,
+      neededFramework,
     });
   } catch (err) {
     res.status(500).json({ message: err.message });

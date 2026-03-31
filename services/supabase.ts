@@ -6,13 +6,21 @@ const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL as string;
 const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY as string;
 
 // Handle missing environment variables gracefully
+let supabase: SupabaseClient;
+
 if (!supabaseUrl || !supabaseAnonKey || supabaseUrl === 'undefined' || supabaseAnonKey === 'undefined') {
   console.warn('Supabase environment variables not properly configured. Auth features will be disabled.');
+  // Create a mock client for development
+  supabase = createClient('https://placeholder.supabase.co', 'placeholder-key', {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+} else {
+  supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { persistSession: true, autoRefreshToken: true },
+  });
 }
 
-export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: { persistSession: true, autoRefreshToken: true },
-});
+export { supabase };
 
 const API_BASE_URL = ((import.meta as any).env.VITE_API_BASE_URL as string) || 'http://localhost:3001';
 
@@ -50,6 +58,7 @@ export interface OrgMeResponse {
   email: string | null;
   isOnboarded: boolean;
   onboardingStatus: 'active' | 'pending_approval' | null;
+  neededFramework: string[] | null;
 }
 
 export const getOrgMe = async (): Promise<OrgMeResponse | null> => {

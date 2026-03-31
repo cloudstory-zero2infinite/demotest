@@ -42,7 +42,7 @@ MODULE_SYSTEM_PROMPTS = {
         "You are a GRC data assistant. Convert natural language descriptions into structured asset data "
         "for a Governance, Risk & Compliance platform.\n\n"
         "Rules:\n"
-        "- Generate realistic values based on the description\n"
+        "- Generate realistic values based on description\n"
         "- Always set source to \"AI\" for every generated record\n"
         "- Generate unique asset_id values like AST-001, AST-002 (start from 001 unless context says otherwise)\n"
         "- criticality: High / Medium / Low (infer from context, default Low)\n"
@@ -50,7 +50,9 @@ MODULE_SYSTEM_PROMPTS = {
         "- exposure: Internal / External / DMZ (infer from context, default Internal)\n"
         "- governed_status: Governed / Non-Governed (default Non-Governed)\n"
         "- vulnerability_count: default 0\n"
-        "- name: derive from the description (e.g. 'Laptop-001', 'Laptop-002')\n"
+        "- name: derive from description (e.g. 'Laptop-001', 'Laptop-002')\n"
+        "- details: detailed asset information\n"
+        "- asset_owner, business_owner, physical_location: optional fields\n"
         "- Return ONLY a valid JSON array, no markdown, no explanation"
     ),
     "asset_relationships": (
@@ -58,7 +60,7 @@ MODULE_SYSTEM_PROMPTS = {
         "Rules:\n"
         "- relationship_type must be exactly one of: Depends On, Hosts, Communicates With, Contains, "
         "Owned By, Managed By, Connected To, Backs Up, Replicates To\n"
-        "- source_asset_id and target_asset_id must be asset IDs (e.g. AST-001) inferred from the input\n"
+        "- source_asset_id and target_asset_id must be asset IDs (e.g. AST-001) inferred from input\n"
         "- If multiple assets connect to one target, create one record per connection\n"
         "- Return ONLY a valid JSON array, no markdown, no explanation"
     ),
@@ -66,7 +68,7 @@ MODULE_SYSTEM_PROMPTS = {
         "You are a GRC data assistant. Convert natural language descriptions into vulnerability management records.\n\n"
         "Rules:\n"
         "- name: descriptive vulnerability name (e.g. 'SQL Injection in Web App', 'XSS in Login Page')\n"
-        "- description: detailed technical description of the vulnerability\n"
+        "- description: detailed technical description of vulnerability\n"
         "- derived_from: must be exactly one of: KEV, Scanning, PT, Reported-Ext\n"
         "- status: must be exactly one of: Planned, Remediated, NA\n"
         "- asset_id: ALWAYS use null (do not include asset_id field at all, even if asset mentioned)\n"
@@ -78,7 +80,7 @@ MODULE_SYSTEM_PROMPTS = {
         "You are a GRC data assistant. Convert natural language descriptions into policy document records.\n\n"
         "Rules:\n"
         "- name: descriptive policy name (e.g. 'Information Security Policy', 'Data Privacy Policy')\n"
-        "- description: detailed description of the policy purpose and scope\n"
+        "- description: detailed description of policy purpose and scope\n"
         "- document_content: must be exactly one of: 0 (Text), 1 (URL), 2 (File Upload)\n"
         "- content_editor_text: text content if document_content is 0, otherwise null\n"
         "- url: URL if document_content is 1, otherwise null\n"
@@ -97,7 +99,6 @@ MODULE_SYSTEM_PROMPTS = {
         "- related_documents: comma-separated document IDs\n"
         "- policy_id: unique policy identifier (e.g. 'POL-001', 'SEC-101')\n"
         "- owner_name: policy owner name\n"
-        "- id, created_at, updated_at, org_id, user_id: auto-generated, do not include\n"
         "- Return ONLY a valid JSON array, no markdown, no explanation"
     ),
 }
@@ -122,7 +123,7 @@ def get_db_connection():
         )
     except Exception as e:
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail=f"Unexpected database error: {str(e)}"
         )
 

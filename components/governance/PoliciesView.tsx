@@ -522,7 +522,7 @@ export const PoliciesView: React.FC = () => {
                     `"${(policy.next_review_date || '').replace(/"/g, '""')}"`,
                     `"${(policy.policy_labels || '').replace(/"/g, '""')}"`,
                     `"${(policy.related_projects || '').replace(/"/g, '""')}"`,
-                    `"${(policy.status || '').replace(/"/g, '""')}"`,
+                    `"${String(policy.status || '').replace(/"/g, '""')}"`,
                     `"${(policy.version || '').replace(/"/g, '""')}"`,
                     `"${(policy.custom_roles || '').replace(/"/g, '""')}"`,
                     `"${(policy.related_documents || '').replace(/"/g, '""')}"`,
@@ -534,9 +534,13 @@ export const PoliciesView: React.FC = () => {
 
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
+        const url = URL.createObjectURL(blob);
+        link.href = url;
         link.download = `policies-${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     };
 
     const handleSavePolicy = async (formData: PolicyDocumentCreate | PolicyDocumentUpdate, documentFile?: File | null) => {
@@ -648,6 +652,9 @@ export const PoliciesView: React.FC = () => {
                 </div>
                 <div className="flex space-x-2">
                     <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
+                    <button onClick={() => setShowAIChat(true)} title="AI Generate" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <BotIcon className="h-5 w-5" />
+                    </button>
                     <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <UploadIcon className="h-5 w-5" />
                     </button>
@@ -657,9 +664,7 @@ export const PoliciesView: React.FC = () => {
                     <button onClick={() => setModalState({ type: 'add' })} title="Add Policy" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <PlusIcon className="h-5 w-5" />
                     </button>
-                    <button onClick={() => setShowAIChat(true)} title="AI Generate" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-                        <BotIcon className="h-5 w-5" />
-                    </button>
+                    
                 </div>
             </div>
 

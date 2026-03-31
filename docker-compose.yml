@@ -1,15 +1,39 @@
-version: '3.8'
-
 services:
-  app:
+
+  frontend:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "5173:5173"
+      - "5174:5174"
     volumes:
       - .:/app
       - /app/node_modules
-    environment:
-      - VITE_API_BASE_URL=http://localhost:3000
-    command: npm run dev -- --host 0.0.0.0 --port 5173
+    env_file:
+      - .env
+    depends_on:
+      - server
+      - ai-agent
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+    env_file:
+      - ./server/.env
+
+  ai-agent:
+    build:
+      context: ./ai-agent
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./ai-agent:/app
+    env_file:
+      - ./ai-agent/.env

@@ -68,6 +68,7 @@ export interface Asset {
     vulnerability_count: number;
     exposure: AssetExposure;
     category: AssetCategory;
+    source?: string | null;
     created_at: string;
 }
 export type AssetCreate = Omit<Asset, 'id' | 'created_at'>;

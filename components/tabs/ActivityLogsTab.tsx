@@ -3,6 +3,7 @@ import { AllActivityLog } from '../../types';
 import * as SupabaseService from '../../services/supabase';
 import { Modal } from '../common/Modal';
 import { StatusBadge } from '../common/StatusBadge';
+import { FaGithub } from 'react-icons/fa';
 
 // Custom event for activity updates
 const ACTIVITY_UPDATE_EVENT = 'activity-update';
@@ -24,6 +25,55 @@ export const ActivityLogsTab: React.FC = () => {
         info: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
         warning: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300',
         error: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300',
+    };
+
+    // Helper function to render action with provider icons
+    const renderAction = (action: string) => {
+        if (action === 'google_login' || action === 'google_login_initiated') {
+            return (
+                <div className="flex items-center gap-2">
+                    <img 
+                        src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><path fill='%234285f4' d='M24 9.5c3.9 0 6.6 1.7 8.1 3.1l6-5.9C35.9 3.6 30.4 1 24 1 14.7 1 6.9 6.7 3.1 14.9l7.1 5.5C12.9 15.1 18 9.5 24 9.5z'/><path fill='%2334a853' d='M46.5 24c0-1.6-.1-2.9-.4-4.2H24v8.1h12.5c-.5 2.9-2.4 5.3-5.1 6.9l7.9 6.1C43.5 36.2 46.5 30.6 46.5 24z'/><path fill='%23fbbc05' d='M10.2 29.3A14.8 14.8 0 0 1 9 24c0-1.1.2-2.1.4-3.1l-7.1-5.5C1.2 17.1 0 20.4 0 24c0 3.6 1.2 6.9 3.3 9.6l6.9-4.3z'/><path fill='%23ea4335' d='M24 46.9c6.4 0 11.9-2.1 15.9-5.7l-7.9-6.1c-2 1.3-4.6 2.1-8 2.1-6 0-11.1-4.4-12.9-10.1l-7.1 5.5C6.9 41.2 14.7 46.9 24 46.9z'/></svg>" 
+                        alt="Google" 
+                        className="h-4 w-4 rounded-full" 
+                    />
+                    <span className="capitalize">{action.replace('google_', '').replace('_', ' ')}</span>
+                </div>
+            );
+        }
+        
+        if (action === 'github_login' || action === 'github_login_initiated') {
+            return (
+                <div className="flex items-center gap-2">
+                    <FaGithub />
+                    <span className="capitalize">{action.replace('github_', '').replace('_', ' ')}</span>
+                </div>
+            );
+        }
+        
+        if (action === 'google_login_failed') {
+            return (
+                <div className="flex items-center gap-2">
+                    <img 
+                        src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><path fill='%234285f4' d='M24 9.5c3.9 0 6.6 1.7 8.1 3.1l6-5.9C35.9 3.6 30.4 1 24 1 14.7 1 6.9 6.7 3.1 14.9l7.1 5.5C12.9 15.1 18 9.5 24 9.5z'/><path fill='%2334a853' d='M46.5 24c0-1.6-.1-2.9-.4-4.2H24v8.1h12.5c-.5 2.9-2.4 5.3-5.1 6.9l7.9 6.1C43.5 36.2 46.5 30.6 46.5 24z'/><path fill='%23fbbc05' d='M10.2 29.3A14.8 14.8 0 0 1 9 24c0-1.1.2-2.1.4-3.1l-7.1-5.5C1.2 17.1 0 20.4 0 24c0 3.6 1.2 6.9 3.3 9.6l6.9-4.3z'/><path fill='%23ea4335' d='M24 46.9c6.4 0 11.9-2.1 15.9-5.7l-7.9-6.1c-2 1.3-4.6 2.1-8 2.1-6 0-11.1-4.4-12.9-10.1l-7.1 5.5C6.9 41.2 14.7 46.9 24 46.9z'/></svg>" 
+                        alt="Google" 
+                        className="h-4 w-4 rounded-full" 
+                    />
+                    <span className="capitalize">Google Login Failed</span>
+                </div>
+            );
+        }
+        
+        if (action === 'github_login_failed') {
+            return (
+                <div className="flex items-center gap-2">
+                    <FaGithub />
+                    <span className="capitalize">GitHub Login Failed</span>
+                </div>
+            );
+        }
+        
+        return <span className="capitalize">{action.replace('_', ' ')}</span>;
     };
 
     const fetchLogs = useCallback(async () => {
@@ -131,7 +181,7 @@ export const ActivityLogsTab: React.FC = () => {
                                     }`}
                                 >
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{new Date(log.created_at).toLocaleString()}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{log.action}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{renderAction(log.action)}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{log.module}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{log.org_name || 'N/A'}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{log.user_role || 'N/A'}</td>
@@ -168,7 +218,7 @@ export const ActivityLogsTab: React.FC = () => {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                             <div>
                                 <div className="text-xs text-gray-500">Action</div>
-                                <div className="text-sm text-gray-900 dark:text-white">{selectedLog.action}</div>
+                                <div className="text-sm text-gray-900 dark:text-white">{renderAction(selectedLog.action)}</div>
                             </div>
                             <div>
                                 <div className="text-xs text-gray-500">Email ID</div>

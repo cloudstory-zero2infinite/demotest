@@ -95,15 +95,23 @@ const App: React.FC = () => {
                     setOnboardingStatus(me?.onboardingStatus ?? null);
                     setOrgName(me?.orgName ?? null);
                     
-                    // Log session start for users already authenticated
-                    try {
-                        await SupabaseService.logAllActivity({ 
-                            action: 'login', 
-                            module: 'Authentication', 
-                            entity_name: name 
-                        });
-                    } catch (err) {
-                        console.error('Failed to log login activity', err);
+                    // Check if this is a fresh login (not a refresh)
+                    const isFreshLogin = sessionStorage.getItem('freshLogin') === 'true';
+                    const provider = sessionStorage.getItem('loginProvider');
+                    if (isFreshLogin) {
+                        try {
+                            const action = provider === 'github' ? 'github_login' : 'google_login';
+                            await SupabaseService.logAllActivity({ 
+                                action: action, 
+                                module: 'Authentication', 
+                                entity_name: name,
+                                event_data: { provider: provider }
+                            });
+                            sessionStorage.removeItem('freshLogin');
+                            sessionStorage.removeItem('loginProvider');
+                        } catch (err) {
+                            console.error('Failed to log login activity', err);
+                        }
                     }
                 } else {
                     if (!sessionStorage.getItem('grcUserName')) {
@@ -302,7 +310,7 @@ const App: React.FC = () => {
                 )}
 
                 {/* Body: sidebar + content */}
-                <div className="flex flex-1 overflow-hidden">
+                <div className="flex flex-1 overflow-hidden pt-16">
                     <Sidebar
                         activeTab={activeTab}
                         activeOrgSubTab={activeOrgSubTab}
@@ -312,7 +320,7 @@ const App: React.FC = () => {
                         isAdmin={isAdmin}
                     />
 
-                    <main className="flex-1 overflow-y-auto pt-16">
+                    <main className="flex-1 overflow-y-auto">
                         <div className="px-6 py-6 max-w-7xl mx-auto">
                             {renderContent()}
                         </div>

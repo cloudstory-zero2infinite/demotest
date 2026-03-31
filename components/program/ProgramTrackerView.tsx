@@ -1,12 +1,55 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo, ChangeEvent } from 'react';
-import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ProgramStatus, ActivityLog } from '../../types';
+import React, { useState, useEffect, useRef, ChangeEvent, useCallback, useMemo } from 'react';
+import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ProgramStatus } from '../../types';
 import * as SupabaseService from '../../services/supabase';
-import { UploadIcon, PlusIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, HistoryIcon, EyeIcon, PencilIcon, TrashIcon } from '../Icons';
+import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, HistoryIcon } from '../Icons';
 import { Modal } from '../common/Modal';
 import { StatusBadge } from '../common/StatusBadge';
 import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
 import { useTableSelection } from '../../hooks/useTableSelection';
 import { SelectionActionBar } from '../common/SelectionActionBar';
+
+// Helper function to parse CSV line with proper quote handling
+const parseCSVLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        
+        if (char === '"') {
+            if (inQuotes && line[i + 1] === '"') {
+                current += '"';
+                i++; // Skip next quote
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (char === ',' && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    
+    result.push(current.trim());
+    return result;
+};
+
+// Helper function to parse CSV fields from a line
+const parseCSVFields = (line: string): string[] => {
+    return parseCSVLine(line).map(field => field.replace(/^"(.*)"$/, '$1').trim());
+};
+
+// Helper function to sanitize input
+const sanitizeInput = (input: string): string => {
+    return input
+        .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '') // Remove script tags
+        .replace(/javascript:/gi, '') // Remove javascript protocols
+        .replace(/on\w+\s*=/gi, '') // Remove event handlers
+        .trim();
+};
 
 interface ProgramModalProps {
     isOpen: boolean;
@@ -248,16 +291,53 @@ export const ProgramTrackerView: React.FC = () => {
             const text = e.target?.result as string;
             if(!text) return;
 
-            const lines = text.split('\n').slice(1);
+            const allLines = text.split('\n').filter(line => line.trim());
+            
+            if (allLines.length === 0) {
+                alert('CSV file is empty or contains only whitespace.');
+                return;
+            }
+            
+            const lines = allLines.slice(1);
+            
+            if (lines.length === 0) {
+                alert('No data rows found in CSV file after header.');
+                return;
+            }
+            
             const importedTasks: ProgramTaskCreate[] = lines
                 .map(line => {
-                    const [program_name, description, month, status, progress_percent] = line.split(',').map(s => s.trim());
-                    if (!program_name || !month || !status) return null;
+                    // Properly parse CSV fields with quote handling
+                    const fields = parseCSVFields(line);
+                    const [program_name, description, month, status, progress_percent] = fields;
+                    
+                    // Validate required fields
+                    if (!program_name || !program_name.trim()) {
+                        console.log('Skipping - missing program_name');
+                        return null;
+                    }
+                    
+                    if (!month || !month.trim()) {
+                        console.log('Skipping - missing month');
+                        return null;
+                    }
+                    
+                    if (!status || !status.trim()) {
+                        console.log('Skipping - missing status');
+                        return null;
+                    }
+                    
+                    // Sanitize input
+                    const cleanProgramName = sanitizeInput(program_name.trim());
+                    const cleanDescription = description ? sanitizeInput(description.trim()) : '';
+                    const cleanMonth = sanitizeInput(month.trim());
+                    const cleanStatus = sanitizeInput(status.trim());
+                    
                     return {
-                        program_name,
-                        description: description || '',
-                        month,
-                        status: status as ProgramStatus,
+                        program_name: cleanProgramName,
+                        description: cleanDescription,
+                        month: cleanMonth,
+                        status: cleanStatus as ProgramStatus,
                         progress_percent: Number(progress_percent) || 0,
                     };
                 })
