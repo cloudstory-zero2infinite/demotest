@@ -1,5 +1,3 @@
-FROM node:25-alpine
-
 WORKDIR /app
 
 COPY package*.json ./
@@ -7,6 +5,18 @@ RUN npm install
 
 COPY . .
 
-EXPOSE 5174
+RUN cd server && npm install
 
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5174"]
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+ARG VITE_API_BASE_URL
+
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+
+RUN npm run build
+
+EXPOSE 8080
+
+CMD ["node","server/src/index.js"]
