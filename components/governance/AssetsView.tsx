@@ -15,6 +15,7 @@ import { BulkProgressModal } from '../common/BulkProgressModal';
 import { useTableSelection } from '../../hooks/useTableSelection';
 
 import { SelectionActionBar } from '../common/SelectionActionBar';
+import { parseCSVLine } from '../../utils/csvParser';
 
 
 
@@ -697,21 +698,21 @@ export const AssetsView: React.FC = () => {
 
     const getRelatedAssetsForAsset = (asset: Asset) => {
 
+        const validAssetIds = new Set(assets.map(a => a.asset_id));
         const relatedAssets: string[] = [];
 
 
 
-        // Find all relationships where this asset is involved as source or target
+        // Find all relationships where this asset is involved as source or target and the counterpart asset is in this org
 
         const assetRelationships = relationships.filter(r =>
-
-            r.source_asset_id === asset.asset_id || r.target_asset_id === asset.asset_id
-
+            (r.source_asset_id === asset.asset_id && validAssetIds.has(r.target_asset_id)) ||
+            (r.target_asset_id === asset.asset_id && validAssetIds.has(r.source_asset_id))
         );
 
 
 
-        // Collect unique related asset names
+        // Collect unique related asset IDs
 
         assetRelationships.forEach(r => {
 
@@ -761,7 +762,7 @@ export const AssetsView: React.FC = () => {
 
                 .map(line => {
 
-                    const [asset_id, name, criticality, details, governed_status, vulnerability_count, exposure, category, asset_owner, business_owner, physical_location] = line.split(',').map(s => s.trim());
+                    const [asset_id, name, criticality, details, governed_status, vulnerability_count, exposure, category, asset_owner, business_owner, physical_location] = parseCSVLine(line);
 
                     if (!asset_id || !name || !criticality || !governed_status || !exposure || !category) return null;
 

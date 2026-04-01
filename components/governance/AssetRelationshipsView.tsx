@@ -5,6 +5,7 @@ import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, Sor
 import { useTableSelection } from '../../hooks/useTableSelection';
 import { SelectionActionBar } from '../common/SelectionActionBar';
 import { AIChatModal } from '../common/AIChatModal';
+import { parseCSVLine } from '../../utils/csvParser';
 
 const RELATIONSHIP_TYPES = ['Depends On', 'Hosts', 'Communicates With', 'Contains', 'Owned By', 'Managed By', 'Connected To', 'Backs Up', 'Replicates To'];
 
@@ -215,7 +216,7 @@ export const AssetRelationshipsView: React.FC = () => {
             let skipped = 0;
             const newRels: AssetRelationshipCreate[] = lines
                 .map(line => {
-                    const [source_asset_id, target_asset_id, relationship_type] = line.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+                    const [source_asset_id, target_asset_id, relationship_type] = parseCSVLine(line);
                     if (!source_asset_id || !target_asset_id || !relationship_type) { skipped++; return null; }
                     return { source_asset_id, target_asset_id, relationship_type };
                 })

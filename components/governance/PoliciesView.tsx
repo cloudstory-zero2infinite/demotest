@@ -9,6 +9,7 @@ import { useTableSelection } from '../../hooks/useTableSelection';
 import { SelectionActionBar } from '../common/SelectionActionBar';
 import { AIChatModal } from '../common/AIChatModal';
 import { BulkProgressModal } from '../common/BulkProgressModal';
+import { parseCSVLine } from '../../utils/csvParser';
 
 interface PolicyModalProps {
     isOpen: boolean;
@@ -358,29 +359,7 @@ export const PoliciesView: React.FC = () => {
                 const parsedPolicies: Array<{id: string | null; data: PolicyDocumentCreate}> = lines
                     .slice(1)
                     .map(line => {
-                        const parts: string[] = [];
-                        let current = '';
-                        let inQuotes = false;
-
-                        for (let i = 0; i < line.length; i++) {
-                            const char = line[i];
-                            const nextChar = line[i + 1];
-
-                            if (char === '"') {
-                                if (inQuotes && nextChar === '"') {
-                                    current += '"';
-                                    i++;
-                                } else {
-                                    inQuotes = !inQuotes;
-                                }
-                            } else if (char === ',' && !inQuotes) {
-                                parts.push(current.trim());
-                                current = '';
-                            } else {
-                                current += char;
-                            }
-                        }
-                        parts.push(current.trim());
+                        const parts = parseCSVLine(line);
 
                         if (!parts[1]) return null;
 

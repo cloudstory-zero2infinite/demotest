@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as SupabaseService from '../../services/supabase';
+import { parseCSVLine } from '../../utils/csvParser';
 
 interface GraphNode {
   id: string;
@@ -165,13 +166,13 @@ export const ThreatViewTab: React.FC = () => {
                 const res = await fetch(csvUrl);
                 const text = await res.text();
                 const lines = text.split('\n');
-                const headers = lines[0].split(',').map(h => h.trim());
+                const headers = parseCSVLine(lines[0]);
                 const parsed = lines.slice(1).map(line => {
-                    const values = line.split(',');
+                    const values = parseCSVLine(line);
                     const obj: any = {};
-                    headers.forEach((h, i) => obj[h] = values[i]?.trim());
+                    headers.forEach((h, i) => obj[h] = values[i] || '');
                     return obj;
-                }).filter(row => row.source_ref);
+                }).filter(row => row.source_ref && row.source_ref.trim());
                 setCsvData(parsed);
                 setLoading(false);
             } catch (err) {

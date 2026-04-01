@@ -89,9 +89,14 @@ const OrgDiagramView: React.FC = () => {
         fetchData();
     }, []);
 
+    const filteredRelationships = useMemo(() => {
+        const validIds = new Set(assets.map(a => a.asset_id));
+        return relationships.filter(r => validIds.has(r.source_asset_id) && validIds.has(r.target_asset_id));
+    }, [assets, relationships]);
+
     const mermaidCode = useMemo(
-        () => buildMermaidCode(assets, relationships, groupBy),
-        [assets, relationships, groupBy]
+        () => buildMermaidCode(assets, filteredRelationships, groupBy),
+        [assets, filteredRelationships, groupBy]
     );
 
     useEffect(() => {
