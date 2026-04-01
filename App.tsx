@@ -292,6 +292,7 @@ const App: React.FC = () => {
                     userName={userName}
                     orgName={displayOrgName}
                     openFeedback={() => setIsFeedbackOpen(true)}
+                    onNavigate={(tab) => handleNavigate(tab as MainTab)}
                 />
 
                 {/* Pending approval banner */}
