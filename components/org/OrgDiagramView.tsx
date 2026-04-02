@@ -7,7 +7,7 @@ import * as SupabaseService from '../../services/supabase';
 const GROUP_BY_OPTIONS: { value: keyof Asset; label: string }[] = [
     { value: 'category', label: 'Category' },
     { value: 'exposure', label: 'Exposure' },
-    { value: 'business_owner', label: 'Business Owner' },
+    { value: 'business_unit', label: 'Business Unit' },
     { value: 'physical_location', label: 'Location' },
     { value: 'criticality', label: 'Criticality' },
 ];
@@ -89,14 +89,9 @@ const OrgDiagramView: React.FC = () => {
         fetchData();
     }, []);
 
-    const filteredRelationships = useMemo(() => {
-        const validIds = new Set(assets.map(a => a.asset_id));
-        return relationships.filter(r => validIds.has(r.source_asset_id) && validIds.has(r.target_asset_id));
-    }, [assets, relationships]);
-
     const mermaidCode = useMemo(
-        () => buildMermaidCode(assets, filteredRelationships, groupBy),
-        [assets, filteredRelationships, groupBy]
+        () => buildMermaidCode(assets, relationships, groupBy),
+        [assets, relationships, groupBy]
     );
 
     useEffect(() => {
