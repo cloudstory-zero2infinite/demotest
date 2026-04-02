@@ -1,5 +1,9 @@
-import React, { useState, useEffect, useCallback, useRef, ChangeEvent, useMemo } from 'react';
-import { PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, DocumentContentType, PolicyStatus, PolicyPermissions } from '../../types';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { marked } from 'marked';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+import JSZip from 'jszip';
+import { PolicyV2, PolicyWorkflowStatus, PolicyApproval, AllActivityLog } from '../../types';
 import * as SupabaseService from '../../services/supabase';
 import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon } from '../Icons';
 import { Modal } from '../common/Modal';
@@ -19,342 +23,480 @@ interface PolicyModalProps {
     mode: 'add' | 'edit' | 'view';
 }
 
-const PolicyModal: React.FC<PolicyModalProps> = ({ isOpen, onClose, onSave, policyToEdit, mode }) => {
-    const today = new Date().toISOString().split('T')[0];
-    const [formData, setFormData] = useState<Partial<PolicyDocumentCreate> & { id?: string }>({});
-    const [isSaving, setIsSaving] = useState(false);
-    const [documentFile, setDocumentFile] = useState<File | null>(null);
-    const isViewMode = mode === 'view';
+const isExpired = (p: PolicyV2) =>
+    p.policy_status === 'approved' && !!p.refresh_date && new Date(p.refresh_date) < new Date();
 
-    const defaultState: Partial<PolicyDocumentCreate> & { id?: string } = {
-        id: '',
-        name: '',
-        description: '',
-        status: 0,
-        version: '1.0',
-        document_content: 0,
-        content_editor_text: '',
-        url: '',
-        grc_contact: '',
-        policy_reviewer_contact: '',
-        published_date: today,
-        next_review_date: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0],
-        policy_portal_permissions: 'private',
-        tags: '',
-        policy_labels: '',
-        related_projects: '',
-        custom_roles: '',
-        related_documents: '',
-        document_type: '',
-        owner_name: '',
-        policy_doc_link: '',
-    };
+const effectiveStatus = (p: PolicyV2) => (isExpired(p) ? 'expired' : p.policy_status);
 
-    useEffect(() => {
-        if (policyToEdit) {
-            const {
-                id, name, description, document_content, content_editor_text, url, grc_contact,
-                policy_reviewer_contact, tags, published_date, next_review_date, policy_labels,
-                related_projects, status, document_type, version, policy_portal_permissions,
-                custom_roles, related_documents, owner_name
-            } = policyToEdit;
-            setFormData({
-                id, name, description, document_content, content_editor_text, url, grc_contact,
-                policy_reviewer_contact, tags, published_date, next_review_date, policy_labels,
-                related_projects, status, document_type, version, policy_portal_permissions,
-                custom_roles, related_documents, owner: owner_name || '', policy_doc_link: url || ''
-            });
-        } else {
-            setFormData(defaultState);
-        }
-        setDocumentFile(null);
-    }, [policyToEdit, isOpen, mode]);
-
-    const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        const isNumeric = ['status', 'document_content'].includes(name);
-        setFormData(prev => ({ ...prev, [name]: isNumeric ? Number(value) : value }));
-    };
-
-    const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files) {
-            setDocumentFile(e.target.files[0]);
-        }
-    };
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setIsSaving(true);
-        try {
-            await onSave(formData as PolicyDocumentCreate, documentFile);
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
-    const title = mode === 'add' ? 'Add New Policy' : mode === 'edit' ? 'Edit Policy' : 'View Policy';
-    const renderInputField = (label: string, name: keyof PolicyDocumentCreate, type: string = 'text', required: boolean = false, placeholder: string = '') => (
-        <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{label}</label>
-            <input type={type} name={name} value={String(formData[name as keyof typeof formData] ?? '')} onChange={handleChange} readOnly={isViewMode} required={required} placeholder={placeholder}
-                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-        </div>
-    );
-
+const StatusBadge: React.FC<{ policy: PolicyV2 }> = ({ policy }) => {
+    const s = effectiveStatus(policy);
+    const meta = STATUS_META[s] || STATUS_META.draft;
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={title}>
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Policy ID</label>
-                        <input
-                            type="text"
-                            name="id"
-                            value={formData.id || ''}
-                            onChange={handleChange}
-                            readOnly={mode === 'view'}
-                            required={mode === 'add'}
-                            placeholder="Enter Policy ID"
-                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                        />
-                    </div>
-                    <div></div>
-
-                    {renderInputField('Name', 'name', 'text', true)}
-                    {renderInputField('Version', 'version', 'text', true)}
-
-                    <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
-                        <textarea name="description" value={formData.description || ''} onChange={handleChange} readOnly={isViewMode} required rows={3}
-                                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Document Content</label>
-                        <select name="document_content" value={formData.document_content} onChange={handleChange} disabled={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                            <option value={0}>Use Content</option>
-                            <option value={1}>Use Attachments</option>
-                            <option value={2}>Use URL</option>
-                        </select>
-                    </div>
-                    <div></div>
-
-                    {formData.document_content === 0 && <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Content Editor Text</label>
-                        <textarea name="content_editor_text" value={formData.content_editor_text || ''} onChange={handleChange} readOnly={isViewMode} required rows={5} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
-                    </div>}
-
-                    {formData.document_content === 1 && <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Attachment</label>
-                        {!isViewMode && <input type="file" accept=".doc,.docx,.pdf" onChange={handleFileChange} className="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900 dark:file:text-blue-300 dark:hover:file:bg-blue-800"/>}
-                        {documentFile && <p className="text-xs mt-1 dark:text-gray-400">Selected: {documentFile.name}</p>}
-                        {policyToEdit?.url && (
-                             <a href={policyToEdit.url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 dark:text-blue-400 hover:underline">View Current Document</a>
-                        )}
-                    </div>}
-
-                    {formData.document_content === 2 && <div className="md:col-span-2">
-                         {renderInputField('URL', 'url', 'url', true)}
-                    </div>}
-
-                    {renderInputField('GRC Contact', 'grc_contact', 'text', true, 'User-admin|Group-Admins')}
-                    {renderInputField('Policy Reviewer Contact', 'policy_reviewer_contact', 'text', true, 'User-jane|Group-Reviewers')}
-
-                    {renderInputField('Tags', 'tags', 'text', true, 'Critical|SOX|PCI')}
-                    {renderInputField('Policy Labels', 'policy_labels', 'text', true)}
-
-                    {renderInputField('Owner', 'owner_name', 'text', true)}
-                    {renderInputField('PolicyDocLink', 'policy_doc_link', 'url', false)}
-
-                    {renderInputField('CreatedDate', 'published_date', 'date', true)}
-                    {renderInputField('RefreshDate', 'next_review_date', 'date', true)}
-
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
-                        <select name="status" value={formData.status ?? 0} onChange={handleChange} disabled={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                           <option value={0}>Draft</option>
-                           <option value={1}>Published</option>
-                        </select>
-                    </div>
-                    {renderInputField('Document Type', 'document_type', 'text', true)}
-
-                    {renderInputField('Related Projects', 'related_projects', 'text', true, 'Project A|Project B')}
-                    {renderInputField('Related Documents', 'related_documents', 'text', true, 'Doc 1|Doc 2')}
-
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Portal Permissions</label>
-                        <select name="policy_portal_permissions" value={formData.policy_portal_permissions} onChange={handleChange} disabled={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                           <option value="public">Public</option><option value="private">Private</option><option value="custom-roles">Custom Roles</option>
-                        </select>
-                    </div>
-
-                    {formData.policy_portal_permissions === 'custom-roles' &&
-                        renderInputField('Custom Roles', 'custom_roles', 'text', true, 'Owners|Collaborators')
-                    }
-                </div>
-                {!isViewMode && (
-                <div className="mt-6 flex justify-end space-x-3">
-                    <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
-                    <button type="submit" disabled={isSaving} className="flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed min-w-[5rem]">
-                        {isSaving ? (
-                            <>
-                                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                Saving...
-                            </>
-                        ) : 'Save'}
-                    </button>
-                </div>
-                )}
-            </form>
-        </Modal>
+        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${meta.badge}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
+            {meta.label}
+        </span>
     );
 };
 
-export const PoliciesView: React.FC = () => {
-    const [policies, setPolicies] = useState<PolicyDocument[]>([]);
+// ─── History action labels ────────────────────────────────────────────────────
+const ACTION_LABELS: Record<string, string> = {
+    policy_created:                'Policy created',
+    policy_status_changed:         'Status changed',
+    policy_content_updated:        'Content updated',
+    policy_submitted_for_approval: 'Submitted for approval',
+    policy_approved:               'Approved',
+    policy_rejected:               'Rejected',
+    policy_deleted:                'Policy deleted',
+};
+
+const ACTION_COLORS: Record<string, string> = {
+    policy_created:                'bg-blue-500',
+    policy_status_changed:         'bg-purple-500',
+    policy_content_updated:        'bg-gray-400',
+    policy_submitted_for_approval: 'bg-yellow-500',
+    policy_approved:               'bg-green-500',
+    policy_rejected:               'bg-red-500',
+    policy_deleted:                'bg-red-700',
+};
+
+// ─── HistoryModal ─────────────────────────────────────────────────────────────
+const HistoryModal: React.FC<{ policy: PolicyV2; onClose: () => void }> = ({ policy, onClose }) => {
+    const [entries, setEntries] = useState<AllActivityLog[]>([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string|null>(null);
-    const [importLoading, setImportLoading] = useState(false);
-    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | 'import' | null; policy?: PolicyDocument | null }>({ type: null });
-    const [filter, setFilter] = useState('');
-    const [sortConfig, setSortConfig] = useState<{ key: keyof PolicyDocument; direction: 'ascending' | 'descending' } | null>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    const [importData, setImportData] = useState<{ newPolicies: PolicyDocumentCreate[]; policiesToUpdate: Array<{id: string; data: PolicyDocumentUpdate}>; duplicateNames: string[] }>({ newPolicies: [], policiesToUpdate: [], duplicateNames: [] });
-    const [showAIChat, setShowAIChat] = useState(false);
-
-    const {
-        selectedIds, isEditing, editValues, isConfirmingDelete, isSaving, bulkProgress,
-        setIsConfirmingDelete, setIsSaving, startBulkOperation, incrementBulkProgress, finishBulkOperation, resetBulkProgress,
-        toggle, toggleAll, clearAll, startEdit, updateField, cancelEdit,
-    } = useTableSelection<PolicyDocument>();
-
-    const fetchPolicies = useCallback(async () => {
-        try {
-            setLoading(true);
-            setError(null);
-            const data = await SupabaseService.getPolicies();
-            setPolicies(data);
-        } catch (e) {
-            setError("Failed to load policies.");
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    const handleAIChatConfirm = async (records: Record<string, unknown>[]) => {
-        try {
-            for (const record of records) {
-                const policyData: PolicyDocumentCreate = {
-                    name: String(record.name || ''),
-                    description: String(record.description || ''),
-                    document_content: (record.document_content as DocumentContentType) || 0,
-                    content_editor_text: String(record.content_editor_text || ''),
-                    url: String(record.url || ''),
-                    grc_contact: String(record.grc_contact || ''),
-                    policy_reviewer_contact: String(record.policy_reviewer_contact || ''),
-                    tags: String(record.tags || ''),
-                    published_date: String(record.published_date || new Date().toISOString().split('T')[0]),
-                    next_review_date: String(record.next_review_date || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]),
-                    policy_labels: String(record.policy_labels || ''),
-                    related_projects: String(record.related_projects || ''),
-                    status: (record.status as PolicyStatus) || 0,
-                    document_type: String(record.document_type || ''),
-                    version: String(record.version || '1.0'),
-                    policy_portal_permissions: (record.policy_portal_permissions as PolicyPermissions) || 'public',
-                    custom_roles: String(record.custom_roles || ''),
-                    related_documents: String(record.related_documents || ''),
-                    owner_name: String(record.owner_name || ''),
-                    policy_doc_link: String(record.policy_doc_link || '')
-                };
-                await SupabaseService.addPolicy(policyData);
-            }
-            await SupabaseService.logAllActivity({
-                action: 'Bulk Created Policies via AI',
-                module: 'Governance',
-                entity_id: null,
-                entity_name: `${records.length} policies created via AI`,
-                event_data: { count: records.length, records }
-            });
-            fetchPolicies();
-        } catch (err) {
-            setError('Failed to save AI-generated policies.');
-        }
-    };
 
     useEffect(() => {
-        fetchPolicies();
-    }, [fetchPolicies]);
+        SupabaseService.getPolicyHistory(policy.policy_id)
+            .then(setEntries)
+            .finally(() => setLoading(false));
+    }, [policy.policy_id]);
 
-    const filteredAndSortedPolicies = useMemo(() => {
-        let filteredItems = [...policies];
-        if (filter) {
-            const lowerCaseFilter = filter.toLowerCase();
-            filteredItems = filteredItems.filter(item =>
-                String(item.name ?? '').toLowerCase().includes(lowerCaseFilter) ||
-                String(item.description ?? '').toLowerCase().includes(lowerCaseFilter)
-            );
+    const fmt = (iso: string) => new Date(iso).toLocaleString();
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700">
+                    <div>
+                        <h2 className="text-base font-semibold text-gray-900 dark:text-white">Policy History</h2>
+                        <p className="text-xs text-gray-500 mt-0.5">{policy.name}</p>
+                    </div>
+                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">&times;</button>
+                </div>
+                <div className="flex-1 overflow-y-auto px-6 py-4">
+                    {loading ? (
+                        <p className="text-sm text-gray-400 text-center py-8">Loading...</p>
+                    ) : entries.length === 0 ? (
+                        <p className="text-sm text-gray-400 text-center py-8">No history yet.</p>
+                    ) : (
+                        <ol className="relative border-l border-gray-200 dark:border-gray-700 space-y-6 ml-3">
+                            {entries.map(e => {
+                                const ed = (e.event_data || {}) as Record<string, any>;
+                                const actorName = ed.actor_name || e.email || e.user_id || 'Unknown';
+                                const fromStatus = ed.from_status as string | null;
+                                const toStatus   = ed.to_status   as string | null;
+                                const comment    = ed.comment     as string | null;
+                                const dotColor   = ACTION_COLORS[e.action] || 'bg-gray-400';
+                                return (
+                                    <li key={e.id} className="ml-4">
+                                        <span className={`absolute -left-1.5 flex h-3 w-3 items-center justify-center rounded-full ${dotColor} ring-4 ring-white dark:ring-gray-800`} />
+                                        <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                            {ACTION_LABELS[e.action] || e.action}
+                                        </p>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                                            by <span className="font-medium">{actorName}</span>
+                                            {fromStatus && toStatus && fromStatus !== toStatus && (
+                                                <span className="ml-1 text-gray-400">· {fromStatus} → {toStatus}</span>
+                                            )}
+                                        </p>
+                                        {comment && (
+                                            <p className="mt-1 text-xs text-gray-600 dark:text-gray-300 italic">"{comment}"</p>
+                                        )}
+                                        <time className="text-[10px] text-gray-400">{fmt(e.created_at)}</time>
+                                    </li>
+                                );
+                            })}
+                        </ol>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ─── ApproverModal ────────────────────────────────────────────────────────────
+interface ApproverModalProps {
+    onClose: () => void;
+    onConfirm: (approver: { approver_id?: string; approver_name: string; approver_email: string }) => void;
+}
+const ApproverModal: React.FC<ApproverModalProps> = ({ onClose, onConfirm }) => {
+    const [search, setSearch] = useState('');
+    const [members, setMembers] = useState<any[]>([]);
+    const [selected, setSelected] = useState<any | null>(null);
+
+    useEffect(() => {
+        SupabaseService.getOrganizationUsers().then(setMembers);
+    }, []);
+
+    const filtered = useMemo(() =>
+        search.trim() === ''
+            ? members
+            : members.filter(m => m.email?.toLowerCase().includes(search.toLowerCase())),
+        [members, search]
+    );
+
+    return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700">
+                    <h2 className="text-base font-semibold text-gray-900 dark:text-white">Select Approver</h2>
+                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl">&times;</button>
+                </div>
+                <div className="p-6 space-y-4">
+                    <input
+                        type="text"
+                        placeholder="Search by email..."
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        className="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        autoFocus
+                    />
+                    <div className="max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-md divide-y dark:divide-gray-700">
+                        {filtered.length === 0 ? (
+                            <p className="p-3 text-sm text-gray-400 text-center">No members found</p>
+                        ) : (
+                            filtered.map((m, i) => (
+                                <button
+                                    key={m.id || i}
+                                    onClick={() => setSelected(m)}
+                                    className={`w-full text-left px-3 py-2.5 transition-colors ${selected?.id === m.id ? 'bg-blue-50 dark:bg-blue-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                                >
+                                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{m.email}</p>
+                                    <p className="text-xs text-gray-400">{m.role}</p>
+                                </button>
+                            ))
+                        )}
+                    </div>
+                    {selected && (
+                        <div className="rounded-md bg-blue-50 dark:bg-blue-900/20 px-3 py-2 text-sm text-blue-700 dark:text-blue-300">
+                            Approver: <span className="font-medium">{selected.email}</span>
+                        </div>
+                    )}
+                    <div className="flex justify-end gap-3 pt-2">
+                        <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-800">Cancel</button>
+                        <button
+                            disabled={!selected}
+                            onClick={() => selected && onConfirm({
+                                approver_id: selected.user_id || undefined,
+                                approver_name: selected.email,
+                                approver_email: selected.email,
+                            })}
+                            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                        >
+                            Send for Approval
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ─── ViewModal ────────────────────────────────────────────────────────────────
+interface ViewModalProps {
+    policy: PolicyV2;
+    currentUserId: string | null;
+    currentUserEmail: string | null;
+    onClose: () => void;
+    onApproved: () => void;
+}
+const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUserEmail, onClose, onApproved }) => {
+    const [pendingApproval, setPendingApproval] = useState<PolicyApproval | null>(null);
+    const [comment, setComment] = useState('');
+    const [showRejectInput, setShowRejectInput] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const html = useMemo(() => renderMarkdown(policy.markdown || ''), [policy.markdown]);
+
+    useEffect(() => {
+        if (policy.policy_status === 'in_approval') {
+            SupabaseService.getPolicyApproval(policy.policy_id).then(setPendingApproval);
         }
+    }, [policy.policy_id, policy.policy_status]);
 
-        if (sortConfig !== null) {
-            filteredItems.sort((a, b) => {
-                const aValue = a[sortConfig.key];
-                const bValue = b[sortConfig.key];
-                if (aValue === null || aValue === undefined) return 1;
-                if (bValue === null || bValue === undefined) return -1;
+    const isApprover = pendingApproval && (
+        (pendingApproval.approver_id && pendingApproval.approver_id === currentUserId) ||
+        (pendingApproval.approver_email && pendingApproval.approver_email === currentUserEmail)
+    );
 
-                if (aValue < bValue) {
-                    return sortConfig.direction === 'ascending' ? -1 : 1;
-                }
-                if (aValue > bValue) {
-                    return sortConfig.direction === 'ascending' ? 1 : -1;
-                }
-                return 0;
-            });
-        }
-        return filteredItems;
-    }, [policies, filter, sortConfig]);
-
-    const requestSort = (key: keyof PolicyDocument) => {
-        let direction: 'ascending' | 'descending' = 'ascending';
-        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
-            direction = 'descending';
-        }
-        setSortConfig({ key, direction });
+    const handleApprove = async () => {
+        setSaving(true);
+        try {
+            await SupabaseService.approvePolicy(policy.policy_id, comment || undefined);
+            onApproved();
+            onClose();
+        } catch (err: any) { alert(err.message); }
+        finally { setSaving(false); }
     };
 
-    const getSortIconFor = (key: keyof PolicyDocument) => {
-        if (!sortConfig || sortConfig.key !== key) {
-            return <SortUpDownIcon className="h-4 w-4 ml-1 text-gray-400" />;
+    const handleReject = async () => {
+        if (!comment.trim()) return;
+        setSaving(true);
+        try {
+            await SupabaseService.rejectPolicy(policy.policy_id, comment);
+            onApproved();
+            onClose();
+        } catch (err: any) { alert(err.message); }
+        finally { setSaving(false); }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700 flex-shrink-0">
+                    <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <h2 className="text-base font-semibold text-gray-900 dark:text-white">{policy.name}</h2>
+                            <StatusBadge policy={policy} />
+                        </div>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                            {policy.policy_id}
+                            {policy.policy_ref && ` · ${policy.policy_ref}`}
+                            {policy.version && ` · ${policy.version}`}
+                        </p>
+                    </div>
+                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none ml-4">&times;</button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto px-8 py-6">
+                    <div className="policy-prose text-gray-800 dark:text-gray-200" dangerouslySetInnerHTML={{ __html: html }} />
+                </div>
+
+                {isApprover && (
+                    <div className="flex-shrink-0 px-6 py-4 border-t dark:border-gray-700 bg-yellow-50 dark:bg-yellow-900/10">
+                        <p className="text-sm font-medium text-yellow-700 dark:text-yellow-300 mb-3">
+                            Your approval is requested for this policy.
+                        </p>
+                        {showRejectInput ? (
+                            <div className="space-y-3">
+                                <textarea
+                                    value={comment}
+                                    onChange={e => setComment(e.target.value)}
+                                    placeholder="Reason for rejection (required)"
+                                    rows={2}
+                                    className="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-400"
+                                />
+                                <div className="flex gap-2">
+                                    <button onClick={() => setShowRejectInput(false)} className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300">Cancel</button>
+                                    <button
+                                        onClick={handleReject}
+                                        disabled={!comment.trim() || saving}
+                                        className="px-4 py-1.5 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                                    >
+                                        {saving ? 'Rejecting...' : 'Confirm Reject'}
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex gap-3">
+                                <textarea
+                                    value={comment}
+                                    onChange={e => setComment(e.target.value)}
+                                    placeholder="Optional comment..."
+                                    rows={2}
+                                    className="flex-1 rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                />
+                                <div className="flex flex-col gap-2">
+                                    <button onClick={handleApprove} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:bg-gray-300">
+                                        {saving ? '...' : 'Approve'}
+                                    </button>
+                                    <button onClick={() => setShowRejectInput(true)} className="px-4 py-1.5 text-sm font-medium text-white bg-red-500 rounded-md hover:bg-red-600">
+                                        Reject
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// ─── EditorModal ──────────────────────────────────────────────────────────────
+interface EditorModalProps {
+    policy?: PolicyV2 | null;
+    onClose: () => void;
+    onSaved: () => void;
+}
+const EditorModal: React.FC<EditorModalProps> = ({ policy, onClose, onSaved }) => {
+    const [markdown, setMarkdown] = useState(policy?.markdown || '');
+    const [status, setStatus] = useState<PolicyWorkflowStatus>(policy?.policy_status || 'draft');
+    const [saving, setSaving] = useState(false);
+    const [showApprover, setShowApprover] = useState(false);
+    const previewHtml = useMemo(() => renderMarkdown(markdown), [markdown]);
+    const isEdit = !!policy;
+
+    const handleSave = async () => {
+        setSaving(true);
+        try {
+            if (isEdit) {
+                await SupabaseService.updatePolicy(policy!.policy_id, { markdown, policy_status: status });
+            } else {
+                await SupabaseService.addPolicy(markdown, status);
+            }
+            onSaved();
+            onClose();
+        } catch (err: any) {
+            alert(err.message);
+        } finally {
+            setSaving(false);
         }
-        return sortConfig.direction === 'ascending' ? <SortUpIcon className="h-4 w-4 ml-1" /> : <SortDownIcon className="h-4 w-4 ml-1" />;
     };
 
-    const isValidDate = (dateString: string): boolean => {
-        if (!dateString || dateString.trim() === '') return false;
-        const date = new Date(dateString);
-        return date instanceof Date && !isNaN(date.getTime());
+    const handleSendForApproval = () => {
+        if (!markdown.trim()) { alert('Please add some content first.'); return; }
+        setShowApprover(true);
     };
 
-    const closeModal = () => setModalState({ type: null });
+    const handleApproverConfirm = async (approver: { approver_id?: string; approver_name: string; approver_email: string }) => {
+        setShowApprover(false);
+        setSaving(true);
+        try {
+            let policyId = policy?.policy_id;
+            if (!isEdit) {
+                const created = await SupabaseService.addPolicy(markdown, 'draft');
+                policyId = created.policy_id;
+            } else {
+                await SupabaseService.updatePolicy(policy!.policy_id, { markdown });
+            }
+            await SupabaseService.submitPolicyForApproval(policyId!, approver);
+            onSaved();
+            onClose();
+        } catch (err: any) {
+            alert(err.message);
+        } finally {
+            setSaving(false);
+        }
+    };
 
-    const handleImportCSV = (event: ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
+    return (
+        <>
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+                <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
 
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            const text = e.target?.result as string;
-            if (!text) return;
+                    {/* Header bar */}
+                    <div className="flex items-center justify-between px-6 py-3 border-b dark:border-gray-700 flex-shrink-0 gap-4">
+                        <div className="flex items-center gap-3 min-w-0">
+                            <h2 className="text-base font-semibold text-gray-900 dark:text-white whitespace-nowrap">
+                                {isEdit ? 'Edit Policy' : 'New Policy'}
+                            </h2>
+                            <select
+                                value={status}
+                                onChange={e => setStatus(e.target.value as PolicyWorkflowStatus)}
+                                className="text-xs border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1 dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            >
+                                <option value="draft">Draft</option>
+                                <option value="in_review">In Review</option>
+                                <option value="in_approval">In Approval</option>
+                                <option value="approved">Approved</option>
+                            </select>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                            <button onClick={handleSave} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300">
+                                {saving ? 'Saving...' : 'Save'}
+                            </button>
+                            <button onClick={handleSendForApproval} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-300">
+                                Send for Approval
+                            </button>
+                            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none ml-1">&times;</button>
+                        </div>
+                    </div>
 
-            try {
-                const lines = text.split('\n').filter(line => line.trim());
-                if (lines.length < 2) {
-                    alert('CSV file must have at least a header and one data row');
-                    return;
-                }
+                    {/* Two-panel editor */}
+                    <div className="flex flex-1 overflow-hidden">
+                        <div className="w-1/2 flex flex-col border-r dark:border-gray-700">
+                            <div className="px-4 py-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex-shrink-0">
+                                Markdown
+                            </div>
+                            <textarea
+                                value={markdown}
+                                onChange={e => setMarkdown(e.target.value)}
+                                className="flex-1 p-4 text-sm font-mono text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-900 resize-none focus:outline-none"
+                                placeholder="Paste or type your markdown policy here..."
+                                spellCheck={false}
+                            />
+                        </div>
+                        <div className="w-1/2 flex flex-col overflow-hidden">
+                            <div className="px-4 py-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex-shrink-0">
+                                Preview
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-5">
+                                <div className="policy-prose text-gray-800 dark:text-gray-200" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {showApprover && (
+                <ApproverModal onClose={() => setShowApprover(false)} onConfirm={handleApproverConfirm} />
+            )}
+        </>
+    );
+};
+
+// ─── PolicyCard ────────────────────────────────────────────────────────────────
+interface PolicyCardProps {
+    policy: PolicyV2;
+    selected: boolean;
+    onToggleSelect: () => void;
+    onView: () => void;
+    onEdit: () => void;
+    onDelete: () => void;
+    onHistory: () => void;
+}
+const PolicyCard: React.FC<PolicyCardProps> = ({ policy, selected, onToggleSelect, onView, onEdit, onDelete, onHistory }) => {
+    const s = effectiveStatus(policy);
+    const meta = STATUS_META[s] || STATUS_META.draft;
+    const expired = isExpired(policy);
+
+    return (
+        <div className={`relative bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 border-l-4 ${meta.border} transition-shadow hover:shadow-md`}>
+            <div className="absolute top-3 right-3">
+                <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={onToggleSelect}
+                    className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 cursor-pointer"
+                />
+            </div>
+
+            <div className="p-4 pr-8">
+                <p className="text-[10px] font-mono text-gray-400 dark:text-gray-500 mb-1 truncate">
+                    {policy.policy_id}
+                    {policy.policy_ref && <span className="ml-1 opacity-60">· {policy.policy_ref}</span>}
+                </p>
+
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white leading-snug mb-3 line-clamp-2">
+                    {policy.name}
+                </h3>
+
+                <div className="flex items-center gap-2 mb-3 flex-wrap">
+                    <StatusBadge policy={policy} />
+                    {policy.refresh_date && (
+                        <span className={`text-[10px] ${expired ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
+                            {expired ? '⚠ Expired' : 'Refresh'}: {new Date(policy.refresh_date).toLocaleDateString()}
+                        </span>
+                    )}
+                </div>
+
+                {(policy.version || policy.owner_name) && (
+                    <div className="text-[10px] text-gray-400 dark:text-gray-500 mb-3 truncate">
+                        {policy.version && <span>v{policy.version}</span>}
+                        {policy.version && policy.owner_name && <span> · </span>}
+                        {policy.owner_name && <span>{policy.owner_name}</span>}
+                    </div>
+                )}
 
                 const parsedPolicies: Array<{id: string | null; data: PolicyDocumentCreate}> = lines
                     .slice(1)
@@ -435,388 +577,280 @@ export const PoliciesView: React.FC = () => {
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
-    const handleConfirmImport = async () => {
-        const hasNewPolicies = importData.newPolicies.length > 0;
-        const hasUpdatePolicies = importData.policiesToUpdate.length > 0;
+// ─── PoliciesView (main) ──────────────────────────────────────────────────────
+export const PoliciesView: React.FC = () => {
+    const [policies, setPolicies] = useState<PolicyV2[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [isDownloading, setIsDownloading] = useState(false);
+    const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+    const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
 
-        if (!hasNewPolicies && !hasUpdatePolicies) return;
+    // Modal targets
+    const [editorTarget, setEditorTarget] = useState<{ policy?: PolicyV2 } | null>(null);
+    const [viewTarget, setViewTarget] = useState<PolicyV2 | null>(null);
+    const [historyTarget, setHistoryTarget] = useState<PolicyV2 | null>(null);
 
-        setImportLoading(true);
+    // Inject prose styles once
+    useEffect(() => {
+        if (!document.getElementById('policy-prose-styles')) {
+            const s = document.createElement('style');
+            s.id = 'policy-prose-styles';
+            s.textContent = PROSE_STYLE;
+            document.head.appendChild(s);
+        }
+    }, []);
+
+    // Get current user
+    useEffect(() => {
+        SupabaseService.getOrgMe().then(me => {
+            if (me) { setCurrentUserId(me.userId); setCurrentUserEmail(me.email); }
+        });
+    }, []);
+
+    const fetchPolicies = useCallback(async () => {
+        setIsLoading(true);
+        setError(null);
         try {
-            const addResults = hasNewPolicies
-                ? await Promise.allSettled(importData.newPolicies.map(p => SupabaseService.addPolicy(p)))
-                : [];
-
-            const updateResults = hasUpdatePolicies
-                ? await Promise.allSettled(importData.policiesToUpdate.map(p => SupabaseService.updatePolicy(p.id, p.data)))
-                : [];
-
-            const allResults = [...addResults, ...updateResults];
-            const failed = allResults.filter(r => r.status === 'rejected');
-
-            if (failed.length > 0) {
-                const errorMessages = failed.map((r: any) => r.reason?.message || r.reason?.toString()).join(', ');
-                setError(`Failed to import ${failed.length} policies: ${errorMessages}`);
-                setImportLoading(false);
-                return;
-            }
-
-            await SupabaseService.logAllActivity({
-                action: 'Bulk Imported/Updated Policies',
-                module: 'Governance',
-                event_data: {
-                    addedCount: importData.newPolicies.length,
-                    updatedCount: importData.policiesToUpdate.length
-                }
-            });
-            setModalState({ type: null });
-            setImportData({ newPolicies: [], policiesToUpdate: [], duplicateNames: [] });
-            setError(null);
-            setImportLoading(false);
-            fetchPolicies();
-        } catch (err) {
-            const errorMsg = err instanceof Error ? err.message : String(err);
-            setError(`Failed to import policies: ${errorMsg}`);
-            setImportLoading(false);
+            const data = await SupabaseService.getPolicies();
+            setPolicies(data);
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setIsLoading(false);
         }
+    }, []);
+
+    useEffect(() => { fetchPolicies(); }, [fetchPolicies]);
+
+    const filtered = useMemo(() => {
+        const q = searchQuery.toLowerCase();
+        return q
+            ? policies.filter(p =>
+                p.name.toLowerCase().includes(q) ||
+                (p.policy_id || '').toLowerCase().includes(q) ||
+                (p.policy_ref || '').toLowerCase().includes(q)
+            )
+            : policies;
+    }, [policies, searchQuery]);
+
+    const toggleSelect = (id: string) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            next.has(id) ? next.delete(id) : next.add(id);
+            return next;
+        });
     };
 
-    const handleExportCSV = () => {
-        const headers = ['id', 'name', 'description', 'document_type', 'document_content', 'content_editor_text', 'url', 'grc_contact', 'policy_reviewer_contact', 'tags', 'published_date', 'next_review_date', 'policy_labels', 'related_projects', 'status', 'version', 'custom_roles', 'related_documents', 'owner_name', 'created_at'];
-        const csvContent = [
-            headers.join(','),
-            ...filteredAndSortedPolicies.map(policy =>
-                [
-                    `"${(policy.id || '').replace(/"/g, '""')}"`,
-                    `"${(policy.name || '').replace(/"/g, '""')}"`,
-                    `"${(policy.description || '').replace(/"/g, '""')}"`,
-                    `"${(policy.document_type || '').replace(/"/g, '""')}"`,
-                    `"${(policy.document_content || '').toString().replace(/"/g, '""')}"`,
-                    `"${(policy.content_editor_text || '').replace(/"/g, '""')}"`,
-                    `"${(policy.url || '').replace(/"/g, '""')}"`,
-                    `"${(policy.grc_contact || '').replace(/"/g, '""')}"`,
-                    `"${(policy.policy_reviewer_contact || '').replace(/"/g, '""')}"`,
-                    `"${(policy.tags || '').replace(/"/g, '""')}"`,
-                    `"${(policy.published_date || '').replace(/"/g, '""')}"`,
-                    `"${(policy.next_review_date || '').replace(/"/g, '""')}"`,
-                    `"${(policy.policy_labels || '').replace(/"/g, '""')}"`,
-                    `"${(policy.related_projects || '').replace(/"/g, '""')}"`,
-                    `"${String(policy.status || '').replace(/"/g, '""')}"`,
-                    `"${(policy.version || '').replace(/"/g, '""')}"`,
-                    `"${(policy.custom_roles || '').replace(/"/g, '""')}"`,
-                    `"${(policy.related_documents || '').replace(/"/g, '""')}"`,
-                    `"${(policy.owner_name || '').replace(/"/g, '""')}"`,
-                    `"${(policy.created_at || '').replace(/"/g, '""')}"`,
-                ].join(',')
-            ),
-        ].join('\n');
-
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        const url = URL.createObjectURL(blob);
-        link.href = url;
-        link.download = `policies-${new Date().toISOString().split('T')[0]}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-    };
-
-    const handleSavePolicy = async (formData: PolicyDocumentCreate | PolicyDocumentUpdate, documentFile?: File | null) => {
+    const handleDelete = async (policy: PolicyV2) => {
+        if (!confirm(`Delete "${policy.name}"? This cannot be undone.`)) return;
         try {
-            const cleanData: any = { ...formData };
-            if (modalState.type === 'add') {
-                if (!cleanData.id || cleanData.id.trim() === '') {
-                    throw new Error('Policy ID is required');
-                }
-            }
-            cleanData.status = parseInt(String(cleanData.status)) || 0;
-            cleanData.document_content = parseInt(String(cleanData.document_content)) || 0;
-            Object.keys(cleanData).forEach(key => {
-                if (cleanData[key] === '') cleanData[key] = null;
-            });
-            if (!cleanData.name || cleanData.name.trim() === '') throw new Error('Policy name is required');
-
-            const dataToSave: PolicyDocumentCreate | PolicyDocumentUpdate = cleanData;
-            if (dataToSave.document_content === 1 && documentFile) {
-                dataToSave.url = await SupabaseService.uploadFile(documentFile, 'policies');
-            } else if (dataToSave.document_content === 0) {
-                dataToSave.url = null;
-            }
-
-            if (modalState.type === 'edit' && modalState.policy) {
-                const updatedPolicy = await SupabaseService.updatePolicy(modalState.policy.id, dataToSave);
-                await SupabaseService.logAllActivity({
-                    action: 'Updated Policy',
-                    module: 'Governance',
-                    entity_id: updatedPolicy.id,
-                    entity_name: updatedPolicy.name,
-                    event_data: { changes: dataToSave }
-                });
-            } else if (modalState.type === 'add') {
-                const addedPolicy = await SupabaseService.addPolicy(dataToSave as PolicyDocumentCreate);
-                await SupabaseService.logAllActivity({
-                    action: 'Created Policy',
-                    module: 'Governance',
-                    entity_id: addedPolicy.id,
-                    entity_name: addedPolicy.name,
-                    event_data: { details: dataToSave }
-                });
-            }
+            await SupabaseService.deletePolicy(policy.policy_id);
             fetchPolicies();
-            closeModal();
-        } catch (err) {
-            setError(`Failed to save policy: ${err instanceof Error ? err.message : String(err)}`);
-        }
+        } catch (err: any) { alert(err.message); }
     };
 
-    const handleDeletePolicy = async () => {
-        if (modalState.type === 'delete' && modalState.policy) {
-            try {
-                await SupabaseService.deletePolicy(modalState.policy.id);
-                await SupabaseService.logAllActivity({
-                    action: 'Deleted Policy',
-                    module: 'Governance',
-                    entity_id: modalState.policy.id,
-                    entity_name: modalState.policy.name
-                });
-                fetchPolicies();
-                closeModal();
-            } catch (err) {
-                setError('Failed to delete policy.');
+    // ── PDF Export ──────────────────────────────────────────────────────────
+    const handleDownload = async () => {
+        const selected = policies.filter(p => selectedIds.has(p.policy_id));
+        if (selected.length === 0) return;
+        setIsDownloading(true);
+        try {
+            const pdfs: { name: string; blob: Blob }[] = [];
+
+            for (const policy of selected) {
+                const html = renderMarkdown(policy.markdown || `# ${policy.name}\n\nNo content.`);
+                const container = document.createElement('div');
+                container.style.cssText = 'position:absolute;left:-9999px;top:0;width:794px;padding:48px;background:#fff;font-family:Arial,sans-serif;font-size:12px;line-height:1.6;color:#111';
+                // Apply prose styles inline for PDF rendering (no dark mode)
+                container.innerHTML = `<style>
+                  h1{font-size:22px;font-weight:700;margin:14px 0 7px}
+                  h2{font-size:18px;font-weight:600;margin:12px 0 6px}
+                  h3{font-size:14px;font-weight:600;margin:10px 0 5px}
+                  p{margin:7px 0;line-height:1.6}
+                  ul,ol{margin:7px 0 7px 22px}
+                  li{margin:4px 0}
+                  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:11px}
+                  th,td{border:1px solid #d1d5db;padding:5px 8px;text-align:left}
+                  th{background:#f3f4f6;font-weight:600}
+                  code{background:#f3f4f6;padding:1px 4px;border-radius:3px;font-size:11px}
+                  blockquote{border-left:4px solid #3b82f6;padding:6px 12px;background:#eff6ff;margin:7px 0}
+                  hr{border:none;border-top:1px solid #e5e7eb;margin:14px 0}
+                  strong{font-weight:700}
+                </style>${html}`;
+                document.body.appendChild(container);
+
+                const canvas = await html2canvas(container, { scale: 1.5, useCORS: true });
+                document.body.removeChild(container);
+
+                const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+                const pageW = pdf.internal.pageSize.getWidth();
+                const pageH = pdf.internal.pageSize.getHeight();
+                const imgW = pageW;
+                const imgH = (canvas.height * pageW) / canvas.width;
+
+                let remaining = imgH;
+                let yOffset = 0;
+                while (remaining > 0) {
+                    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, -yOffset, imgW, imgH);
+                    remaining -= pageH;
+                    yOffset += pageH;
+                    if (remaining > 0) pdf.addPage();
+                }
+
+                pdfs.push({ name: `${policy.policy_id}.pdf`, blob: pdf.output('blob') });
             }
-        }
-    };
 
-    const handleBulkDelete = async () => {
-        setIsConfirmingDelete(false);
-        startBulkOperation(selectedIds.size);
-        let hasError = false;
-        for (const id of selectedIds) {
-            try {
-                await SupabaseService.deletePolicy(id as string);
-                incrementBulkProgress(true);
-            } catch (err) {
-                console.error('Failed to delete policy', id, err);
-                hasError = true;
-                incrementBulkProgress(false);
+            if (pdfs.length === 1) {
+                const url = URL.createObjectURL(pdfs[0].blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = pdfs[0].name; a.click();
+                URL.revokeObjectURL(url);
+            } else {
+                const zip = new JSZip();
+                pdfs.forEach(({ name, blob }) => zip.file(name, blob));
+                const zipBlob = await zip.generateAsync({ type: 'blob' });
+                const url = URL.createObjectURL(zipBlob);
+                const a = document.createElement('a');
+                a.href = url; a.download = `policies-${Date.now()}.zip`; a.click();
+                URL.revokeObjectURL(url);
             }
+        } catch (err: any) {
+            alert('PDF export failed: ' + err.message);
+        } finally {
+            setIsDownloading(false);
         }
-        finishBulkOperation(hasError);
-        fetchPolicies();
     };
 
-    const handleCloseBulkProgress = () => {
-        resetBulkProgress();
-        clearAll();
-    };
-
-    const policyStatusStyles: Record<PolicyStatus, string> = {
-        0: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
-        1: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
-    };
-
+    // ── Render ──────────────────────────────────────────────────────────────
     return (
         <div>
-            <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
-                 <div className="w-full sm:w-1/3">
+            {/* Toolbar */}
+            <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
+                <div className="w-full sm:w-1/3">
                     <input
                         type="text"
-                        placeholder="Filter policies..."
-                        value={filter}
-                        onChange={e => setFilter(e.target.value)}
+                        placeholder="Search policies..."
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
                         className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                        aria-label="Filter policies"
+                        aria-label="Search policies"
                     />
                 </div>
-                <div className="flex space-x-2">
-                    <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
-                    <button onClick={() => setShowAIChat(true)} title="AI Generate" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                <div className="flex items-center space-x-2">
+                    <button disabled title="AI Assistant (coming soon)" className="p-2 text-gray-300 dark:text-gray-600 rounded-md cursor-not-allowed">
                         <BotIcon className="h-5 w-5" />
                     </button>
-                    <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                    <button disabled title="Upload (coming soon)" className="p-2 text-gray-300 dark:text-gray-600 rounded-md cursor-not-allowed">
                         <UploadIcon className="h-5 w-5" />
                     </button>
-                    <button onClick={handleExportCSV} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                    <button
+                        onClick={handleDownload}
+                        disabled={selectedIds.size === 0 || isDownloading}
+                        title={selectedIds.size === 0 ? 'Select policies to download as PDF' : `Download ${selectedIds.size} as PDF`}
+                        className={`p-2 rounded-md transition-colors ${
+                            selectedIds.size > 0
+                                ? 'text-gray-500 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                : 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
+                        }`}
+                    >
                         <DownloadIcon className="h-5 w-5" />
                     </button>
-                    <button onClick={() => setModalState({ type: 'add' })} title="Add Policy" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                    <button
+                        onClick={() => setEditorTarget({})}
+                        title="Add Policy"
+                        className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+                    >
                         <PlusIcon className="h-5 w-5" />
                     </button>
-                    
                 </div>
             </div>
 
-            {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4 dark:bg-red-900 dark:border-red-700 dark:text-red-200" role="alert">
-                <span>{error}</span>
-                <button onClick={() => setError(null)} className="ml-4 font-bold">×</button>
-            </div>}
-
-            <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg dark:border-gray-700">
-                <div className="overflow-auto max-h-[calc(100vh-280px)]">
-                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                        <thead className="bg-gray-50 dark:bg-gray-800">
-                            <tr>
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 w-10 px-4 py-3">
-                                    <input type="checkbox"
-                                        checked={selectedIds.size === filteredAndSortedPolicies.length && filteredAndSortedPolicies.length > 0}
-                                        onChange={() => toggleAll(filteredAndSortedPolicies.map(i => i.id))}
-                                        className="rounded border-gray-300 dark:border-gray-600 cursor-pointer" />
-                                </th>
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
-                                    <button onClick={() => requestSort('id')} className="flex items-center w-full text-left focus:outline-none">
-                                        Policy ID {getSortIconFor('id')}
-                                    </button>
-                                </th>
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
-                                    <button onClick={() => requestSort('name')} className="flex items-center w-full text-left focus:outline-none">
-                                        Name {getSortIconFor('name')}
-                                    </button>
-                                </th>
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
-                                    <button onClick={() => requestSort('status')} className="flex items-center w-full text-left focus:outline-none">
-                                        Status {getSortIconFor('status')}
-                                    </button>
-                                </th>
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
-                                    <button onClick={() => requestSort('created_at')} className="flex items-center w-full text-left focus:outline-none">
-                                        Created Date {getSortIconFor('created_at')}
-                                    </button>
-                                </th>
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
-                                    <button onClick={() => requestSort('version')} className="flex items-center w-full text-left focus:outline-none">
-                                        Version {getSortIconFor('version')}
-                                    </button>
-                                </th>
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
-                                    <button onClick={() => requestSort('document_type')} className="flex items-center w-full text-left focus:outline-none">
-                                        Document Type {getSortIconFor('document_type')}
-                                    </button>
-                                </th>
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
-                            {loading ? (
-                                <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading policies...</td></tr>
-                            ) : filteredAndSortedPolicies.length === 0 ? (
-                                <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">No policies found.</td></tr>
-                            ) : filteredAndSortedPolicies.map(policy => (
-                                <tr key={policy.id}
-                                    onClick={() => setModalState({ type: 'view', policy })}
-                                    className={`cursor-pointer transition-colors ${
-                                        selectedIds.has(policy.id) ? 'bg-blue-50 dark:bg-blue-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
-                                    }`}
-                                >
-                                    <td onClick={e => e.stopPropagation()} className="w-10 px-4 py-4">
-                                        <input type="checkbox"
-                                            checked={selectedIds.has(policy.id)}
-                                            onChange={() => toggle(policy.id)}
-                                            className="rounded border-gray-300 dark:border-gray-600 cursor-pointer" />
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-500 dark:text-gray-400">{policy.id?.substring(0, 8)}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{policy.name}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap"><StatusBadge status={policy.status} colorMap={policyStatusStyles} /></td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{policy.created_at ? new Date(policy.created_at).toLocaleDateString() : 'N/A'}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{policy.version}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">{policy.document_type || 'N/A'}</td>
-                                    <td onClick={e => e.stopPropagation()} className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        <div className="flex justify-end items-center space-x-2">
-                                            {policy.url && <a href={policy.url} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-blue-500" title="View"><DownloadIcon className="h-5 w-5" /></a>}
-                                            <button onClick={() => setModalState({ type: 'view', policy })} className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
-                                            <button onClick={() => setModalState({ type: 'edit', policy })} className="text-gray-400 hover:text-yellow-500"><PencilIcon className="h-5 w-5" /></button>
-                                            <button onClick={() => setModalState({ type: 'delete', policy })} className="text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5" /></button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            <PolicyModal
-                isOpen={modalState.type === 'add' || modalState.type === 'edit' || modalState.type === 'view'}
-                onClose={closeModal}
-                onSave={handleSavePolicy}
-                policyToEdit={modalState.policy || null}
-                mode={modalState.type as 'add' | 'edit' | 'view'}
-            />
-            <DeleteConfirmationModal
-                isOpen={modalState.type === 'delete'}
-                onClose={closeModal}
-                onConfirm={handleDeletePolicy}
-                itemName="policy"
-            />
-            <Modal isOpen={modalState.type === 'import'} onClose={closeModal} title="Import CSV Preview">
-                <div className="space-y-4">
-                    <div>
-                        <h4 className="font-semibold text-gray-900 dark:text-white mb-2">New Policies to Import ({importData.newPolicies.length})</h4>
-                        {importData.newPolicies.length > 0 ? (
-                            <div className="max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-md p-3">
-                                {importData.newPolicies.map((policy, idx) => (
-                                    <div key={idx} className="py-2 px-2 border-b border-gray-100 dark:border-gray-700 last:border-b-0 text-sm dark:text-gray-300">
-                                        <div className="font-medium">{policy.name}</div>
-                                        <div className="text-xs text-gray-500 dark:text-gray-400">Version: {policy.version} | Type: {policy.document_type || 'N/A'}</div>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="text-gray-500 dark:text-gray-400 text-sm">No new policies to import.</div>
-                        )}
-                    </div>
-                    {importData.policiesToUpdate.length > 0 && (
-                        <div>
-                            <h4 className="font-semibold text-blue-600 dark:text-blue-400 mb-2">Existing Policies to Update ({importData.policiesToUpdate.length})</h4>
-                            <div className="max-h-48 overflow-y-auto border border-blue-200 dark:border-blue-700 rounded-md p-3 bg-blue-50 dark:bg-gray-800">
-                                {importData.policiesToUpdate.map((item, idx) => {
-                                    const policy = policies.find(p => p.id === item.id);
-                                    return (
-                                        <div key={idx} className="py-2 px-2 text-sm text-blue-800 dark:text-blue-200 border-b border-blue-100 dark:border-blue-900 last:border-b-0">
-                                            <div className="font-medium">{policy?.name}</div>
-                                            {policy?.name !== item.data.name && <div className="text-xs text-blue-600 dark:text-blue-300">→ {item.data.name}</div>}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
-                </div>
-                <div className="mt-6 flex justify-end space-x-3">
-                    <button onClick={closeModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
-                    <button onClick={handleConfirmImport} disabled={importLoading} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400">
-                        {importLoading ? 'Importing...' : `Import ${importData.newPolicies.length + importData.policiesToUpdate.length} Records`}
+            {/* Selection bar */}
+            {selectedIds.size > 0 && (
+                <div className="mb-4 flex items-center gap-3 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700">
+                    <span className="text-sm text-blue-700 dark:text-blue-300 font-medium">
+                        {selectedIds.size} {selectedIds.size === 1 ? 'policy' : 'policies'} selected
+                    </span>
+                    <button onClick={() => setSelectedIds(new Set())} className="text-xs text-blue-500 hover:text-blue-700 underline">
+                        Clear
+                    </button>
+                    <button
+                        onClick={handleDownload}
+                        disabled={isDownloading}
+                        className="ml-auto px-3 py-1 text-xs font-medium text-white bg-purple-600 rounded-md hover:bg-purple-700 disabled:bg-gray-300"
+                    >
+                        {isDownloading ? 'Generating PDFs...' : 'Download as PDF'}
                     </button>
                 </div>
-            </Modal>
+            )}
 
-            {bulkProgress.status === 'idle' && (
-                <SelectionActionBar
-                    selectedCount={selectedIds.size}
-                    isEditing={false}
-                    isConfirmingDelete={isConfirmingDelete}
-                    isSaving={isSaving}
-                    showEdit={false}
-                    onEdit={() => {}}
-                    onSaveAll={() => {}}
-                    onCancelEdit={() => {}}
-                    onDelete={() => setIsConfirmingDelete(true)}
-                    onConfirmDelete={handleBulkDelete}
-                    onCancelDelete={() => setIsConfirmingDelete(false)}
-                    onClear={clearAll}
+            {error && (
+                <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">{error}</div>
+            )}
+
+            {/* Card grid */}
+            {isLoading ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {[...Array(4)].map((_, i) => (
+                        <div key={i} className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 border-l-4 border-l-gray-300 p-4 animate-pulse">
+                            <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/3 mb-3" />
+                            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-2/3 mb-4" />
+                            <div className="h-5 bg-gray-200 dark:bg-gray-700 rounded w-24" />
+                        </div>
+                    ))}
+                </div>
+            ) : filtered.length === 0 ? (
+                <div className="text-center py-16 text-gray-400">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto mb-3 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <p className="text-sm">
+                        {searchQuery ? `No policies matching "${searchQuery}"` : 'No policies yet. Click + to add your first policy.'}
+                    </p>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {filtered.map(policy => (
+                        <PolicyCard
+                            key={policy.policy_id}
+                            policy={policy}
+                            selected={selectedIds.has(policy.policy_id)}
+                            onToggleSelect={() => toggleSelect(policy.policy_id)}
+                            onView={() => setViewTarget(policy)}
+                            onEdit={() => setEditorTarget({ policy })}
+                            onDelete={() => handleDelete(policy)}
+                            onHistory={() => setHistoryTarget(policy)}
+                        />
+                    ))}
+                </div>
+            )}
+
+            {/* Modals */}
+            {editorTarget !== null && (
+                <EditorModal
+                    policy={editorTarget.policy}
+                    onClose={() => setEditorTarget(null)}
+                    onSaved={fetchPolicies}
                 />
             )}
-            <AIChatModal
-                isOpen={showAIChat}
-                onClose={() => setShowAIChat(false)}
-                module="policies"
-                onConfirm={handleAIChatConfirm}
-            />
-            <BulkProgressModal
-                isOpen={bulkProgress.status !== 'idle'}
-                title="Deleting Policies"
-                progress={bulkProgress}
-                onClose={handleCloseBulkProgress}
-            />
+            {viewTarget && (
+                <ViewModal
+                    policy={viewTarget}
+                    currentUserId={currentUserId}
+                    currentUserEmail={currentUserEmail}
+                    onClose={() => setViewTarget(null)}
+                    onApproved={fetchPolicies}
+                />
+            )}
+            {historyTarget && (
+                <HistoryModal
+                    policy={historyTarget}
+                    onClose={() => setHistoryTarget(null)}
+                />
+            )}
         </div>
     );
 };

@@ -226,6 +226,65 @@ export interface WorkflowTemplate {
     steps: WorkflowStep[];
 }
 
+// --- Policy V2 Types (Markdown-first workflow) ---
+
+export type PolicyWorkflowStatus = 'draft' | 'in_review' | 'in_approval' | 'approved';
+
+export interface PolicyV2 {
+  policy_id: string;
+  name: string;
+  markdown: string | null;
+  policy_ref: string | null;
+  policy_status: PolicyWorkflowStatus;
+  refresh_date: string | null;
+  version: string | null;
+  document_type: string | null;
+  owner_name: string | null;
+  org_id: string;
+  user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PolicyApproval {
+  id: string;
+  policy_id: string;
+  requested_by: string;
+  approver_id: string | null;
+  approver_name: string;
+  approver_email: string;
+  status: 'pending' | 'approved' | 'rejected';
+  comment: string | null;
+  org_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PolicyHistoryEntry {
+  id: string;
+  policy_id: string;
+  action: string;
+  actor_id: string;
+  actor_name: string;
+  from_status: string | null;
+  to_status: string | null;
+  comment: string | null;
+  org_id: string;
+  created_at: string;
+}
+
+export interface PolicyNotification {
+  id: string;
+  recipient_id: string;
+  policy_id: string;
+  policy_name: string;
+  type: 'approval_requested' | 'approved' | 'rejected';
+  message: string;
+  read: boolean;
+  org_id: string;
+  created_at: string;
+}
+
 // --- User Role and Multi-Tenancy Types ---
 export type UserRole = 'user' | 'admin' | 'tenant_admin';
 
