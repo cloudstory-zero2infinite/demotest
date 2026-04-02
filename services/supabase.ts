@@ -390,6 +390,37 @@ export const bulkAddControlRegistry = async (controls: ControlRegistryCreate[]):
   });
 };
 
+// --- Governance: Capability Register ---
+
+export const getCapabilities = async (): Promise<Capability[]> => {
+  return apiRequest<Capability[]>('/api/capabilities');
+};
+
+export const addCapability = async (capability: CapabilityCreate): Promise<Capability> => {
+  return apiRequest<Capability>('/api/capabilities', {
+    method: 'POST',
+    body: JSON.stringify(capability),
+  });
+};
+
+export const updateCapability = async (id: string, updates: CapabilityUpdate): Promise<Capability> => {
+  return apiRequest<Capability>(`/api/capabilities/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
+};
+
+export const deleteCapability = async (id: string): Promise<void> => {
+  return apiRequest<void>(`/api/capabilities/${id}`, { method: 'DELETE' });
+};
+
+export const bulkAddCapabilities = async (capabilities: CapabilityCreate[]): Promise<Capability[]> => {
+  return apiRequest<Capability[]>('/api/capabilities/bulk', {
+    method: 'POST',
+    body: JSON.stringify(capabilities),
+  });
+};
+
 export const getPolicyApproval = async (id: string): Promise<PolicyApproval | null> => {
   try {
     return await apiRequest<PolicyApproval | null>(`/api/policies/${id}/approval`);
