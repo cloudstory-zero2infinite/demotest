@@ -126,6 +126,24 @@ export interface PolicyDocument {
 export type PolicyDocumentCreate = Omit<PolicyDocument, 'id' | 'created_at' | 'updated_at'>;
 export type PolicyDocumentUpdate = Partial<PolicyDocumentCreate>;
 
+// Capability Register Types
+export interface Capability {
+    id: string;
+    capab_id: string;
+    capab_name: string;
+    capab_provider: string[];
+    capab_cmdb_id: string[];
+    capab_owner: string;
+    capab_other_details: string | null;
+    org_id: string;
+    user_id: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export type CapabilityCreate = Omit<Capability, 'id' | 'created_at' | 'updated_at'>;
+export type CapabilityUpdate = Partial<Omit<CapabilityCreate, 'org_id' | 'user_id'>>;
+
 // Vulnerability Management Types
 export type VulnerabilityStatus = 'Planned' | 'Remediated' | 'NA';
 export type VulnerabilitySource = 'KEV' | 'Scanning' | 'PT' | 'Reported-Ext';

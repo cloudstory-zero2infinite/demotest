@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate } from '../types';
+import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate } from '../types';
 
 // Supabase client is kept ONLY for Google Auth (OAuth sign-in/sign-out/session)
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL as string;
@@ -304,6 +304,37 @@ export const bulkAddAssets = async (assets: AssetCreate[]): Promise<Asset[]> => 
   return apiRequest<Asset[]>('/api/assets/bulk', {
     method: 'POST',
     body: JSON.stringify(assets),
+  });
+};
+
+// --- Governance: Capability Register ---
+
+export const getCapabilities = async (): Promise<Capability[]> => {
+  return apiRequest<Capability[]>('/api/capabilities');
+};
+
+export const addCapability = async (capability: CapabilityCreate): Promise<Capability> => {
+  return apiRequest<Capability>('/api/capabilities', {
+    method: 'POST',
+    body: JSON.stringify(capability),
+  });
+};
+
+export const updateCapability = async (id: string, updates: CapabilityUpdate): Promise<Capability> => {
+  return apiRequest<Capability>(`/api/capabilities/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
+};
+
+export const deleteCapability = async (id: string): Promise<void> => {
+  return apiRequest<void>(`/api/capabilities/${id}`, { method: 'DELETE' });
+};
+
+export const bulkAddCapabilities = async (capabilities: CapabilityCreate[]): Promise<Capability[]> => {
+  return apiRequest<Capability[]>('/api/capabilities/bulk', {
+    method: 'POST',
+    body: JSON.stringify(capabilities),
   });
 };
 
