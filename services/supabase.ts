@@ -307,34 +307,37 @@ export const bulkAddAssets = async (assets: AssetCreate[]): Promise<Asset[]> => 
   });
 };
 
-// --- Governance: Capability Register ---
+// --- Governance: Policies V2 (markdown-first workflow) ---
 
-export const getCapabilities = async (): Promise<Capability[]> => {
-  return apiRequest<Capability[]>('/api/capabilities');
+export const getPolicies = async (): Promise<PolicyV2[]> => {
+  return apiRequest<PolicyV2[]>('/api/policies');
 };
 
-export const addCapability = async (capability: CapabilityCreate): Promise<Capability> => {
-  return apiRequest<Capability>('/api/capabilities', {
+export const addPolicy = async (markdown: string, policy_status: string = 'draft'): Promise<PolicyV2> => {
+  return apiRequest<PolicyV2>('/api/policies', {
     method: 'POST',
-    body: JSON.stringify(capability),
+    body: JSON.stringify({ markdown, policy_status }),
   });
 };
 
-export const updateCapability = async (id: string, updates: CapabilityUpdate): Promise<Capability> => {
-  return apiRequest<Capability>(`/api/capabilities/${id}`, {
+export const updatePolicy = async (id: string, updates: { markdown?: string; policy_status?: string }): Promise<PolicyV2> => {
+  return apiRequest<PolicyV2>(`/api/policies/${id}`, {
     method: 'PUT',
     body: JSON.stringify(updates),
   });
 };
 
-export const deleteCapability = async (id: string): Promise<void> => {
-  return apiRequest<void>(`/api/capabilities/${id}`, { method: 'DELETE' });
+export const deletePolicy = async (id: string): Promise<void> => {
+  return apiRequest<void>(`/api/policies/${id}`, { method: 'DELETE' });
 };
 
-export const bulkAddCapabilities = async (capabilities: CapabilityCreate[]): Promise<Capability[]> => {
-  return apiRequest<Capability[]>('/api/capabilities/bulk', {
+export const submitPolicyForApproval = async (
+  id: string,
+  approver: { approver_id?: string; approver_name: string; approver_email: string }
+): Promise<void> => {
+  return apiRequest<void>(`/api/policies/${id}/submit-approval`, {
     method: 'POST',
-    body: JSON.stringify(capabilities),
+    body: JSON.stringify(approver),
   });
 };
 
@@ -389,8 +392,24 @@ export const updatePolicy = async (id: string, updates: { markdown?: string; pol
   });
 };
 
-export const deletePolicy = async (id: string): Promise<void> => {
-  return apiRequest<void>(`/api/policies/${id}`, { method: 'DELETE' });
+export const getPolicyApproval = async (id: string): Promise<PolicyApproval | null> => {
+  try {
+    return await apiRequest<PolicyApproval | null>(`/api/policies/${id}/approval`);
+  } catch {
+    return null;
+  }
+};
+
+export const getPolicyNotifications = async (): Promise<PolicyNotification[]> => {
+  try {
+    return await apiRequest<PolicyNotification[]>('/api/policies/notifications');
+  } catch {
+    return [];
+  }
+};
+
+export const markPolicyNotificationRead = async (id: string): Promise<void> => {
+  return apiRequest<void>(`/api/policies/notifications/${id}/read`, { method: 'PUT' });
 };
 
 export const submitPolicyForApproval = async (
