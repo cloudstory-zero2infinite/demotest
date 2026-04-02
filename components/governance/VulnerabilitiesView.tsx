@@ -9,69 +9,8 @@ import { useTableSelection } from '../../hooks/useTableSelection';
 import { SelectionActionBar } from '../common/SelectionActionBar';
 import { AIChatModal } from '../common/AIChatModal';
 import * as XLSX from 'xlsx';
-
-// Helper function to parse CSV line with proper quote handling
-const parseCSVLine = (line: string): string[] => {
-    const result: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    
-    for (let i = 0; i < line.length; i++) {
-        const char = line[i];
-        
-        if (char === '"') {
-            if (inQuotes && line[i + 1] === '"') {
-                current += '"';
-                i++; // Skip next quote
-            } else {
-                inQuotes = !inQuotes;
-            }
-        } else if (char === ',' && !inQuotes) {
-            result.push(current.trim());
-            current = '';
-        } else {
-            current += char;
-        }
-    }
-    
-    result.push(current.trim());
-    return result;
-};
-
-// Helper function to parse CSV fields from a line
-const parseCSVFields = (line: string): string[] => {
-    const fields = parseCSVLine(line).map(field => field.replace(/^"(.*)"$/, '$1').trim());
-    
-    // Handle Excel scientific notation and clean up problematic values
-    return fields.map(field => {
-        // Convert Excel scientific notation back to regular string
-        if (field.includes('E+') || field.includes('E-')) {
-            // Check if it's actually a number in scientific notation
-            const scientificMatch = field.match(/^(\d+\.?\d*)[Ee]([+-]?\d+)$/);
-            if (scientificMatch) {
-                const [, base, exponent] = scientificMatch;
-                const num = parseFloat(base) * Math.pow(10, parseInt(exponent));
-                // If it's a reasonable integer, convert to string, otherwise keep as is
-                if (Number.isInteger(num) && num > 0 && num < 1e20) {
-                    return num.toString();
-                }
-            }
-        }
-        
-        // Clean up excessive quotes
-        if (field.startsWith('"') && field.endsWith('"')) {
-            // Remove outer quotes and unescape inner quotes
-            field = field.slice(1, -1).replace(/""/g, '"');
-        }
-        
-        // Handle fields that are just repeated quotes
-        if (field.match(/^"+$/)) {
-            return '';
-        }
-        
-        return field;
-    });
-};
+import { parseCSVLine } from '../../utils/csvParser';
+import { BulkProgressModal } from '../common/BulkProgressModal';
 
 // Helper function to sanitize input
 const sanitizeInput = (input: string): string => {
@@ -82,7 +21,6 @@ const sanitizeInput = (input: string): string => {
         .replace(/on\w+\s*=/gi, '') // Remove event handlers
         .trim();
 };
-import { BulkProgressModal } from '../common/BulkProgressModal';
 
 interface VulnerabilityModalProps {
     isOpen: boolean;
@@ -493,7 +431,7 @@ export const VulnerabilitiesView: React.FC = () => {
             const importedVulns: VulnerabilityCreate[] = lines
                 .map((line): VulnerabilityCreate | null => {
                     // Properly parse CSV fields with quote handling
-                    const fields = parseCSVFields(line);
+                    const fields = parseCSVLine(line);
                     const [name, description, derived_from, status, asset_name, asset_id] = fields;
                     
                     console.log('Processing line:', line, 'Fields:', fields);

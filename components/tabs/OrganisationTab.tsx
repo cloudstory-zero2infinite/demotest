@@ -156,9 +156,9 @@ const ContactsView: React.FC = () => {
             if(!text) return;
             const lines = text.split('\n').slice(1);
             const newContacts: ContactCreate[] = lines.map(line => {
-                const [name, title, level, email, sec_role] = line.split(',').map(s => s.trim());
-                if (!name || !title || !level || !email || !sec_role) return null;
-                return { name, title, level: Number(level), email, sec_role };
+                const [name, title, level, email, sec_role] = parseCSVLine(line);
+                if (!name?.trim() || !title?.trim() || !level?.trim() || !email?.trim() || !sec_role?.trim()) return null;
+                return { name: name.trim(), title: title.trim(), level: Number(level.trim()), email: email.trim(), sec_role: sec_role.trim() };
             }).filter((c): c is ContactCreate => c !== null);
             
             if (newContacts.length > 0) {

@@ -5,39 +5,7 @@ import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, Sor
 import { Modal } from '../common/Modal';
 import { StatusBadge } from '../common/StatusBadge';
 import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
-
-// Helper function to parse CSV line with proper quote handling
-const parseCSVLine = (line: string): string[] => {
-    const result: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    
-    for (let i = 0; i < line.length; i++) {
-        const char = line[i];
-        
-        if (char === '"') {
-            if (inQuotes && line[i + 1] === '"') {
-                current += '"';
-                i++; // Skip next quote
-            } else {
-                inQuotes = !inQuotes;
-            }
-        } else if (char === ',' && !inQuotes) {
-            result.push(current.trim());
-            current = '';
-        } else {
-            current += char;
-        }
-    }
-    
-    result.push(current.trim());
-    return result;
-};
-
-// Helper function to parse CSV fields from a line
-const parseCSVFields = (line: string): string[] => {
-    return parseCSVLine(line).map(field => field.replace(/^"(.*)"$/, '$1').trim());
-};
+import { parseCSVLine } from '../../utils/csvParser';
 
 // Helper function to sanitize input
 const sanitizeInput = (input: string): string => {
@@ -405,7 +373,7 @@ export const InternalControlsView: React.FC = () => {
                 const importedControls: InternalControlCreate[] = lines
                     .map((line): InternalControlCreate | null => {
                         // Properly parse CSV fields with quote handling
-                        const fields = parseCSVFields(line);
+                        const fields = parseCSVLine(line);
                         const [ctl_id, name, description, status, compliance_tags] = fields;
                         
                         // Validate required fields
