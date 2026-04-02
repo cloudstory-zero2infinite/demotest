@@ -53,14 +53,15 @@ export type InternalControlUpdate = Partial<InternalControlCreate>;
 export type AssetCriticality = 'High' | 'Medium' | 'Low';
 export type AssetGovernedStatus = 'Governed' | 'Non-Governed';
 export type AssetExposure = 'Internal' | 'External' | 'DMZ';
-export type AssetCategory = 'Information' | 'Technology' | 'Service';
+export type AssetCategory = 'Physical/Hardware' | 'Software' | 'Services/Infra' | 'Information';
+export type AssetSource = 'Manual' | 'AI' | 'File Upload' | 'API';
 
 export interface Asset {
     id: string;
     asset_id: string;
     name: string;
     asset_owner?: string | null;
-    business_owner?: string | null;
+    business_unit?: string | null;
     physical_location?: string | null;
     criticality: AssetCriticality;
     details: string;
@@ -68,7 +69,11 @@ export interface Asset {
     vulnerability_count: number;
     exposure: AssetExposure;
     category: AssetCategory;
-    source?: string | null;
+    ip_address?: string | null;
+    mac_id?: string | null;
+    source?: AssetSource | null;
+    org_id?: string | null;
+    user_id?: string | null;
     created_at: string;
 }
 export type AssetCreate = Omit<Asset, 'id' | 'created_at'>;

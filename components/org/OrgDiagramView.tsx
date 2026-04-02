@@ -7,7 +7,7 @@ import * as SupabaseService from '../../services/supabase';
 const GROUP_BY_OPTIONS: { value: keyof Asset; label: string }[] = [
     { value: 'category', label: 'Category' },
     { value: 'exposure', label: 'Exposure' },
-    { value: 'business_owner', label: 'Business Owner' },
+    { value: 'business_unit', label: 'Business Unit' },
     { value: 'physical_location', label: 'Location' },
     { value: 'criticality', label: 'Criticality' },
 ];
