@@ -144,6 +144,31 @@ export interface Capability {
 export type CapabilityCreate = Omit<Capability, 'id' | 'created_at' | 'updated_at'>;
 export type CapabilityUpdate = Partial<Omit<CapabilityCreate, 'org_id' | 'user_id'>>;
 
+// Control Registry Types
+export type ControlStatus = 'Enforced' | 'NotEnforced';
+export type ControlType = 'NN' | 'Regulatory' | 'Standard';
+export type EnforcementType = 'org_wide' | 'Asset_specific' | 'BU_specific';
+
+export interface ControlRegistry {
+    id: string;
+    ctl_id: string;
+    ctl_name: string;
+    ctl_status: ControlStatus;
+    ctl_type: ControlType;
+    enforcement_type: EnforcementType;
+    ctl_description: string | null;
+    ctld_by: string[];
+    ctl_ref_fw: string | null;
+    ctl_other_details: string | null;
+    org_id: string;
+    user_id: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export type ControlRegistryCreate = Omit<ControlRegistry, 'id' | 'created_at' | 'updated_at'>;
+export type ControlRegistryUpdate = Partial<Omit<ControlRegistryCreate, 'org_id' | 'user_id'>>;
+
 // Vulnerability Management Types
 export type VulnerabilityStatus = 'Planned' | 'Remediated' | 'NA';
 export type VulnerabilitySource = 'KEV' | 'Scanning' | 'PT' | 'Reported-Ext';
@@ -215,6 +240,52 @@ export interface AllActivityLog {
     // Enriched fields from organisations and org_onboarding tables
     org_name?: string;
     user_role?: string;
+}
+
+// --- Policy V2 Types (Markdown-first workflow) ---
+
+export type PolicyWorkflowStatus = 'draft' | 'in_review' | 'in_approval' | 'approved';
+
+export interface PolicyV2 {
+  policy_id: string;
+  name: string;
+  markdown: string | null;
+  policy_ref: string | null;
+  policy_status: PolicyWorkflowStatus;
+  refresh_date: string | null;
+  version: string | null;
+  document_type: string | null;
+  owner_name: string | null;
+  org_id: string;
+  user_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PolicyApproval {
+  id: string;
+  policy_id: string;
+  requested_by: string;
+  approver_id: string | null;
+  approver_name: string;
+  approver_email: string;
+  status: 'pending' | 'approved' | 'rejected';
+  comment: string | null;
+  org_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PolicyNotification {
+  id: string;
+  recipient_id: string;
+  policy_id: string;
+  policy_name: string;
+  type: 'approval_requested' | 'approved' | 'rejected';
+  message: string;
+  read: boolean;
+  org_id: string;
+  created_at: string;
 }
 
 // --- Policy Manager Types ---
