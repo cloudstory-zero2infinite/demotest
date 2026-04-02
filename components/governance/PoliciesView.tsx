@@ -5,38 +5,23 @@ import html2canvas from 'html2canvas';
 import JSZip from 'jszip';
 import { PolicyV2, PolicyWorkflowStatus, PolicyApproval, AllActivityLog } from '../../types';
 import * as SupabaseService from '../../services/supabase';
-import { EyeIcon, PlusIcon, UploadIcon, DownloadIcon, BotIcon, HistoryIcon, TrashIcon } from '../Icons';
+import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon } from '../Icons';
+import { Modal } from '../common/Modal';
+import { StatusBadge } from '../common/StatusBadge';
+import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
+import { useTableSelection } from '../../hooks/useTableSelection';
+import { SelectionActionBar } from '../common/SelectionActionBar';
+import { AIChatModal } from '../common/AIChatModal';
+import { BulkProgressModal } from '../common/BulkProgressModal';
+import { parseCSVLine } from '../../utils/csvParser';
 
-// ─── Markdown config ─────────────────────────────────────────────────────────
-marked.setOptions({ gfm: true, breaks: true });
-const renderMarkdown = (md: string): string => String(marked.parse(md || ''));
-
-// ─── Inline prose styles injected once into <head> ───────────────────────────
-const PROSE_STYLE = `
-.policy-prose h1{font-size:1.5rem;font-weight:700;margin:1rem 0 .5rem}
-.policy-prose h2{font-size:1.2rem;font-weight:600;margin:.9rem 0 .4rem}
-.policy-prose h3{font-size:1rem;font-weight:600;margin:.8rem 0 .3rem}
-.policy-prose p{margin:.5rem 0;line-height:1.6}
-.policy-prose ul,.policy-prose ol{margin:.5rem 0 .5rem 1.5rem}
-.policy-prose li{margin:.25rem 0}
-.policy-prose table{border-collapse:collapse;width:100%;margin:.75rem 0;font-size:.85rem}
-.policy-prose th,.policy-prose td{border:1px solid #d1d5db;padding:.4rem .6rem;text-align:left}
-.policy-prose th{background:#f3f4f6;font-weight:600}
-.policy-prose code{background:#f3f4f6;padding:.1rem .3rem;border-radius:.2rem;font-size:.85em}
-.policy-prose pre{background:#1e293b;color:#e2e8f0;padding:1rem;border-radius:.4rem;overflow:auto;margin:.5rem 0}
-.policy-prose blockquote{border-left:4px solid #3b82f6;padding:.5rem 1rem;background:#eff6ff;margin:.5rem 0}
-.policy-prose hr{border:none;border-top:1px solid #e5e7eb;margin:1rem 0}
-.policy-prose strong{font-weight:700}
-`;
-
-// ─── Status helpers ───────────────────────────────────────────────────────────
-const STATUS_META: Record<string, { label: string; border: string; badge: string; dot: string }> = {
-    draft:       { label: 'Draft',       border: 'border-l-blue-500',   badge: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',       dot: 'bg-blue-500' },
-    in_review:   { label: 'In Review',   border: 'border-l-purple-500', badge: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300', dot: 'bg-purple-500' },
-    in_approval: { label: 'In Approval', border: 'border-l-yellow-500', badge: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300', dot: 'bg-yellow-500' },
-    approved:    { label: 'Approved',    border: 'border-l-green-500',  badge: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',     dot: 'bg-green-500' },
-    expired:     { label: 'Expired',     border: 'border-l-red-500',    badge: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',             dot: 'bg-red-500' },
-};
+interface PolicyModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onSave: (policy: PolicyDocumentCreate | PolicyDocumentUpdate, documentFile?: File | null) => Promise<void> | void;
+    policyToEdit: PolicyDocument | null;
+    mode: 'add' | 'edit' | 'view';
+}
 
 const isExpired = (p: PolicyV2) =>
     p.policy_status === 'approved' && !!p.refresh_date && new Date(p.refresh_date) < new Date();
@@ -513,28 +498,84 @@ const PolicyCard: React.FC<PolicyCardProps> = ({ policy, selected, onToggleSelec
                     </div>
                 )}
 
-                <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-700">
-                    <div className="flex items-center gap-0.5">
-                        <button onClick={onView} title="View" className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
-                            <EyeIcon className="h-4 w-4" />
-                        </button>
-                        <button onClick={onEdit} title="Edit" className="p-1.5 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L15.232 5.232z" />
-                            </svg>
-                        </button>
-                        <button onClick={onDelete} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
-                            <TrashIcon className="h-4 w-4" />
-                        </button>
-                    </div>
-                    <button onClick={onHistory} title="View History" className="p-1.5 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
-                        <HistoryIcon className="h-4 w-4" />
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
+                const parsedPolicies: Array<{id: string | null; data: PolicyDocumentCreate}> = lines
+                    .slice(1)
+                    .map(line => {
+                        const parts = parseCSVLine(line);
+
+                        if (!parts[1]) return null;
+
+                        try {
+                            const policyId = parts[0] && parts[0] !== '' ? parts[0] : null;
+                            const name = parts[1] || '';
+                            const description = parts[2] && parts[2] !== '' ? parts[2] : null;
+                            const document_type = parts[3] && parts[3] !== '' ? parts[3] : null;
+                            const document_content = parts[4] ? parseInt(parts[4]) : 0;
+                            const content_editor_text = parts[5] && parts[5] !== '' ? parts[5] : null;
+                            const url = parts[6] && parts[6] !== '' ? parts[6] : null;
+                            const grc_contact = parts[7] ? parts[7] : 'N/A';
+                            const policy_reviewer_contact = parts[8] ? parts[8] : 'N/A';
+                            const tags = parts[9] && parts[9] !== '' ? parts[9] : null;
+                            const published_date = (parts[10] && isValidDate(parts[10])) ? parts[10] : new Date().toISOString();
+                            const next_review_date = (parts[11] && isValidDate(parts[11])) ? parts[11] : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+                            const policy_labels = parts[12] && parts[12] !== '' ? parts[12] : null;
+                            const related_projects = parts[13] && parts[13] !== '' ? parts[13] : null;
+                            const status = parts[14] ? parseInt(parts[14]) : 0;
+                            const version = parts[15] && parts[15] !== '' ? parts[15] : '1.0';
+                            const custom_roles = parts[16] && parts[16] !== '' ? parts[16] : null;
+                            const related_documents = parts[17] && parts[17] !== '' ? parts[17] : null;
+                            const owner_name = parts[18] && parts[18] !== '' ? parts[18] : null;
+
+                            const policyData: PolicyDocumentCreate = {
+                                name,
+                                description,
+                                document_type,
+                                document_content: document_content as DocumentContentType,
+                                content_editor_text,
+                                url,
+                                grc_contact,
+                                policy_reviewer_contact,
+                                tags,
+                                published_date,
+                                next_review_date,
+                                policy_labels,
+                                related_projects,
+                                status: status as PolicyStatus,
+                                version,
+                                policy_portal_permissions: 'private',
+                                custom_roles,
+                                related_documents,
+                                owner_name: owner_name,
+                                policy_doc_link: url,
+                            };
+
+                            return { id: policyId, data: policyData };
+                        } catch (parseErr) {
+                            console.error('Error parsing policy row:', line, parseErr);
+                            return null;
+                        }
+                    })
+                    .filter((p): p is {id: string | null; data: PolicyDocumentCreate} => p !== null);
+
+                const policyIdMap = new Map(policies.map(p => [p.id, p]));
+                const newPolicies = parsedPolicies.filter(p => !p.id || !policyIdMap.has(p.id)).map(p => p.data);
+                const policiesToUpdate = parsedPolicies
+                    .filter(p => p.id && policyIdMap.has(p.id))
+                    .map(p => ({
+                        id: p.id!,
+                        data: p.data as PolicyDocumentUpdate
+                    }));
+
+                setImportData({ newPolicies, policiesToUpdate, duplicateNames: [] });
+                setModalState({ type: 'import' });
+            } catch (err) {
+                alert('Failed to parse CSV file.');
+                console.error(err);
+            }
+        };
+        reader.readAsText(file);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
 
 // ─── PoliciesView (main) ──────────────────────────────────────────────────────
 export const PoliciesView: React.FC = () => {
