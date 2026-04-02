@@ -147,31 +147,14 @@ router.delete('/:id', requireAuth, async (req, res) => {
   }
 });
 
-// helper: get all asset IDs for current org
-async function getOrgAssetIds(orgId) {
-  const { data, error } = await supabaseAdmin
-    .from('assets')
-    .select('asset_id')
-    .eq('org_id', orgId);
-  if (error) throw error;
-  return (data || []).map((row) => row.asset_id);
-}
-
 // Get asset relationships for diagram
 router.get('/relationships', requireAuth, async (req, res) => {
   try {
-    const orgAssetIds = await getOrgAssetIds(req.orgId);
-    if (orgAssetIds.length === 0) {
-      return res.json([]);
-    }
-
     const { data, error } = await supabaseAdmin
       .from('asset_relationships')
       .select('*')
-      .in('source_asset_id', orgAssetIds)
-      .in('target_asset_id', orgAssetIds)
+      .eq('org_id', req.orgId)
       .order('created_at', { ascending: false });
-
     if (error) throw error;
     res.json(data || []);
   } catch (err) {
@@ -183,23 +166,20 @@ router.get('/relationships', requireAuth, async (req, res) => {
 // Create asset relationship
 router.post('/relationships', requireAuth, async (req, res) => {
   try {
-    const payload = { ...req.body, created_at: new Date().toISOString() }; // will validate below
-
-    const validAssetIds = await getOrgAssetIds(req.orgId);
-    if (!validAssetIds.includes(payload.source_asset_id) || !validAssetIds.includes(payload.target_asset_id)) {
-      return res.status(403).json({ message: 'Source/target assets must belong to your organization' });
-    }
-
+    const payload = {
+      ...req.body,
+      org_id: req.orgId,
+      user_id: req.userId,
+      created_at: new Date().toISOString(),
+    };
     const { data, error } = await supabaseAdmin
       .from('asset_relationships')
       .insert(payload)
       .select()
       .single();
-
     if (error) throw error;
     res.status(201).json(data);
   } catch (err) {
-    console.error('Error creating asset relationship:', err);
     res.status(500).json({ message: err.message });
   }
 });
@@ -207,39 +187,15 @@ router.post('/relationships', requireAuth, async (req, res) => {
 // Update asset relationship
 router.put('/relationships/:id', requireAuth, async (req, res) => {
   try {
-    const relationId = req.params.id;
-
-    const { data: existingRel, error: relError } = await supabaseAdmin
-      .from('asset_relationships')
-      .select('*')
-      .eq('id', relationId)
-      .single();
-
-    if (relError) throw relError;
-    if (!existingRel) {
-      return res.status(404).json({ message: 'Asset relationship not found' });
-    }
-
-    const validAssetIds = await getOrgAssetIds(req.orgId);
-
-    const sourceId = req.body.source_asset_id || existingRel.source_asset_id;
-    const targetId = req.body.target_asset_id || existingRel.target_asset_id;
-
-    if (!validAssetIds.includes(sourceId) || !validAssetIds.includes(targetId)) {
-      return res.status(403).json({ message: 'Source/target assets must belong to your organization' });
-    }
-
     const { data, error } = await supabaseAdmin
       .from('asset_relationships')
       .update(req.body)
-      .eq('id', relationId)
+      .eq('id', req.params.id)
       .select()
       .single();
-
     if (error) throw error;
     res.json(data);
   } catch (err) {
-    console.error('Error updating asset relationship:', err);
     res.status(500).json({ message: err.message });
   }
 });
@@ -247,33 +203,13 @@ router.put('/relationships/:id', requireAuth, async (req, res) => {
 // Delete asset relationship
 router.delete('/relationships/:id', requireAuth, async (req, res) => {
   try {
-    const relationId = req.params.id;
-
-    const { data: existingRel, error: relError } = await supabaseAdmin
-      .from('asset_relationships')
-      .select('*')
-      .eq('id', relationId)
-      .single();
-
-    if (relError) throw relError;
-    if (!existingRel) {
-      return res.status(404).json({ message: 'Asset relationship not found' });
-    }
-
-    const validAssetIds = await getOrgAssetIds(req.orgId);
-    if (!validAssetIds.includes(existingRel.source_asset_id) || !validAssetIds.includes(existingRel.target_asset_id)) {
-      return res.status(403).json({ message: 'You do not have permission to delete this relationship' });
-    }
-
     const { error } = await supabaseAdmin
       .from('asset_relationships')
       .delete()
-      .eq('id', relationId);
-
+      .eq('id', req.params.id);
     if (error) throw error;
     res.status(204).send();
   } catch (err) {
-    console.error('Error deleting asset relationship:', err);
     res.status(500).json({ message: err.message });
   }
 });

@@ -15,7 +15,6 @@ import { BulkProgressModal } from '../common/BulkProgressModal';
 import { useTableSelection } from '../../hooks/useTableSelection';
 
 import { SelectionActionBar } from '../common/SelectionActionBar';
-import { parseCSVLine } from '../../utils/csvParser';
 
 
 
@@ -631,8 +630,7 @@ export const AssetsView: React.FC = () => {
 
                 const assetData: AssetCreate = {
 
-                    asset_id: String(record.asset_id || ''),
-
+                    // asset_id intentionally omitted — DB trigger auto-generates it
                     name: String(record.name || ''),
 
                     source: 'AI',
@@ -693,21 +691,21 @@ export const AssetsView: React.FC = () => {
 
     const getRelatedAssetsForAsset = (asset: Asset) => {
 
-        const validAssetIds = new Set(assets.map(a => a.asset_id));
         const relatedAssets: string[] = [];
 
 
 
-        // Find all relationships where this asset is involved as source or target and the counterpart asset is in this org
+        // Find all relationships where this asset is involved as source or target
 
         const assetRelationships = relationships.filter(r =>
-            (r.source_asset_id === asset.asset_id && validAssetIds.has(r.target_asset_id)) ||
-            (r.target_asset_id === asset.asset_id && validAssetIds.has(r.source_asset_id))
+
+            r.source_asset_id === asset.asset_id || r.target_asset_id === asset.asset_id
+
         );
 
 
 
-        // Collect unique related asset IDs
+        // Collect unique related asset names
 
         assetRelationships.forEach(r => {
 

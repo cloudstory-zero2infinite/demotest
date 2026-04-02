@@ -6,6 +6,7 @@ interface AIChatModalProps {
     onClose: () => void;
     module: 'assets' | 'asset_relationships' | 'compliances' | 'vulnerabilities' | 'policies';
     onConfirm: (records: Record<string, unknown>[]) => Promise<void>;
+    context?: Record<string, unknown>;  // optional context passed to the AI (e.g. { asset_ids: [...] })
 }
 
 const AI_AGENT_URL = ((import.meta as any).env.VITE_AI_AGENT_URL as string);
@@ -20,13 +21,13 @@ const MODULE_LABELS: Record<string, string> = {
 
 const MODULE_HINTS: Record<string, string> = {
     assets: 'e.g. "20 laptops connect to Building-1 access point, medium criticality"',
-    asset_relationships: 'e.g. "AST-001 depends on AST-002, and AST-003 communicates with AST-004"',
+    asset_relationships: 'e.g. "AST-CL-001 depends on AST-CL-002, and AST-CL-003 communicates with AST-CL-004"',
     compliances: 'e.g. "ISO 27001 framework with controls A.11.1.1, A.12.1.2, status In Progress"',
     vulnerabilities: 'e.g. "Critical SQL injection vulnerability in web application, CVE-2023-1234"',
     policies: 'e.g. "Information Security Policy with version 1.0, published today, status Published"',
 };
 
-export const AIChatModal: React.FC<AIChatModalProps> = ({ isOpen, onClose, module, onConfirm }) => {
+export const AIChatModal: React.FC<AIChatModalProps> = ({ isOpen, onClose, module, onConfirm, context }) => {
     const [message, setMessage] = useState('');
     const [records, setRecords] = useState<Record<string, unknown>[]>([]);
     const [columns, setColumns] = useState<string[]>([]);
@@ -60,7 +61,7 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ isOpen, onClose, modul
             const res = await fetch(`${AI_AGENT_URL}/process`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ module, message: message.trim() }),
+                body: JSON.stringify({ module, message: message.trim(), context: context ?? null }),
             });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({ detail: res.statusText }));
