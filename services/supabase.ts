@@ -341,6 +341,24 @@ export const submitPolicyForApproval = async (
   });
 };
 
+export const approvePolicy = async (id: string, comment?: string): Promise<void> => {
+  return apiRequest<void>(`/api/policies/${id}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({ comment }),
+  });
+};
+
+export const rejectPolicy = async (id: string, comment: string): Promise<void> => {
+  return apiRequest<void>(`/api/policies/${id}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ comment }),
+  });
+};
+
+export const getPolicyHistory = async (id: string): Promise<AllActivityLog[]> => {
+  return apiRequest<AllActivityLog[]>(`/api/policies/${id}/history`);
+};
+
 // --- Governance: Control Registry ---
 
 export const getControlRegistry = async (): Promise<ControlRegistry[]> => {
@@ -370,74 +388,6 @@ export const bulkAddControlRegistry = async (controls: ControlRegistryCreate[]):
     method: 'POST',
     body: JSON.stringify(controls),
   });
-};
-
-// --- Governance: Policies V2 (markdown-first workflow) ---
-
-export const getPolicies = async (): Promise<PolicyV2[]> => {
-  return apiRequest<PolicyV2[]>('/api/policies');
-};
-
-export const addPolicy = async (markdown: string, policy_status: string = 'draft'): Promise<PolicyV2> => {
-  return apiRequest<PolicyV2>('/api/policies', {
-    method: 'POST',
-    body: JSON.stringify({ markdown, policy_status }),
-  });
-};
-
-export const updatePolicy = async (id: string, updates: { markdown?: string; policy_status?: string }): Promise<PolicyV2> => {
-  return apiRequest<PolicyV2>(`/api/policies/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(updates),
-  });
-};
-
-export const getPolicyApproval = async (id: string): Promise<PolicyApproval | null> => {
-  try {
-    return await apiRequest<PolicyApproval | null>(`/api/policies/${id}/approval`);
-  } catch {
-    return null;
-  }
-};
-
-export const getPolicyNotifications = async (): Promise<PolicyNotification[]> => {
-  try {
-    return await apiRequest<PolicyNotification[]>('/api/policies/notifications');
-  } catch {
-    return [];
-  }
-};
-
-export const markPolicyNotificationRead = async (id: string): Promise<void> => {
-  return apiRequest<void>(`/api/policies/notifications/${id}/read`, { method: 'PUT' });
-};
-
-export const submitPolicyForApproval = async (
-  id: string,
-  approver: { approver_id?: string; approver_name: string; approver_email: string }
-): Promise<void> => {
-  return apiRequest<void>(`/api/policies/${id}/submit-approval`, {
-    method: 'POST',
-    body: JSON.stringify(approver),
-  });
-};
-
-export const approvePolicy = async (id: string, comment?: string): Promise<void> => {
-  return apiRequest<void>(`/api/policies/${id}/approve`, {
-    method: 'POST',
-    body: JSON.stringify({ comment }),
-  });
-};
-
-export const rejectPolicy = async (id: string, comment: string): Promise<void> => {
-  return apiRequest<void>(`/api/policies/${id}/reject`, {
-    method: 'POST',
-    body: JSON.stringify({ comment }),
-  });
-};
-
-export const getPolicyHistory = async (id: string): Promise<AllActivityLog[]> => {
-  return apiRequest<AllActivityLog[]>(`/api/policies/${id}/history`);
 };
 
 export const getPolicyApproval = async (id: string): Promise<PolicyApproval | null> => {
