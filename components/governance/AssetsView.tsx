@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, ChangeEvent, useMemo } from 'react';
 
-import { Asset, AssetCreate, AssetUpdate, AssetCriticality, AssetGovernedStatus, AssetExposure, AssetCategory } from '../../types';
+import { Asset, AssetCreate, AssetUpdate, AssetCriticality, AssetGovernedStatus, AssetExposure, AssetCategory, AssetSource } from '../../types';
 
 import * as SupabaseService from '../../services/supabase';
 
@@ -34,6 +34,8 @@ interface AssetModalProps {
 
 
 
+const MANDATORY_LABEL = <span className="text-red-500 ml-0.5">*</span>;
+
 const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetToEdit, mode }) => {
 
     const [formData, setFormData] = useState<Partial<AssetCreate>>({});
@@ -47,13 +49,14 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
         if (assetToEdit) {
 
-            const { asset_id, name, asset_owner, business_owner, physical_location, criticality, details, governed_status, vulnerability_count, exposure, category } = assetToEdit;
+            const { asset_id, name, asset_owner, business_unit, physical_location, criticality, details, governed_status, vulnerability_count, exposure, category, ip_address, mac_id, source } = assetToEdit;
 
-            setFormData({ asset_id, name, asset_owner, business_owner, physical_location, criticality, details, governed_status, vulnerability_count, exposure, category });
+            setFormData({ asset_id, name, asset_owner, business_unit, physical_location, criticality, details, governed_status, vulnerability_count, exposure, category, ip_address, mac_id, source });
 
         } else {
 
-            setFormData({ asset_id: '', name: '', asset_owner: '', business_owner: '', physical_location: '', criticality: 'Low', category: 'Technology', exposure: 'Internal', governed_status: 'Non-Governed', vulnerability_count: 0, details: '', source: 'Manual' });
+            // asset_id is intentionally omitted — DB trigger auto-generates it
+            setFormData({ name: '', asset_owner: '', business_unit: '', physical_location: '', criticality: 'Low', category: 'Physical/Hardware', exposure: 'Internal', governed_status: 'Non-Governed', vulnerability_count: 0, details: '', ip_address: '', mac_id: '' });
 
         }
 
@@ -79,7 +82,8 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
         setIsSaving(true);
         try {
-            await onSave(formData as AssetCreate | AssetUpdate);
+            // Source is always 'Manual' when a human saves via the form
+            await onSave({ ...formData, source: 'Manual' } as AssetCreate | AssetUpdate);
         } finally {
             setIsSaving(false);
         }
@@ -100,117 +104,99 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
+                    {/* ── Mandatory fields ── */}
+                    {/* Asset ID: auto-generated on create, read-only on edit/view */}
+                    {mode !== 'add' && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asset ID</label>
+                            <div className="mt-1 px-3 py-2 rounded-md bg-gray-100 dark:bg-gray-600 text-sm font-mono text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-500 flex items-center gap-2">
+                                {formData.asset_id}
+                                <span className="text-xs text-gray-400 dark:text-gray-500 font-sans">(auto-generated)</span>
+                            </div>
+                        </div>
+                    )}
+
                     <div>
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asset ID</label>
-
-                        <input type="text" name="asset_id" value={formData.asset_id || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-
-                    </div>
-
-                    <div>
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asset Name</label>
-
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asset Name {MANDATORY_LABEL}</label>
                         <input type="text" name="name" value={formData.name || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-
                     </div>
 
                     <div>
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asset Owner</label>
-
-                        <input type="text" name="asset_owner" value={formData.asset_owner || ''} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Classification {MANDATORY_LABEL}</label>
+                        <select name="criticality" value={formData.criticality} onChange={handleChange} disabled={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                            <option>Low</option><option>Medium</option><option>High</option>
+                        </select>
                     </div>
 
                     <div>
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Business Owner</label>
-
-                        <input type="text" name="business_owner" value={formData.business_owner || ''} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Type {MANDATORY_LABEL}</label>
+                        <select name="category" value={formData.category} onChange={handleChange} disabled={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                            <option value="Physical/Hardware">Physical/Hardware</option>
+                            <option value="Software">Software</option>
+                            <option value="Services/Infra">Services/Infra</option>
+                            <option value="Information">Information</option>
+                        </select>
                     </div>
 
                     <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Owner {MANDATORY_LABEL}</label>
+                        <input type="text" name="asset_owner" value={formData.asset_owner || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                    </div>
 
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Business Unit {MANDATORY_LABEL}</label>
+                        <input type="text" name="business_unit" value={formData.business_unit || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">IP Address {MANDATORY_LABEL}</label>
+                        <input type="text" name="ip_address" value={formData.ip_address || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="e.g., 192.168.1.1" />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">UID / Mac ID {MANDATORY_LABEL}</label>
+                        <input type="text" name="mac_id" value={formData.mac_id || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="e.g., 00:1A:2B:3C:4D:5E" />
+                    </div>
+
+                    <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asset Description {MANDATORY_LABEL}</label>
+                        <textarea name="details" value={formData.details || ''} onChange={handleChange} readOnly={isViewMode} rows={3} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
+                    </div>
+
+                    {/* ── Optional fields ── */}
+                    <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Physical Location</label>
-
-                        <input type="text" name="physical_location" value={formData.physical_location || ''} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="e.g., Server Room A, Building 2, Floor 3" />
-
+                        <input type="text" name="physical_location" value={formData.physical_location || ''} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="e.g., Server Room A, Building 2" />
                     </div>
 
                     <div>
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Criticality</label>
-
-                        <select name="criticality" value={formData.criticality} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-
-                           <option>Low</option><option>Medium</option><option>High</option>
-
-                        </select>
-
-                    </div>
-
-                     <div>
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category</label>
-
-                        <select name="category" value={formData.category} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-
-                           <option>Technology</option><option>Information</option><option>Service</option>
-
-                        </select>
-
-                    </div>
-
-                    <div>
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Source</label>
-
-                        <input type="text" name="source" value={formData.source || ''} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-
-                    </div>
-
-                    <div>
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Exposure</label>
-
                         <select name="exposure" value={formData.exposure} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-
-                           <option>Internal</option><option>External</option><option>DMZ</option>
-
+                            <option>Internal</option><option>External</option><option>DMZ</option>
                         </select>
-
-                    </div>
-
-                     <div>
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Governed Status</label>
-
-                        <select name="governed_status" value={formData.governed_status} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-
-                           <option>Non-Governed</option><option>Governed</option>
-
-                        </select>
-
                     </div>
 
                     <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Governed Status</label>
+                        <select name="governed_status" value={formData.governed_status} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                            <option>Non-Governed</option><option>Governed</option>
+                        </select>
+                    </div>
 
+                    <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Vulnerability Count</label>
-
                         <input type="number" name="vulnerability_count" value={formData.vulnerability_count || 0} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-
                     </div>
 
-                     <div className="md:col-span-2">
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Details</label>
-
-                        <textarea name="details" value={formData.details || ''} onChange={handleChange} readOnly={isViewMode} rows={3} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
-
-                    </div>
+                    {/* Source: read-only, auto-set by system */}
+                    {(isViewMode || mode === 'edit') && formData.source && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Source</label>
+                            <div className="mt-1 px-3 py-2 rounded-md bg-gray-100 dark:bg-gray-600 text-sm text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-500">
+                                {formData.source}
+                            </div>
+                        </div>
+                    )}
 
                 </div>
 
@@ -246,17 +232,18 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
 
 
-// Helper function to display source with file upload detection
+// Helper function to display source
 const displaySource = (source: string | null | undefined): string => {
     const sourceStr = source || '';
+    // Legacy normalisation for records created before source tracking was standardised
     if (sourceStr.toLowerCase().includes('csv') || sourceStr.toLowerCase().includes('import') || sourceStr.toLowerCase().includes('export')) {
         return 'File Upload';
     }
     if (sourceStr === '-' || sourceStr.trim() === '') {
-        return 'File Upload'; // Default empty/hyphen to File Upload
+        return 'Manual';
     }
     if (sourceStr.toLowerCase().includes('ai generated')) {
-        return 'AI'; // Shorten AI Generated to AI
+        return 'AI';
     }
     return sourceStr; // Will show 'Manual', etc.
 };
@@ -357,7 +344,11 @@ export const AssetsView: React.FC = () => {
 
                 String(item.asset_owner ?? '').toLowerCase().includes(lowerCaseFilter) ||
 
-                String(item.business_owner ?? '').toLowerCase().includes(lowerCaseFilter) ||
+                String(item.business_unit ?? '').toLowerCase().includes(lowerCaseFilter) ||
+
+                String(item.ip_address ?? '').toLowerCase().includes(lowerCaseFilter) ||
+
+                String(item.mac_id ?? '').toLowerCase().includes(lowerCaseFilter) ||
 
                 String(item.physical_location ?? '').toLowerCase().includes(lowerCaseFilter) ||
 
@@ -609,7 +600,7 @@ export const AssetsView: React.FC = () => {
 
             for (const [id, changes] of Object.entries(editValues)) {
 
-                await SupabaseService.updateAsset(id, changes);
+                await SupabaseService.updateAsset(id, { ...(changes as AssetUpdate), source: 'Manual' });
 
             }
 
@@ -643,17 +634,21 @@ export const AssetsView: React.FC = () => {
 
                     name: String(record.name || ''),
 
-                    source: String(record.source || '').toLowerCase().includes('import') || String(record.source || '').toLowerCase().includes('export') ? 'File Upload' : 'AI',
+                    source: 'AI',
 
                     asset_owner: String(record.asset_owner || ''),
 
-                    business_owner: String(record.business_owner || ''),
+                    business_unit: String(record.business_unit || ''),
 
                     physical_location: String(record.physical_location || ''),
 
+                    ip_address: String(record.ip_address || ''),
+
+                    mac_id: String(record.mac_id || ''),
+
                     criticality: (record.criticality as AssetCriticality) || 'Low',
 
-                    category: (record.category as AssetCategory) || 'Technology',
+                    category: (record.category as AssetCategory) || 'Physical/Hardware',
 
                     exposure: (record.exposure as AssetExposure) || 'Internal',
 
@@ -761,9 +756,10 @@ export const AssetsView: React.FC = () => {
 
                 .map(line => {
 
-                    const [asset_id, name, criticality, details, governed_status, vulnerability_count, exposure, category, asset_owner, business_owner, physical_location] = line.split(',').map(s => s.trim());
+                    const [asset_id, name, criticality, details, governed_status, vulnerability_count, exposure, category, asset_owner, business_unit, physical_location, ip_address, mac_id] = line.split(',').map(s => s.trim());
 
-                    if (!asset_id || !name || !criticality || !governed_status || !exposure || !category) return null;
+                    // asset_id is optional — DB trigger auto-generates if blank
+                    if (!name || !criticality || !governed_status || !exposure || !category) return null;
 
 
 
@@ -775,7 +771,7 @@ export const AssetsView: React.FC = () => {
 
                     const validExposure: AssetExposure[] = ['Internal', 'External', 'DMZ'];
 
-                    const validCategory: AssetCategory[] = ['Information', 'Technology', 'Service'];
+                    const validCategory: AssetCategory[] = ['Physical/Hardware', 'Software', 'Services/Infra', 'Information'];
 
 
 
@@ -795,7 +791,8 @@ export const AssetsView: React.FC = () => {
 
                     return {
 
-                        asset_id,
+                        // Pass asset_id only when present; omit so DB trigger generates it
+                        ...(asset_id ? { asset_id } : {}),
 
                         name,
 
@@ -813,9 +810,13 @@ export const AssetsView: React.FC = () => {
 
                         asset_owner: asset_owner || '',
 
-                        business_owner: business_owner || '',
+                        business_unit: business_unit || '',
 
                         physical_location: physical_location || '',
+
+                        ip_address: ip_address || '',
+
+                        mac_id: mac_id || '',
 
                         source: 'File Upload'
 
@@ -825,7 +826,6 @@ export const AssetsView: React.FC = () => {
 
                 .filter((asset) => 
     asset !== null &&
-    asset.asset_id &&
     asset.name &&
     asset.criticality &&
     asset.details !== undefined &&
@@ -850,8 +850,10 @@ export const AssetsView: React.FC = () => {
                     const hasChanges = (
                         existingAsset.name !== parsedAsset.name ||
                         existingAsset.asset_owner !== parsedAsset.asset_owner ||
-                        existingAsset.business_owner !== parsedAsset.business_owner ||
+                        existingAsset.business_unit !== parsedAsset.business_unit ||
                         existingAsset.physical_location !== parsedAsset.physical_location ||
+                        existingAsset.ip_address !== parsedAsset.ip_address ||
+                        existingAsset.mac_id !== parsedAsset.mac_id ||
                         existingAsset.criticality !== parsedAsset.criticality ||
                         existingAsset.details !== parsedAsset.details ||
                         existingAsset.governed_status !== parsedAsset.governed_status ||
@@ -865,8 +867,10 @@ export const AssetsView: React.FC = () => {
                         const updates: AssetUpdate = {
                             name: parsedAsset.name,
                             asset_owner: parsedAsset.asset_owner,
-                            business_owner: parsedAsset.business_owner,
+                            business_unit: parsedAsset.business_unit,
                             physical_location: parsedAsset.physical_location,
+                            ip_address: parsedAsset.ip_address,
+                            mac_id: parsedAsset.mac_id,
                             criticality: parsedAsset.criticality,
                             details: parsedAsset.details,
                             governed_status: parsedAsset.governed_status,
@@ -936,7 +940,7 @@ export const AssetsView: React.FC = () => {
 
 const handleExportCSV = () => {
 
-    const headers = ['asset_id', 'name', 'criticality', 'details', 'governed_status', 'vulnerability_count', 'exposure', 'category', 'source', 'asset_owner', 'business_owner', 'physical_location'];
+    const headers = ['asset_id', 'name', 'criticality', 'details', 'governed_status', 'vulnerability_count', 'exposure', 'category', 'asset_owner', 'business_unit', 'physical_location', 'ip_address', 'mac_id', 'source'];
 
     const csvContent = [
 
@@ -962,13 +966,17 @@ const handleExportCSV = () => {
 
                 asset.category || '',
 
-                asset.source || '',
-
                 asset.asset_owner || '',
 
-                asset.business_owner || '',
+                asset.business_unit || '',
 
-                asset.physical_location || ''
+                asset.physical_location || '',
+
+                asset.ip_address || '',
+
+                asset.mac_id || '',
+
+                asset.source || ''
 
             ].join(',')
 
@@ -1121,9 +1129,9 @@ const handleExportCSV = () => {
 
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
 
-                                    <button onClick={() => requestSort('business_owner')} className="flex items-center w-full text-left focus:outline-none">
+                                    <button onClick={() => requestSort('business_unit')} className="flex items-center w-full text-left focus:outline-none">
 
-                                        Business Owner {getSortIconFor('business_owner')}
+                                        Business Unit {getSortIconFor('business_unit')}
 
                                     </button>
 
@@ -1131,9 +1139,19 @@ const handleExportCSV = () => {
 
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
 
-                                    <button onClick={() => requestSort('physical_location')} className="flex items-center w-full text-left focus:outline-none">
+                                    <button onClick={() => requestSort('ip_address')} className="flex items-center w-full text-left focus:outline-none">
 
-                                        Physical Location {getSortIconFor('physical_location')}
+                                        IP Address {getSortIconFor('ip_address')}
+
+                                    </button>
+
+                                </th>
+
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+
+                                    <button onClick={() => requestSort('mac_id')} className="flex items-center w-full text-left focus:outline-none">
+
+                                        UID / Mac ID {getSortIconFor('mac_id')}
 
                                     </button>
 
@@ -1169,11 +1187,11 @@ const handleExportCSV = () => {
 
                             {loading ? (
 
-                                <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading assets...</td></tr>
+                                <tr><td colSpan={10} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading assets...</td></tr>
 
                             ) : filteredAndSortedAssets.length === 0 ? (
 
-                                <tr><td colSpan={9} className="text-center py-4 text-gray-500 dark:text-gray-400">No assets found.</td></tr>
+                                <tr><td colSpan={10} className="text-center py-4 text-gray-500 dark:text-gray-400">No assets found.</td></tr>
 
                             ) : filteredAndSortedAssets.map(asset => (
 
@@ -1209,14 +1227,8 @@ const handleExportCSV = () => {
 
                                     </td>
 
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-
-                                        {isEditing && selectedIds.has(asset.id) ? (
-
-                                            <input type="text" value={editValues[asset.id]?.asset_id ?? asset.asset_id} onChange={e => updateField(asset.id, 'asset_id', e.target.value)} className={editInputCls} />
-
-                                        ) : asset.asset_id}
-
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono font-medium text-gray-900 dark:text-white">
+                                        {asset.asset_id}
                                     </td>
 
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
@@ -1243,19 +1255,9 @@ const handleExportCSV = () => {
 
                                         {isEditing && selectedIds.has(asset.id) ? (
 
-                                            <input type="text" value={editValues[asset.id]?.business_owner ?? asset.business_owner ?? ''} onChange={e => updateField(asset.id, 'business_owner', e.target.value)} className={editInputCls} />
+                                            <input type="text" value={editValues[asset.id]?.business_unit ?? asset.business_unit ?? ''} onChange={e => updateField(asset.id, 'business_unit', e.target.value)} className={editInputCls} />
 
-                                        ) : (asset.business_owner || '-')}
-
-                                    </td>
-
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-
-                                        {isEditing && selectedIds.has(asset.id) ? (
-
-                                            <input type="text" value={editValues[asset.id]?.physical_location ?? asset.physical_location ?? ''} onChange={e => updateField(asset.id, 'physical_location', e.target.value)} className={editInputCls} />
-
-                                        ) : (asset.physical_location || '-')}
+                                        ) : (asset.business_unit || '-')}
 
                                     </td>
 
@@ -1263,7 +1265,32 @@ const handleExportCSV = () => {
 
                                         {isEditing && selectedIds.has(asset.id) ? (
 
-                                            <select value={editValues[asset.id]?.category ?? asset.category} onChange={e => updateField(asset.id, 'category', e.target.value as any)} className={editSelectCls}><option>Technology</option><option>Information</option><option>Service</option></select>
+                                            <input type="text" value={editValues[asset.id]?.ip_address ?? asset.ip_address ?? ''} onChange={e => updateField(asset.id, 'ip_address', e.target.value)} className={editInputCls} placeholder="e.g., 192.168.1.1" />
+
+                                        ) : (asset.ip_address || '-')}
+
+                                    </td>
+
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+
+                                        {isEditing && selectedIds.has(asset.id) ? (
+
+                                            <input type="text" value={editValues[asset.id]?.mac_id ?? asset.mac_id ?? ''} onChange={e => updateField(asset.id, 'mac_id', e.target.value)} className={editInputCls} placeholder="e.g., 00:1A:2B:3C:4D:5E" />
+
+                                        ) : (asset.mac_id || '-')}
+
+                                    </td>
+
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+
+                                        {isEditing && selectedIds.has(asset.id) ? (
+
+                                            <select value={editValues[asset.id]?.category ?? asset.category} onChange={e => updateField(asset.id, 'category', e.target.value as any)} className={editSelectCls}>
+                                                <option value="Physical/Hardware">Physical/Hardware</option>
+                                                <option value="Software">Software</option>
+                                                <option value="Services/Infra">Services/Infra</option>
+                                                <option value="Information">Information</option>
+                                            </select>
 
                                         ) : asset.category}
 
@@ -1271,11 +1298,7 @@ const handleExportCSV = () => {
 
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
 
-                                        {isEditing && selectedIds.has(asset.id) ? (
-
-                                            <input type="text" value={editValues[asset.id]?.source ?? asset.source ?? ''} onChange={e => updateField(asset.id, 'source', e.target.value)} className={editInputCls} />
-
-                                        ) : displaySource(asset.source)}
+                                        {displaySource(asset.source)}
 
                                     </td>
 
