@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyHistoryEntry, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate } from '../types';
+import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate } from '../types';
 
 // Supabase client is kept ONLY for Google Auth (OAuth sign-in/sign-out/session)
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL as string;
@@ -329,6 +329,87 @@ export const updatePolicy = async (id: string, updates: { markdown?: string; pol
 
 export const deletePolicy = async (id: string): Promise<void> => {
   return apiRequest<void>(`/api/policies/${id}`, { method: 'DELETE' });
+};
+
+export const submitPolicyForApproval = async (
+  id: string,
+  approver: { approver_id?: string; approver_name: string; approver_email: string }
+): Promise<void> => {
+  return apiRequest<void>(`/api/policies/${id}/submit-approval`, {
+    method: 'POST',
+    body: JSON.stringify(approver),
+  });
+};
+
+// --- Governance: Control Registry ---
+
+export const getControlRegistry = async (): Promise<ControlRegistry[]> => {
+  return apiRequest<ControlRegistry[]>('/api/control-registry');
+};
+
+export const addControlRegistry = async (control: ControlRegistryCreate): Promise<ControlRegistry> => {
+  return apiRequest<ControlRegistry>('/api/control-registry', {
+    method: 'POST',
+    body: JSON.stringify(control),
+  });
+};
+
+export const updateControlRegistry = async (id: string, updates: ControlRegistryUpdate): Promise<ControlRegistry> => {
+  return apiRequest<ControlRegistry>(`/api/control-registry/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
+};
+
+export const deleteControlRegistry = async (id: string): Promise<void> => {
+  return apiRequest<void>(`/api/control-registry/${id}`, { method: 'DELETE' });
+};
+
+export const bulkAddControlRegistry = async (controls: ControlRegistryCreate[]): Promise<ControlRegistry[]> => {
+  return apiRequest<ControlRegistry[]>('/api/control-registry/bulk', {
+    method: 'POST',
+    body: JSON.stringify(controls),
+  });
+};
+
+// --- Governance: Policies V2 (markdown-first workflow) ---
+
+export const getPolicies = async (): Promise<PolicyV2[]> => {
+  return apiRequest<PolicyV2[]>('/api/policies');
+};
+
+export const addPolicy = async (markdown: string, policy_status: string = 'draft'): Promise<PolicyV2> => {
+  return apiRequest<PolicyV2>('/api/policies', {
+    method: 'POST',
+    body: JSON.stringify({ markdown, policy_status }),
+  });
+};
+
+export const updatePolicy = async (id: string, updates: { markdown?: string; policy_status?: string }): Promise<PolicyV2> => {
+  return apiRequest<PolicyV2>(`/api/policies/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
+};
+
+export const getPolicyApproval = async (id: string): Promise<PolicyApproval | null> => {
+  try {
+    return await apiRequest<PolicyApproval | null>(`/api/policies/${id}/approval`);
+  } catch {
+    return null;
+  }
+};
+
+export const getPolicyNotifications = async (): Promise<PolicyNotification[]> => {
+  try {
+    return await apiRequest<PolicyNotification[]>('/api/policies/notifications');
+  } catch {
+    return [];
+  }
+};
+
+export const markPolicyNotificationRead = async (id: string): Promise<void> => {
+  return apiRequest<void>(`/api/policies/notifications/${id}/read`, { method: 'PUT' });
 };
 
 export const submitPolicyForApproval = async (

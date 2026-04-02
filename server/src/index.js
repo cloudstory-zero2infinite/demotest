@@ -14,6 +14,7 @@ import { contactsRouter } from "./routes/contacts.js";
 import { activityRouter } from "./routes/activity.js";
 import { orgRouter } from "./routes/org.js";
 import { capabilitiesRouter } from "./routes/capabilities.js";
+import { controlRegistryRouter } from "./routes/control-registry.js";
 
 dotenv.config();
 
@@ -44,6 +45,7 @@ app.use("/api/contacts", contactsRouter);
 app.use("/api/activity", activityRouter);
 app.use("/api/org", orgRouter);
 app.use("/api/capabilities", capabilitiesRouter);
+app.use("/api/control-registry", controlRegistryRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
