@@ -4,9 +4,10 @@ import { AssetsView } from '../governance/AssetsView';
 import { PoliciesView } from '../governance/PoliciesView';
 import { VulnerabilitiesView } from '../governance/VulnerabilitiesView';
 import { AssetRelationshipsView } from '../governance/AssetRelationshipsView';
+import { CapabilityRegisterView } from '../governance/CapabilityRegisterView';
 
 export const GovernanceTab: React.FC = () => {
-    type SubTab = 'controls' | 'assets' | 'policies' | 'vulnerability' | 'relationships';
+    type SubTab = 'controls' | 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities';
     const [activeSubTab, setActiveSubTab] = useState<SubTab>('assets');
     const [mountedSubTabs, setMountedSubTabs] = useState<Set<SubTab>>(new Set(['assets']));
 
@@ -26,6 +27,7 @@ export const GovernanceTab: React.FC = () => {
         { id: 'policies', label: 'Policy' },
         { id: 'vulnerability', label: 'Vulnerability' },
         { id: 'relationships', label: 'Asset Relationships' },
+        { id: 'capabilities', label: 'Capability Register' },
     ];
 
     return (
@@ -60,6 +62,9 @@ export const GovernanceTab: React.FC = () => {
                 )}
                 {mountedSubTabs.has('relationships') && (
                     <div className={activeSubTab === 'relationships' ? '' : 'hidden'}><AssetRelationshipsView /></div>
+                )}
+                {mountedSubTabs.has('capabilities') && (
+                    <div className={activeSubTab === 'capabilities' ? '' : 'hidden'}><CapabilityRegisterView /></div>
                 )}
             </div>
         </div>

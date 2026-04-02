@@ -4,7 +4,7 @@ import { BotIcon, XIcon } from '../Icons';
 interface AIChatModalProps {
     isOpen: boolean;
     onClose: () => void;
-    module: 'assets' | 'asset_relationships' | 'compliances' | 'vulnerabilities' | 'policies';
+    module: 'assets' | 'asset_relationships' | 'compliances' | 'vulnerabilities' | 'policies' | 'capabilities';
     onConfirm: (records: Record<string, unknown>[]) => Promise<void>;
     context?: Record<string, unknown>;  // optional context passed to the AI (e.g. { asset_ids: [...] })
 }
@@ -17,6 +17,7 @@ const MODULE_LABELS: Record<string, string> = {
     compliances: 'Compliance Framework',
     vulnerabilities: 'Vulnerability',
     policies: 'Policy Document',
+    capabilities: 'Capability',
 };
 
 const MODULE_HINTS: Record<string, string> = {
@@ -25,6 +26,7 @@ const MODULE_HINTS: Record<string, string> = {
     compliances: 'e.g. "ISO 27001 framework with controls A.11.1.1, A.12.1.2, status In Progress"',
     vulnerabilities: 'e.g. "Critical SQL injection vulnerability in web application, CVE-2023-1234"',
     policies: 'e.g. "Information Security Policy with version 1.0, published today, status Published"',
+    capabilities: 'e.g. "VPN capability provided by Sophos Firewall and Palo Alto, CMDB IDs cmdb-001 and cmdb-003"',
 };
 
 export const AIChatModal: React.FC<AIChatModalProps> = ({ isOpen, onClose, module, onConfirm, context }) => {
