@@ -1,4 +1,6 @@
-# ZeroTo1 GRC - Claude Code Guide
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 ZeroTo1 GRC is a Governance, Risk & Compliance (GRC) SaaS platform with multi-tenant support. It provides security teams and CXOs with tools to manage programs, internal controls, assets, policies, vulnerabilities, compliance, and contacts.
@@ -7,48 +9,55 @@ ZeroTo1 GRC is a Governance, Risk & Compliance (GRC) SaaS platform with multi-te
 
 ### Frontend (`/`)
 - **React 19** + **TypeScript** + **Vite 6**
-- **Recharts** for data visualization
-- Tailwind CSS utility classes for styling (dark mode supported)
+- **Recharts** for data visualization; **Mermaid** for org diagrams; **xlsx** for spreadsheet export
+- Tailwind CSS utility classes for styling (dark mode supported via `body.classList.add('dark')`)
 - Entry: `App.tsx` (large file — use offset/limit when reading)
-- Components: `components/` directory
+- Tab components: `components/tabs/` — one file per main nav section
+- Domain views: `components/governance/`, `components/dashboard/`, `components/program/`, `components/org/`
+- Common UI: `components/common/`
 - Types: `types.ts`
-- Supabase service layer: `services/supabase.ts`
+- Service layer: `services/supabase.ts` — all API calls go through `apiRequest()` here
 
 ### Backend (`/server/`)
-- **Express.js** (Node.js, ESM modules)
-- Handles secure server-side operations (e.g., Resend email via `/api/feedback/email`)
+- **Express.js** (Node.js, ESM modules — `"type": "module"`)
 - Entry: `server/src/index.js`
-- Routes: `server/src/routes/`
-- Port: 3001
+- Routes: `server/src/routes/` — one file per domain (program, controls, assets, policies, vulnerabilities, compliance, contacts, activity, org, feedback)
+- Auth middleware: `server/src/middleware/auth.js` — validates JWT, attaches `req.userId`, `req.orgId`, `req.userRole`
+- Supabase admin client: `server/src/supabase.js` (service-role key, bypasses RLS)
+- In production the server also serves the built frontend from `dist/`
 
 ## Key Commands
 
 ### Frontend
 ```bash
-npm run dev          # Start Vite dev server (port 5173)
-npm run build        # Production build
+npm run dev          # Start Vite dev server (port 5174)
+npm run build        # Production build → dist/
 npm run preview      # Preview production build
 ```
 
 ### Backend
 ```bash
-npm run server          # Start Express server (from root)
+npm run server          # Start Express server from root (port 3001)
 npm run server:install  # Install server dependencies
 # OR from server/ directory:
 npm run dev             # node --watch src/index.js
+npm start               # node src/index.js (no watch)
 ```
 
 ## Environment Variables
-- Copy `.env.example` to `.env`
-- `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` — Supabase project credentials
-- `VITE_API_BASE_URL` — Backend URL (default: `http://localhost:3001`)
-- Server also needs env vars for Resend API key and `FRONTEND_URL`
+Copy `.env.example` to `.env`. Required:
+- `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` — frontend Supabase credentials (used only for Google OAuth)
+- `VITE_API_BASE_URL` — backend URL (default: `http://localhost:3001`)
+- `VITE_AI_AGENT_URL` — AI agent service URL (default: `http://localhost:8080`)
+- Server also needs: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (for `supabaseAdmin`), `RESEND_API_KEY`, `FRONTEND_URL`
+
+## Data Flow
+**The frontend Supabase client is used only for Google OAuth sign-in/sign-out/session management.** All data reads and writes go through the Express backend via `apiRequest()` in `services/supabase.ts`, which attaches the user's JWT as a Bearer token. The backend uses `supabaseAdmin` (service-role key) to query Supabase, scoping every query to `req.orgId`.
 
 ## Database: Supabase
 - All data is multi-tenant, scoped by `org_id`
-- Auth: Supabase Auth (session-based)
 - RLS policies enforce `org_id` and `user_id` ownership
-- `org_onboarding` table maps users to organizations with roles
+- `org_onboarding` table maps users → organizations with roles and `status` (`active` | `pending_approval`)
 - Key tables: `program`, `internal_control_catalogue`, `assets`, `policy_documents`, `vulnerability_management`, `compliance`, `contacts`, `all_activity_log`, `program_activity_log`
 
 ## User Roles
@@ -57,15 +66,19 @@ npm run dev             # node --watch src/index.js
 - DB roles: `user`, `admin`, `tenant_admin`
 
 ## Data Patterns
-- All CRUD functions in `services/supabase.ts` follow consistent patterns
-- Insert operations always attach `user_id` (from session) and `org_id` for RLS
+- All backend routes follow: `requireAuth` → query with `org_id` filter → return data
+- Insert operations always inject `user_id: req.userId` and `org_id: req.orgId`
+- Bulk insert endpoints exist on routes that support CSV import (e.g., `POST /api/program/bulk`)
 - Vulnerability data is manually joined with assets in the application layer (no DB-level join)
 - Policy nodes/links/workflow templates currently use localStorage as mock persistence
 
-## Vite Config Notes
-- Server hosts on `0.0.0.0:5173` with `allowedHosts: true` (Docker-friendly)
-- HMR configured for `localhost:5173`
-- Path alias `@` maps to project root
+## Custom Hooks
+- `useTabRefresh(activeTab)` — dispatches a `tabChanged` CustomEvent on `window` when the active tab changes; domain components listen to this event to re-fetch data
+- `useDataRefresh` — wraps data-fetching with loading/error state
+- `useTableSelection` — manages multi-row checkbox selection for bulk actions
 
-## Current Branch
-`docker-feature` — active development branch
+## Vite Config Notes
+- Dev server on `0.0.0.0:5174` with `allowedHosts: true` (Docker-friendly)
+- HMR on `localhost:5174`
+- Path alias `@` maps to project root
+- `VITE_AI_AGENT_URL` is injected at build time via `define`
