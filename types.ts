@@ -72,6 +72,7 @@ export interface Asset {
     ip_address?: string | null;
     mac_id?: string | null;
     source?: AssetSource | null;
+    nn_controls?: { ctl_id: string; ctl_name: string }[] | null;
     org_id?: string | null;
     user_id?: string | null;
     created_at: string;
