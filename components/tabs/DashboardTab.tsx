@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Asset, Compliance, InternalControl, PolicyDocument, ProgramTask, Vulnerability, AssetCriticality, InternalControlStatus, ProgramStatus } from '../../types';
+import { Asset, Compliance, InternalControl, ControlRegistry, PolicyDocument, ProgramTask, Vulnerability, AssetCriticality, InternalControlStatus, ProgramStatus } from '../../types';
 import * as SupabaseService from '../../services/supabase';
 import { useDataRefresh } from '../../hooks/useDataRefresh';
 
@@ -31,25 +31,27 @@ export const DashboardTab: React.FC = () => {
     const fetchData = useCallback(async () => {
         console.log('DashboardTab: Starting data fetch...');
         try {
-            const [assets, compliances, controls, policies, tasks, vulnerabilities] = await Promise.all([
+            const [assets, compliances, controls, controlRegistry, policies, tasks, vulnerabilities] = await Promise.all([
                 SupabaseService.getAssets(),
                 SupabaseService.getCompliances(),
                 SupabaseService.getInternalControls(),
+                SupabaseService.getControlRegistry(),
                 SupabaseService.getPolicies(),
                 SupabaseService.getTasks(),
                 SupabaseService.getVulnerabilities(),
             ]);
-            
+
             console.log('DashboardTab: Data fetch results:', {
                 assetsCount: assets?.length || 0,
                 compliancesCount: compliances?.length || 0,
                 controlsCount: controls?.length || 0,
+                controlRegistryCount: controlRegistry?.length || 0,
                 policiesCount: policies?.length || 0,
                 tasksCount: tasks?.length || 0,
                 vulnerabilitiesCount: vulnerabilities?.length || 0
             });
-            
-            return { assets, compliances, controls, policies, tasks, vulnerabilities };
+
+            return { assets, compliances, controls, controlRegistry, policies, tasks, vulnerabilities };
         } catch (error) {
             console.error('DashboardTab: Data fetch error:', error);
             throw error;
@@ -66,6 +68,7 @@ export const DashboardTab: React.FC = () => {
         assets: [] as Asset[],
         compliances: [] as Compliance[],
         controls: [] as InternalControl[],
+        controlRegistry: [] as ControlRegistry[],
         policies: [] as PolicyDocument[],
         tasks: [] as ProgramTask[],
         vulnerabilities: [] as Vulnerability[],
@@ -75,16 +78,16 @@ export const DashboardTab: React.FC = () => {
     console.log('DashboardTab currentStats:', currentStats);
 
     const securityScore = useMemo(() => {
-        const { controls, tasks, assets, policies, vulnerabilities } = currentStats;
-        
+        const { controlRegistry, tasks, assets, policies, vulnerabilities } = currentStats;
+
         // Calculate score based on available data (don't require all to be present)
         let totalScore = 0;
         let totalWeight = 0;
-        
-        // Controls Score (30%)
-        if (controls.length > 0) {
-            const enforcedControls = controls.filter(c => c.status === 'Enforced').length;
-            totalScore += (enforcedControls / controls.length) * 30;
+
+        // Controls Score (30%) — uses control_registry (ctl_status) as source of truth
+        if (controlRegistry.length > 0) {
+            const enforcedControls = controlRegistry.filter(c => c.ctl_status === 'Enforced').length;
+            totalScore += (enforcedControls / controlRegistry.length) * 30;
             totalWeight += 30;
         }
         
@@ -132,9 +135,11 @@ export const DashboardTab: React.FC = () => {
         const finalScore = totalWeight > 0 ? Math.round((totalScore / totalWeight) * 100) : 0;
         
         console.log('Security Score Calculation:', {
-            controls: controls.length,
+            controlRegistry: controlRegistry.length,
+            enforcedControls: controlRegistry.filter(c => c.ctl_status === 'Enforced').length,
             tasks: tasks.length,
             assets: assets.length,
+            governedAssets: assets.filter(a => a.governed_status === 'Governed').length,
             policies: policies.length,
             vulnerabilities: vulnerabilities.length,
             totalScore,
@@ -194,7 +199,10 @@ export const DashboardTab: React.FC = () => {
     }, [currentStats.vulnerabilities]);
 
     const frameworkComplianceData = useMemo(() => {
-        if (!currentStats.compliances || !currentStats.controls) return {};
+        if (!currentStats.compliances) return {};
+        // Build a lookup from ctl_id → enforcement status using both sources
+        // control_registry is the source of truth for enforcement status
+        const registryStatusMap = new Map<string, string>(currentStats.controlRegistry.map(c => [c.ctl_id, c.ctl_status]));
         const controlsMap = new Map<string, InternalControl>(currentStats.controls.map(c => [c.ctl_id, c]));
 
         return currentStats.compliances.reduce((acc, compliance) => {
@@ -207,18 +215,26 @@ export const DashboardTab: React.FC = () => {
             if (!associatedCtls || associatedCtls.length === 0) {
                 status = 'NotMapped';
             } else {
-                const relatedControls = associatedCtls.map(id => controlsMap.get(id)).filter((c): c is InternalControl => c !== undefined);
-                if (relatedControls.length === 0) {
+                // Check if any associated control is enforced (via registry or internal catalogue)
+                const anyFound = associatedCtls.some(id => registryStatusMap.has(id) || controlsMap.has(id));
+                if (!anyFound) {
                     status = 'NonCompliant';
                 } else {
-                    status = relatedControls.every(c => c.status === 'Enforced') ? 'Compliant' : 'NonCompliant';
+                    const allEnforced = associatedCtls.every(id => {
+                        const regStatus = registryStatusMap.get(id);
+                        if (regStatus) return regStatus === 'Enforced';
+                        const ctrl = controlsMap.get(id);
+                        if (ctrl) return ctrl.status === 'Enforced';
+                        return false;
+                    });
+                    status = allEnforced ? 'Compliant' : 'NonCompliant';
                 }
             }
             acc[frameworkKey][status]++;
             acc[frameworkKey].total++;
             return acc;
         }, {} as Record<string, { 'Compliant': number; 'NonCompliant': number; 'NotMapped': number; total: number }>);
-    }, [currentStats.compliances, currentStats.controls]);
+    }, [currentStats.compliances, currentStats.controls, currentStats.controlRegistry]);
 
     const frameworkNames = useMemo(() => new Set(currentStats.compliances.map(c => c.framework)), [currentStats.compliances]);
     const internalControlNames = useMemo(() => new Set(currentStats.controls.map(c => c.ctl_id)), [currentStats.controls]);

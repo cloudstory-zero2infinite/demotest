@@ -21,10 +21,16 @@ ZeroTo1 GRC is a Governance, Risk & Compliance (GRC) SaaS platform with multi-te
 ### Backend (`/server/`)
 - **Express.js** (Node.js, ESM modules — `"type": "module"`)
 - Entry: `server/src/index.js`
-- Routes: `server/src/routes/` — one file per domain (program, controls, assets, policies, vulnerabilities, compliance, contacts, activity, org, feedback)
+- Routes: `server/src/routes/` — one file per domain (program, controls, assets, policies, vulnerabilities, compliance, contacts, activity, org, feedback, capabilities, control-registry)
 - Auth middleware: `server/src/middleware/auth.js` — validates JWT, attaches `req.userId`, `req.orgId`, `req.userRole`
 - Supabase admin client: `server/src/supabase.js` (service-role key, bypasses RLS)
-- In production the server also serves the built frontend from `dist/`
+- In production the server also serves the built frontend from `dist/` (Dockerfile exposes port 8080, runs `node server/src/index.js`)
+
+### AI Agent (`/ai-agent/`)
+- **FastAPI** (Python) service using **Google Gemini** for AI-powered queries
+- Connects directly to Supabase Postgres via `psycopg2` (not through the Express backend)
+- Runs on port 8080 by default
+- Env vars: `GEMINI_API_KEY`, `GEMINI_MODEL`, `DATABASE_URL`
 
 ## Key Commands
 
@@ -44,12 +50,28 @@ npm run dev             # node --watch src/index.js
 npm start               # node src/index.js (no watch)
 ```
 
+### AI Agent
+```bash
+cd ai-agent && pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+```
+
+### Docker
+```bash
+docker-compose up       # Starts all 3 services (frontend, server, ai-agent)
+```
+
+### Testing & Linting
+No test framework or linter is currently configured. There are no test files in the repo. Run `npm run build` to catch TypeScript/compilation errors.
+
 ## Environment Variables
 Copy `.env.example` to `.env`. Required:
 - `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` — frontend Supabase credentials (used only for Google OAuth)
 - `VITE_API_BASE_URL` — backend URL (default: `http://localhost:3001`)
 - `VITE_AI_AGENT_URL` — AI agent service URL (default: `http://localhost:8080`)
 - Server also needs: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (for `supabaseAdmin`), `RESEND_API_KEY`, `FRONTEND_URL`
+- AI agent needs: `GEMINI_API_KEY`, `DATABASE_URL` (Postgres connection string), optionally `GEMINI_MODEL`
+- See `.env.example`, `server/.env.example`, and `ai-agent/.env.example` for templates
 
 ## Data Flow
 **The frontend Supabase client is used only for Google OAuth sign-in/sign-out/session management.** All data reads and writes go through the Express backend via `apiRequest()` in `services/supabase.ts`, which attaches the user's JWT as a Bearer token. The backend uses `supabaseAdmin` (service-role key) to query Supabase, scoping every query to `req.orgId`.
