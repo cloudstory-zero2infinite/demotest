@@ -20,7 +20,9 @@ router.get('/', requireAuth, async (req, res) => {
 
 router.post('/', requireAuth, async (req, res) => {
   try {
-    const payload = { ...req.body, user_id: req.userId, org_id: req.orgId };
+    // governed_status and nn_controls are auto-computed by DB triggers — strip them
+    const { governed_status, nn_controls, ...body } = req.body;
+    const payload = { ...body, user_id: req.userId, org_id: req.orgId };
     
     // Log to ensure physical_location is being received
     console.log('Creating asset with payload:', {
@@ -43,7 +45,7 @@ router.post('/', requireAuth, async (req, res) => {
 
 router.post('/bulk', requireAuth, async (req, res) => {
   try {
-    const payloads = req.body.map(a => ({ ...a, user_id: req.userId, org_id: req.orgId }));
+    const payloads = req.body.map(({ governed_status, nn_controls, ...a }) => ({ ...a, user_id: req.userId, org_id: req.orgId }));
     const { data, error } = await supabaseAdmin.from('assets').insert(payloads).select();
     if (error) throw error;
     res.status(201).json(data || []);
@@ -54,11 +56,13 @@ router.post('/bulk', requireAuth, async (req, res) => {
 
 router.put('/:id', requireAuth, async (req, res) => {
   try {
-    console.log('Updating asset with ID:', req.params.id, 'Payload:', req.body);
-    
+    // governed_status and nn_controls are auto-computed by DB triggers — strip them
+    const { governed_status, nn_controls, ...body } = req.body;
+    console.log('Updating asset with ID:', req.params.id, 'Payload:', body);
+
     const { data, error } = await supabaseAdmin
       .from('assets')
-      .update(req.body)
+      .update(body)
       .eq('id', req.params.id)
       .select()
       .single();

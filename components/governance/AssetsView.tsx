@@ -85,7 +85,9 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
         setIsSaving(true);
         try {
             // Source is always 'Manual' when a human saves via the form
-            await onSave({ ...formData, source: 'Manual' } as AssetCreate | AssetUpdate);
+            // governed_status and nn_controls are auto-computed by DB triggers — strip them
+            const { governed_status, nn_controls, ...payload } = formData as any;
+            await onSave({ ...payload, source: 'Manual' } as AssetCreate | AssetUpdate);
         } finally {
             setIsSaving(false);
         }
@@ -180,9 +182,14 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Governed Status</label>
-                        <select name="governed_status" value={formData.governed_status} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                            <option>Non-Governed</option><option>Governed</option>
-                        </select>
+                        <div className={`mt-1 px-3 py-2 rounded-md text-sm font-medium border ${
+                            formData.governed_status === 'Governed'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800'
+                                : 'bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:border-gray-600'
+                        }`}>
+                            {formData.governed_status || 'Non-Governed'}
+                            <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(auto-computed)</span>
+                        </div>
                     </div>
 
                     <div>
@@ -196,6 +203,25 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Source</label>
                             <div className="mt-1 px-3 py-2 rounded-md bg-gray-100 dark:bg-gray-600 text-sm text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-500">
                                 {formData.source}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* NN Controls: read-only, auto-assigned by DB trigger */}
+                    {assetToEdit?.nn_controls && assetToEdit.nn_controls.length > 0 && (
+                        <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                NN Controls
+                                <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">({assetToEdit.nn_controls.length} assigned)</span>
+                            </label>
+                            <div className="mt-1 max-h-40 overflow-y-auto rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 p-2">
+                                <div className="flex flex-wrap gap-1.5">
+                                    {assetToEdit.nn_controls.map(c => (
+                                        <span key={c.ctl_id} className="inline-flex items-center px-2 py-1 rounded text-xs font-mono bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800" title={c.ctl_name}>
+                                            {c.ctl_id}
+                                        </span>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     )}
@@ -1134,19 +1160,9 @@ const handleExportCSV = () => {
 
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
 
-                                    <button onClick={() => requestSort('ip_address')} className="flex items-center w-full text-left focus:outline-none">
+                                    <button onClick={() => requestSort('governed_status')} className="flex items-center w-full text-left focus:outline-none">
 
-                                        IP Address {getSortIconFor('ip_address')}
-
-                                    </button>
-
-                                </th>
-
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-                                    <button onClick={() => requestSort('mac_id')} className="flex items-center w-full text-left focus:outline-none">
-
-                                        UID / Mac ID {getSortIconFor('mac_id')}
+                                        Governed {getSortIconFor('governed_status')}
 
                                     </button>
 
@@ -1154,11 +1170,7 @@ const handleExportCSV = () => {
 
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
 
-                                    <button onClick={() => requestSort('category')} className="flex items-center w-full text-left focus:outline-none">
-
-                                        Type {getSortIconFor('category')}
-
-                                    </button>
+                                    NN Controls
 
                                 </th>
 
@@ -1182,11 +1194,11 @@ const handleExportCSV = () => {
 
                             {loading ? (
 
-                                <tr><td colSpan={10} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading assets...</td></tr>
+                                <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading assets...</td></tr>
 
                             ) : filteredAndSortedAssets.length === 0 ? (
 
-                                <tr><td colSpan={10} className="text-center py-4 text-gray-500 dark:text-gray-400">No assets found.</td></tr>
+                                <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">No assets found.</td></tr>
 
                             ) : filteredAndSortedAssets.map(asset => (
 
@@ -1222,8 +1234,10 @@ const handleExportCSV = () => {
 
                                     </td>
 
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono font-medium text-gray-900 dark:text-white">
-                                        {asset.asset_id}
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono font-semibold">
+                                        <span className={asset.governed_status === 'Governed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'}>
+                                            {asset.asset_id}
+                                        </span>
                                     </td>
 
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
@@ -1256,39 +1270,29 @@ const handleExportCSV = () => {
 
                                     </td>
 
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-
-                                        {isEditing && selectedIds.has(asset.id) ? (
-
-                                            <input type="text" value={editValues[asset.id]?.ip_address ?? asset.ip_address ?? ''} onChange={e => updateField(asset.id, 'ip_address', e.target.value)} className={editInputCls} placeholder="e.g., 192.168.1.1" />
-
-                                        ) : (asset.ip_address || '-')}
-
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                            asset.governed_status === 'Governed'
+                                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                                : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                                        }`}>
+                                            {asset.governed_status}
+                                        </span>
                                     </td>
 
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-
-                                        {isEditing && selectedIds.has(asset.id) ? (
-
-                                            <input type="text" value={editValues[asset.id]?.mac_id ?? asset.mac_id ?? ''} onChange={e => updateField(asset.id, 'mac_id', e.target.value)} className={editInputCls} placeholder="e.g., 00:1A:2B:3C:4D:5E" />
-
-                                        ) : (asset.mac_id || '-')}
-
-                                    </td>
-
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-
-                                        {isEditing && selectedIds.has(asset.id) ? (
-
-                                            <select value={editValues[asset.id]?.category ?? asset.category} onChange={e => updateField(asset.id, 'category', e.target.value as any)} className={editSelectCls}>
-                                                <option value="Physical/Hardware">Physical/Hardware</option>
-                                                <option value="Software">Software</option>
-                                                <option value="Services/Infra">Services/Infra</option>
-                                                <option value="Information">Information</option>
-                                            </select>
-
-                                        ) : asset.category}
-
+                                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
+                                        {asset.nn_controls && asset.nn_controls.length > 0 ? (
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                                                    {asset.nn_controls.length}
+                                                </span>
+                                                <span className="text-xs text-gray-400 dark:text-gray-500 truncate max-w-[120px]" title={asset.nn_controls.map(c => c.ctl_id).join(', ')}>
+                                                    controls
+                                                </span>
+                                            </div>
+                                        ) : (
+                                            <span className="text-xs text-gray-400">—</span>
+                                        )}
                                     </td>
 
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
