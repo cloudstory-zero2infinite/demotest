@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, ChangeEvent, useMemo } from 'react';
 import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
-import { ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlStatus, ControlType, EnforcementType, Capability } from '../../types';
+import { ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlStatus, ControlType, EnforcementType, Capability, ControlEvidenceReview, EvidenceFileMetadata } from '../../types';
 import * as SupabaseService from '../../services/supabase';
 import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon } from '../Icons';
 import { parseCSVLine } from '../../utils/csvParser';
@@ -90,12 +90,22 @@ const CapabilityMultiSelect: React.FC<CapabilityMultiSelectProps> = ({ values, o
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const CTL_STATUS_OPTIONS: ControlStatus[] = ['Enforced', 'NotEnforced'];
+const ALL_CTL_STATUSES: ControlStatus[] = ['Enforced', 'NotEnforced', 'In-Review'];
 const CTL_TYPE_OPTIONS: ControlType[] = ['NN', 'Regulatory', 'Standard'];
 const ENFORCEMENT_TYPE_OPTIONS: EnforcementType[] = ['org_wide', 'Asset_specific', 'BU_specific'];
+
+const ACCEPTED_EVIDENCE_TYPES = '.png,.jpg,.jpeg,.gif,.pdf,.csv,.msg';
 
 const STATUS_BADGE: Record<ControlStatus, string> = {
     Enforced: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
     NotEnforced: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+    'In-Review': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
+};
+
+const STATUS_LABEL: Record<ControlStatus, string> = {
+    Enforced: 'Enforced',
+    NotEnforced: 'NotEnforced',
+    'In-Review': 'In-Review',
 };
 
 const TYPE_BADGE: Record<ControlType, string> = {
@@ -110,6 +120,350 @@ const ENFORCEMENT_BADGE: Record<EnforcementType, string> = {
     BU_specific: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
 };
 
+// ─── Evidence Enforcement Modal ──────────────────────────────────────────────
+
+interface EvidenceEnforcementModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onSubmit: () => void;
+    control: ControlRegistry | null;
+    requestedStatus: 'Enforced' | 'NotEnforced';
+}
+
+const EvidenceEnforcementModal: React.FC<EvidenceEnforcementModalProps> = ({ isOpen, onClose, onSubmit, control, requestedStatus }) => {
+    const [files, setFiles] = useState<File[]>([]);
+    const [comment, setComment] = useState('');
+    const [members, setMembers] = useState<any[]>([]);
+    const [selectedMember, setSelectedMember] = useState<any>(null);
+    const [memberSearch, setMemberSearch] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const evidenceFileInputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (isOpen) {
+            SupabaseService.getOrganizationUsers().then(setMembers);
+            setFiles([]);
+            setComment('');
+            setSelectedMember(null);
+            setMemberSearch('');
+            setError(null);
+        }
+    }, [isOpen]);
+
+    const filteredMembers = members.filter(m =>
+        m.email?.toLowerCase().includes(memberSearch.toLowerCase()) ||
+        m.role?.toLowerCase().includes(memberSearch.toLowerCase())
+    );
+
+    const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+        const newFiles = Array.from(e.target.files || []);
+        setFiles(prev => [...prev, ...newFiles]);
+        if (evidenceFileInputRef.current) evidenceFileInputRef.current.value = '';
+    };
+
+    const removeFile = (index: number) => {
+        setFiles(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        const droppedFiles = Array.from(e.dataTransfer.files);
+        setFiles(prev => [...prev, ...droppedFiles]);
+    };
+
+    const handleSubmit = async () => {
+        if (!control || !selectedMember) return;
+        if (files.length === 0) { setError('At least one evidence file is required.'); return; }
+
+        setSubmitting(true);
+        setError(null);
+        try {
+            const me = await SupabaseService.getOrgMe();
+            await SupabaseService.submitControlEnforcement(control.id, {
+                requested_status: requestedStatus,
+                comment: comment || undefined,
+                reviewer_id: selectedMember.user_id || undefined,
+                reviewer_name: selectedMember.email,
+                reviewer_email: selectedMember.email,
+                enforced_by_name: me?.email || '',
+                enforced_by_email: me?.email || '',
+                files,
+            });
+            onSubmit();
+            onClose();
+        } catch (err: any) {
+            setError(err?.message || 'Failed to submit enforcement request.');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    if (!isOpen || !control) return null;
+
+    return (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+            <div className="flex min-h-screen items-center justify-center p-4">
+                <div className="fixed inset-0 bg-black/50" onClick={onClose} />
+                <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                    <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                        <h3 className="text-lg font-medium text-gray-900 dark:text-white">
+                            Evidence Collection — {requestedStatus === 'Enforced' ? 'Enforce' : 'Un-enforce'} Control
+                        </h3>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                            {control.ctl_id} — {control.ctl_name}
+                        </p>
+                    </div>
+
+                    <div className="p-6 space-y-5">
+                        {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded text-sm">{error}</div>}
+
+                        {/* File Upload */}
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                Evidence Files <span className="text-red-500">*</span>
+                                <span className="text-xs text-gray-400 ml-1">(PNG, JPG, PDF, CSV, MSG)</span>
+                            </label>
+                            <div
+                                onDrop={handleDrop}
+                                onDragOver={e => e.preventDefault()}
+                                className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center hover:border-blue-400 dark:hover:border-blue-500 transition-colors cursor-pointer"
+                                onClick={() => evidenceFileInputRef.current?.click()}
+                            >
+                                <UploadIcon className="h-8 w-8 mx-auto text-gray-400 mb-2" />
+                                <p className="text-sm text-gray-500 dark:text-gray-400">Drag & drop files here or click to browse</p>
+                                <input ref={evidenceFileInputRef} type="file" multiple accept={ACCEPTED_EVIDENCE_TYPES} onChange={handleFileChange} className="hidden" />
+                            </div>
+                            {files.length > 0 && (
+                                <ul className="mt-3 space-y-1">
+                                    {files.map((f, i) => (
+                                        <li key={i} className="flex items-center justify-between bg-gray-50 dark:bg-gray-700 px-3 py-2 rounded text-sm">
+                                            <span className="truncate text-gray-700 dark:text-gray-300">{f.name} <span className="text-xs text-gray-400">({(f.size / 1024).toFixed(1)} KB)</span></span>
+                                            <button type="button" onClick={() => removeFile(i)} className="text-red-400 hover:text-red-600 ml-2 text-lg leading-none">&times;</button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+
+                        {/* Comment */}
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Comment</label>
+                            <textarea
+                                value={comment}
+                                onChange={e => setComment(e.target.value)}
+                                rows={3}
+                                placeholder="Add notes about this enforcement action..."
+                                className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                            />
+                        </div>
+
+                        {/* Reviewer Selection */}
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Select Peer Reviewer <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                                type="text"
+                                placeholder="Search by email..."
+                                value={memberSearch}
+                                onChange={e => setMemberSearch(e.target.value)}
+                                className="mb-2 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                            />
+                            <div className="max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-md">
+                                {filteredMembers.length === 0 ? (
+                                    <div className="px-3 py-2 text-sm text-gray-400">No members found</div>
+                                ) : filteredMembers.map(m => (
+                                    <div
+                                        key={m.id}
+                                        onClick={() => setSelectedMember(m)}
+                                        className={`px-3 py-2 cursor-pointer text-sm flex justify-between items-center ${
+                                            selectedMember?.id === m.id
+                                                ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                                : 'hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-900 dark:text-white'
+                                        }`}
+                                    >
+                                        <span>{m.email}</span>
+                                        <span className="text-xs text-gray-400">{m.role}</span>
+                                    </div>
+                                ))}
+                            </div>
+                            {selectedMember && (
+                                <div className="mt-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded text-sm text-blue-700 dark:text-blue-300">
+                                    Selected: {selectedMember.email} ({selectedMember.role})
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="px-6 py-4 bg-gray-50 dark:bg-gray-700 rounded-b-lg flex justify-end space-x-3">
+                        <button onClick={onClose} disabled={submitting} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
+                        <button
+                            onClick={handleSubmit}
+                            disabled={submitting || files.length === 0 || !selectedMember}
+                            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                        >
+                            {submitting ? 'Submitting...' : 'Submit for Review'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ─── Evidence Review Banner (shown in View modal for reviewer) ───────────────
+
+interface EvidenceReviewBannerProps {
+    control: ControlRegistry;
+    onActionComplete: () => void;
+}
+
+const EvidenceReviewBanner: React.FC<EvidenceReviewBannerProps> = ({ control, onActionComplete }) => {
+    const [review, setReview] = useState<ControlEvidenceReview | null>(null);
+    const [isApprover, setIsApprover] = useState(false);
+    const [showReject, setShowReject] = useState(false);
+    const [approveComment, setApproveComment] = useState('');
+    const [rejectComment, setRejectComment] = useState('');
+    const [processing, setProcessing] = useState(false);
+    const [evidenceUrls, setEvidenceUrls] = useState<{ name: string; signed_url: string | null; original_name: string }[]>([]);
+
+    useEffect(() => {
+        const isPending = control.ctl_status === 'In-Review';
+        if (!isPending) { setReview(null); return; }
+
+        (async () => {
+            const rev = await SupabaseService.getControlEvidenceReview(control.id);
+            setReview(rev);
+            if (rev) {
+                const me = await SupabaseService.getOrgMe();
+                const idMatch = !!(me?.userId && rev.reviewer_id && rev.reviewer_id === me.userId);
+                const emailMatch = !!(me?.email && rev.reviewer_email && me.email.toLowerCase() === rev.reviewer_email.toLowerCase());
+                setIsApprover(idMatch || emailMatch);
+
+                // The review endpoint now enriches evidence_files with signed_url
+                const fileUrls = (rev.evidence_files || []).map((f: any) => ({
+                    name: f.name,
+                    signed_url: f.signed_url || null,
+                    original_name: f.original_name,
+                }));
+                setEvidenceUrls(fileUrls);
+            }
+        })();
+    }, [control]);
+
+    const handleApprove = async () => {
+        setProcessing(true);
+        try {
+            await SupabaseService.approveControlEnforcement(control.id, approveComment || undefined);
+            onActionComplete();
+        } catch { /* silently handled */ } finally { setProcessing(false); }
+    };
+
+    const handleReject = async () => {
+        if (!rejectComment.trim()) return;
+        setProcessing(true);
+        try {
+            await SupabaseService.rejectControlEnforcement(control.id, rejectComment);
+            onActionComplete();
+        } catch { /* silently handled */ } finally { setProcessing(false); }
+    };
+
+    if (!review) return null;
+
+    return (
+        <div className="mb-4 space-y-3">
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4">
+                <div className="flex items-start gap-2">
+                    <span className="text-yellow-600 dark:text-yellow-400 text-lg leading-none mt-0.5">&#9888;</span>
+                    <div className="flex-1">
+                        <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                            {isApprover
+                                ? `Your review is requested to ${review.requested_status === 'Enforced' ? 'enforce' : 'un-enforce'} this control.`
+                                : `Pending ${review.requested_status === 'Enforced' ? 'enforcement' : 'un-enforcement'} review by ${review.reviewer_name}`
+                            }
+                        </p>
+                        <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-1">
+                            Submitted by {review.enforced_by_name} on {new Date(review.created_at).toLocaleDateString()}
+                        </p>
+                        {review.comment && (
+                            <p className="text-sm text-gray-700 dark:text-gray-300 mt-2 italic">&ldquo;{review.comment}&rdquo;</p>
+                        )}
+                    </div>
+                </div>
+
+                {/* Evidence Files */}
+                {evidenceUrls.length > 0 && (
+                    <div className="mt-3">
+                        <p className="text-xs font-medium text-yellow-800 dark:text-yellow-200 mb-1">Evidence Files:</p>
+                        <div className="flex flex-wrap gap-2">
+                            {evidenceUrls.map((f, i) => (
+                                f.signed_url ? (
+                                    <a
+                                        key={i}
+                                        href={f.signed_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/50"
+                                        title={f.original_name}
+                                    >
+                                        &#128206; {f.name}
+                                    </a>
+                                ) : (
+                                    <span key={i} className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400" title={f.original_name}>
+                                        &#128206; {f.name}
+                                    </span>
+                                )
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* Approver Actions */}
+                {isApprover && !showReject && (
+                    <div className="mt-4 space-y-2">
+                        <textarea
+                            value={approveComment}
+                            onChange={e => setApproveComment(e.target.value)}
+                            placeholder="Optional comment..."
+                            rows={2}
+                            className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        />
+                        <div className="flex gap-2">
+                            <button onClick={handleApprove} disabled={processing} className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:bg-gray-400">
+                                {processing ? 'Processing...' : 'Approve'}
+                            </button>
+                            <button onClick={() => setShowReject(true)} disabled={processing} className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:bg-gray-400">
+                                Reject
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {isApprover && showReject && (
+                    <div className="mt-4 space-y-2">
+                        <textarea
+                            value={rejectComment}
+                            onChange={e => setRejectComment(e.target.value)}
+                            placeholder="Reason for rejection (required)..."
+                            rows={2}
+                            className="block w-full rounded-md border-red-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-red-600 dark:text-white"
+                        />
+                        <div className="flex gap-2">
+                            <button onClick={handleReject} disabled={processing || !rejectComment.trim()} className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:bg-gray-400">
+                                {processing ? 'Processing...' : 'Confirm Rejection'}
+                            </button>
+                            <button onClick={() => setShowReject(false)} disabled={processing} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
 // ─── Modal ───────────────────────────────────────────────────────────────────
 
 const MANDATORY_LABEL = <span className="text-red-500 ml-0.5">*</span>;
@@ -121,6 +475,8 @@ interface ControlModalProps {
     controlToEdit: ControlRegistry | null;
     mode: 'add' | 'edit' | 'view';
     capabilities: Capability[];
+    onRequestEnforcement?: (control: ControlRegistry, requestedStatus: 'Enforced' | 'NotEnforced') => void;
+    onReviewAction?: () => void;
 }
 
 type FormData = {
@@ -145,10 +501,14 @@ const DEFAULT_FORM: FormData = {
     ctl_other_details: '',
 };
 
-const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, controlToEdit, mode, capabilities }) => {
+const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, controlToEdit, mode, capabilities, onRequestEnforcement, onReviewAction }) => {
     const [formData, setFormData] = useState<FormData>(DEFAULT_FORM);
     const [isSaving, setIsSaving] = useState(false);
     const isView = mode === 'view';
+    const isEnforced = controlToEdit?.ctl_status === 'Enforced';
+    const isPending = controlToEdit?.ctl_status === 'In-Review';
+    // When enforced, all fields are frozen except status (which only allows NotEnforced, triggering evidence flow)
+    const isFieldFrozen = mode === 'edit' && (isEnforced || isPending);
 
     useEffect(() => {
         if (controlToEdit) {
@@ -169,6 +529,14 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
     const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
+        // Intercept status changes — only enforcement requires evidence + peer review
+        if (name === 'ctl_status' && controlToEdit && mode === 'edit') {
+            const newStatus = value as ControlStatus;
+            if (newStatus === 'Enforced' && controlToEdit.ctl_status !== 'Enforced' && onRequestEnforcement) {
+                onRequestEnforcement(controlToEdit, newStatus);
+                return;
+            }
+        }
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
@@ -184,9 +552,22 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
     const title = mode === 'add' ? 'Add Control' : mode === 'edit' ? 'Edit Control' : 'View Control';
 
+    // For enforced controls in edit mode, only show status with the opposite option
+    const statusOptionsForEdit = (): ControlStatus[] => {
+        if (mode !== 'edit' || !controlToEdit) return CTL_STATUS_OPTIONS;
+        if (isEnforced) return ['Enforced', 'NotEnforced'];
+        if (controlToEdit.ctl_status === 'NotEnforced') return ['NotEnforced', 'Enforced'];
+        return CTL_STATUS_OPTIONS;
+    };
+
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={title}>
             <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Evidence Review Banner for pending controls */}
+                {(isView || mode === 'edit') && controlToEdit && isPending && (
+                    <EvidenceReviewBanner control={controlToEdit} onActionComplete={() => { onReviewAction?.(); onClose(); }} />
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {mode !== 'add' && controlToEdit && (
                         <div>
@@ -199,60 +580,96 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
                     )}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Control Name {MANDATORY_LABEL}</label>
-                        <input type="text" name="ctl_name" value={formData.ctl_name} onChange={handleChange} readOnly={isView} required placeholder="e.g. Encrypt Data on End-User Devices" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        <input type="text" name="ctl_name" value={formData.ctl_name} onChange={handleChange} readOnly={isView || isFieldFrozen} required placeholder="e.g. Encrypt Data on End-User Devices" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status {MANDATORY_LABEL}</label>
-                        <select name="ctl_status" value={formData.ctl_status} onChange={handleChange} disabled={isView} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                            {CTL_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                        <select name="ctl_status" value={formData.ctl_status} onChange={handleChange} disabled={isView || isPending} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                            {(isPending ? ALL_CTL_STATUSES.filter(s => s === formData.ctl_status) : statusOptionsForEdit()).map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
                         </select>
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Control Type {MANDATORY_LABEL}</label>
-                        <select name="ctl_type" value={formData.ctl_type} onChange={handleChange} disabled={isView} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                        <select name="ctl_type" value={formData.ctl_type} onChange={handleChange} disabled={isView || isFieldFrozen} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                             {CTL_TYPE_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
                         </select>
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Enforcement Type {MANDATORY_LABEL}</label>
-                        <select name="enforcement_type" value={formData.enforcement_type} onChange={handleChange} disabled={isView} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                        <select name="enforcement_type" value={formData.enforcement_type} onChange={handleChange} disabled={isView || isFieldFrozen} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                             {ENFORCEMENT_TYPE_OPTIONS.map(e => <option key={e} value={e}>{e === 'org_wide' ? 'Org-Wide' : e === 'Asset_specific' ? 'Asset-Specific' : 'BU-Specific'}</option>)}
                         </select>
                     </div>
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                             Controlled By (Capabilities)
-                            {!isView && <span className="ml-1 text-xs text-gray-400 font-normal">— select from Capability Register</span>}
+                            {!isView && !isFieldFrozen && <span className="ml-1 text-xs text-gray-400 font-normal">— select from Capability Register</span>}
                         </label>
-                        <CapabilityMultiSelect values={formData.ctld_by} onChange={vals => setFormData(prev => ({ ...prev, ctld_by: vals }))} capabilities={capabilities} readOnly={isView} />
+                        <CapabilityMultiSelect values={formData.ctld_by} onChange={vals => setFormData(prev => ({ ...prev, ctld_by: vals }))} capabilities={capabilities} readOnly={isView || isFieldFrozen} />
                     </div>
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
-                        <textarea name="ctl_description" value={formData.ctl_description} onChange={handleChange} readOnly={isView} rows={2} placeholder="Short description of the control" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        <textarea name="ctl_description" value={formData.ctl_description} onChange={handleChange} readOnly={isView || isFieldFrozen} rows={2} placeholder="Short description of the control" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reference Framework</label>
-                        <input type="text" name="ctl_ref_fw" value={formData.ctl_ref_fw} onChange={handleChange} readOnly={isView} placeholder="e.g. ISO 27001, NIST CSF" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        <input type="text" name="ctl_ref_fw" value={formData.ctl_ref_fw} onChange={handleChange} readOnly={isView || isFieldFrozen} placeholder="e.g. ISO 27001, NIST CSF" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Other Details</label>
-                        <input type="text" name="ctl_other_details" value={formData.ctl_other_details} onChange={handleChange} readOnly={isView} placeholder="Additional notes" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        <input type="text" name="ctl_other_details" value={formData.ctl_other_details} onChange={handleChange} readOnly={isView || isFieldFrozen} placeholder="Additional notes" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
+
+                    {/* Evidence Files — shown in view/edit when evidence exists */}
+                    {mode !== 'add' && controlToEdit && (controlToEdit.evidence_metadata ?? []).length > 0 && (
+                        <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Evidence Files</label>
+                            <div className="flex flex-wrap gap-2 mt-1 px-3 py-2 rounded-md bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 min-h-[38px]">
+                                {(controlToEdit.evidence_metadata ?? []).map((ev, i) => (
+                                    <EvidencePill key={i} evidence={ev} controlId={controlToEdit.id} />
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Enforced By / Reviewed By info */}
+                    {mode !== 'add' && controlToEdit && (controlToEdit.enforced_by || controlToEdit.reviewed_by) && (
+                        <>
+                            {controlToEdit.enforced_by && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Enforced By</label>
+                                    <div className="mt-1 px-3 py-2 rounded-md bg-gray-50 dark:bg-gray-600 text-sm text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-500">
+                                        {controlToEdit.enforced_by}
+                                    </div>
+                                </div>
+                            )}
+                            {controlToEdit.reviewed_by && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reviewed By</label>
+                                    <div className="mt-1 px-3 py-2 rounded-md bg-gray-50 dark:bg-gray-600 text-sm text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-500">
+                                        {controlToEdit.reviewed_by}
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
                 </div>
-                {!isView && (
+                {!isView && !isPending && (
                     <div className="mt-6 flex justify-end space-x-3">
                         <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
-                        <button type="submit" disabled={isSaving} className="flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed min-w-[5rem]">
-                            {isSaving ? (
-                                <>
-                                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                    Saving...
-                                </>
-                            ) : 'Save'}
-                        </button>
+                        {!isFieldFrozen && (
+                            <button type="submit" disabled={isSaving} className="flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed min-w-[5rem]">
+                                {isSaving ? (
+                                    <>
+                                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Saving...
+                                    </>
+                                ) : 'Save'}
+                            </button>
+                        )}
                     </div>
                 )}
             </form>
@@ -262,9 +679,44 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
 // ─── Main View ───────────────────────────────────────────────────────────────
 
+// ─── Evidence Pill (clickable file link in table) ────────────────────────────
+
+const EvidencePill: React.FC<{ evidence: EvidenceFileMetadata; controlId: string }> = ({ evidence, controlId }) => {
+    const [url, setUrl] = useState<string | null>(null);
+
+    const handleClick = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (url) { window.open(url, '_blank'); return; }
+        try {
+            const allFiles = await SupabaseService.getControlEvidenceFiles(controlId);
+            const match = allFiles.find(f => f.storage_path === evidence.storage_path);
+            if (match?.signed_url) {
+                setUrl(match.signed_url);
+                window.open(match.signed_url, '_blank');
+            }
+        } catch { /* fail silently */ }
+    };
+
+    return (
+        <button
+            onClick={handleClick}
+            className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 cursor-pointer"
+            title={evidence.original_name}
+        >
+            &#128206; {evidence.display_name}
+        </button>
+    );
+};
+
 type ModalState = { type: 'add' | 'edit' | 'view' | 'delete' | 'import' | null; item?: ControlRegistry | null };
 
-export const ControlRegistryView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
+interface ControlRegistryViewProps {
+    isActive?: boolean;
+    autoOpenControlId?: string | null;
+    onAutoOpenConsumed?: () => void;
+}
+
+export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActive = true, autoOpenControlId, onAutoOpenConsumed }) => {
     const [controls, setControls] = useState<ControlRegistry[]>([]);
     const [capabilities, setCapabilities] = useState<Capability[]>([]);
     const [loading, setLoading] = useState(true);
@@ -276,6 +728,7 @@ export const ControlRegistryView: React.FC<{ isActive?: boolean }> = ({ isActive
     const [sortConfig, setSortConfig] = useState<{ key: keyof ControlRegistry; direction: 'ascending' | 'descending' } | null>(null);
     const [importData, setImportData] = useState<{ newControls: ControlRegistryCreate[]; duplicates: string[] }>({ newControls: [], duplicates: [] });
     const [showAIChat, setShowAIChat] = useState(false);
+    const [enforcementModal, setEnforcementModal] = useState<{ isOpen: boolean; control: ControlRegistry | null; requestedStatus: 'Enforced' | 'NotEnforced' }>({ isOpen: false, control: null, requestedStatus: 'Enforced' });
 
     const {
         selectedIds, isEditing, editValues, isConfirmingDelete, isSaving, bulkProgress,
@@ -311,6 +764,27 @@ export const ControlRegistryView: React.FC<{ isActive?: boolean }> = ({ isActive
         fetchCapabilities();
     }, [fetchControls, fetchCapabilities]);
     useUnifiedRefresh(isActive, refreshAll);
+
+    // Auto-open a specific control from notification click
+    const pendingAutoOpenRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (autoOpenControlId) {
+            pendingAutoOpenRef.current = autoOpenControlId;
+            // Force a fresh fetch to get latest status
+            fetchControls();
+            onAutoOpenConsumed?.();
+        }
+    }, [autoOpenControlId]);
+
+    useEffect(() => {
+        if (pendingAutoOpenRef.current && controls.length > 0) {
+            const target = controls.find(c => c.id === pendingAutoOpenRef.current);
+            if (target) {
+                setModalState({ type: 'view', item: target });
+            }
+            pendingAutoOpenRef.current = null;
+        }
+    }, [controls]);
 
     const filteredAndSorted = useMemo(() => {
         let items = [...controls];
@@ -616,12 +1090,24 @@ export const ControlRegistryView: React.FC<{ isActive?: boolean }> = ({ isActive
                                         ) : ctl.ctl_name}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                        {isEditing && selectedIds.has(ctl.id) ? (
-                                            <select value={editValues[ctl.id]?.ctl_status ?? ctl.ctl_status} onChange={e => updateField(ctl.id, 'ctl_status', e.target.value)} className={editInputCls}>
-                                                {CTL_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                                        {isEditing && selectedIds.has(ctl.id) && ctl.ctl_status !== 'In-Review' ? (
+                                            <select
+                                                value={editValues[ctl.id]?.ctl_status ?? ctl.ctl_status}
+                                                onChange={e => {
+                                                    const newStatus = e.target.value as ControlStatus;
+                                                    if (newStatus === 'Enforced' && ctl.ctl_status !== 'Enforced') {
+                                                        cancelEdit();
+                                                        setEnforcementModal({ isOpen: true, control: ctl, requestedStatus: newStatus });
+                                                    } else {
+                                                        updateField(ctl.id, 'ctl_status', newStatus);
+                                                    }
+                                                }}
+                                                className={editInputCls}
+                                            >
+                                                {CTL_STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
                                             </select>
                                         ) : (
-                                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[ctl.ctl_status]}`}>{ctl.ctl_status}</span>
+                                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[ctl.ctl_status]}`}>{STATUS_LABEL[ctl.ctl_status]}</span>
                                         )}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm">
@@ -684,6 +1170,20 @@ export const ControlRegistryView: React.FC<{ isActive?: boolean }> = ({ isActive
                 controlToEdit={modalState.item ?? null}
                 mode={modalState.type as 'add' | 'edit' | 'view'}
                 capabilities={capabilities}
+                onRequestEnforcement={(ctl, status) => {
+                    closeModal();
+                    setEnforcementModal({ isOpen: true, control: ctl, requestedStatus: status });
+                }}
+                onReviewAction={() => { closeModal(); fetchControls(); }}
+            />
+
+            {/* Evidence Enforcement Modal */}
+            <EvidenceEnforcementModal
+                isOpen={enforcementModal.isOpen}
+                onClose={() => setEnforcementModal({ isOpen: false, control: null, requestedStatus: 'Enforced' })}
+                onSubmit={fetchControls}
+                control={enforcementModal.control}
+                requestedStatus={enforcementModal.requestedStatus}
             />
 
             {/* Delete Confirm Modal */}

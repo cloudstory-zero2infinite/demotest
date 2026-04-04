@@ -25,6 +25,8 @@ const App: React.FC = () => {
     // Navigation state
     const [activeTab, setActiveTab] = useState<MainTab>('dashboard');
     const [activeOrgSubTab, setActiveOrgSubTab] = useState<OrgSubTab>('view_org');
+    const [governanceSubTab, setGovernanceSubTab] = useState<string | null>(null);
+    const [governanceOpenItemId, setGovernanceOpenItemId] = useState<string | null>(null);
     const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
         return localStorage.getItem('sidebarOpen') !== 'false';
     });
@@ -46,6 +48,8 @@ const App: React.FC = () => {
     const [orgName, setOrgName] = useState<string | null>(null);
     const [logoutToastVisible, setLogoutToastVisible] = useState(false);
     const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+    const [userEmail, setUserEmail] = useState<string | null>(null);
+    const [userPhotoUrl, setUserPhotoUrl] = useState<string | null>(null);
     const logoutTimerRef = useRef<number | null>(null);
 
     // Tab refresh hook
@@ -59,9 +63,13 @@ const App: React.FC = () => {
         });
     };
 
-    const handleNavigate = (tab: MainTab, subTab?: OrgSubTab) => {
+    const handleNavigate = (tab: MainTab, subTab?: string, itemId?: string) => {
         setActiveTab(tab);
-        if (subTab) setActiveOrgSubTab(subTab);
+        if (tab === 'organisation' && subTab) setActiveOrgSubTab(subTab as OrgSubTab);
+        if (tab === 'governance') {
+            if (subTab) setGovernanceSubTab(subTab);
+            setGovernanceOpenItemId(itemId || null);
+        }
     };
 
     // Theme Effect
@@ -85,8 +93,11 @@ const App: React.FC = () => {
                 const session = data.session;
                 if (session && session.user) {
                     const name = (session.user.user_metadata as any)?.full_name || session.user.email || 'User';
+                    const photo = (session.user.user_metadata as any)?.avatar_url || (session.user.user_metadata as any)?.picture || null;
                     sessionStorage.setItem('grcUserName', name);
                     setUserName(name);
+                    setUserEmail(session.user.email || null);
+                    setUserPhotoUrl(photo);
                     setIsNameModalOpen(false);
 
                     const me = await SupabaseService.getOrgMe();
@@ -135,8 +146,11 @@ const App: React.FC = () => {
 
                     if (session && session.user) {
                         const name = (session.user.user_metadata as any)?.full_name || session.user.email || 'User';
+                        const photo = (session.user.user_metadata as any)?.avatar_url || (session.user.user_metadata as any)?.picture || null;
                         sessionStorage.setItem('grcUserName', name);
                         setUserName(name);
+                        setUserEmail(session.user.email || null);
+                        setUserPhotoUrl(photo);
                         setIsNameModalOpen(false);
 
                         const me = await SupabaseService.getOrgMe();
@@ -254,7 +268,7 @@ const App: React.FC = () => {
                 <div className={activeTab === 'dashboard' ? '' : 'hidden'}><DashboardTab isActive={activeTab === 'dashboard'} /></div>
                 <div className={activeTab === 'organisation' ? '' : 'hidden'}><OrganisationTab userRole={platformAdminRole} activeSubTab={activeOrgSubTab} isActive={activeTab === 'organisation'} /></div>
                 <div className={activeTab === 'program' ? '' : 'hidden'}><ProgramTab userRole={userRole} isActive={activeTab === 'program'} /></div>
-                <div className={activeTab === 'governance' ? '' : 'hidden'}><GovernanceTab isActive={activeTab === 'governance'} /></div>
+                <div className={activeTab === 'governance' ? '' : 'hidden'}><GovernanceTab isActive={activeTab === 'governance'} externalSubTab={governanceSubTab} externalOpenItemId={governanceOpenItemId} onExternalSubTabConsumed={() => { setGovernanceSubTab(null); setGovernanceOpenItemId(null); }} /></div>
                 <div className={activeTab === 'compliance' ? '' : 'hidden'}><ComplianceTab isActive={activeTab === 'compliance'} /></div>
                 <div className={activeTab === 'logs' ? '' : 'hidden'}><ActivityLogsTab isActive={activeTab === 'logs'} /></div>
             </div>
@@ -295,9 +309,19 @@ const App: React.FC = () => {
                     toggleDarkMode={toggleDarkMode}
                     onSignOut={handleSignOut}
                     userName={userName}
+                    userEmail={userEmail}
+                    userPhotoUrl={userPhotoUrl}
                     orgName={displayOrgName}
                     openFeedback={() => setIsFeedbackOpen(true)}
-                    onNavigate={(tab) => handleNavigate(tab as MainTab)}
+                    onNavigate={(tab, subTab, itemId) => handleNavigate(tab as MainTab, subTab, itemId)}
+                    onDeleteAccount={async () => {
+                        try {
+                            await SupabaseService.deleteMyAccount();
+                            await handleSignOut();
+                        } catch (err: any) {
+                            console.error('Delete account failed:', err);
+                        }
+                    }}
                 />
 
                 {/* Pending approval banner */}

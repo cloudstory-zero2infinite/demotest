@@ -51,6 +51,52 @@ router.get('/users', requireAuth, async (req, res) => {
   }
 });
 
+// DELETE /api/org/delete-my-account — user deletes their own org_onboarding entry
+router.delete('/delete-my-account', requireAuth, async (req, res) => {
+  try {
+    const { error } = await supabaseAdmin
+      .from('org_onboarding')
+      .delete()
+      .eq('user_id', req.userId)
+      .eq('org_id', req.orgId);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── GET /notifications ───────────────────────────────────────────────────
+router.get('/notifications', requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('org_notifications')
+      .select('*')
+      .eq('recipient_id', req.userId)
+      .eq('org_id', req.orgId)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── PUT /notifications/:notifId/read ─────────────────────────────────────
+router.put('/notifications/:notifId/read', requireAuth, async (req, res) => {
+  try {
+    const { error } = await supabaseAdmin
+      .from('org_notifications')
+      .update({ read: true })
+      .eq('id', req.params.notifId)
+      .eq('recipient_id', req.userId);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // POST onboard a user to the org (used by admin from org management UI)
 router.post('/onboard', requireAuth, async (req, res) => {
   try {
@@ -126,6 +172,9 @@ router.post('/setup/individual', requireAuth, async (req, res) => {
       .single();
     if (obError) throw obError;
 
+    // Seed NN controls for the new org
+    await supabaseAdmin.rpc('seed_nn_controls_for_org', { org_uuid: newOrg.id });
+
     res.status(201).json({ org: newOrg, onboarding });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -178,6 +227,9 @@ router.post('/setup/create-org', requireAuth, async (req, res) => {
       .single();
     if (obError) throw obError;
 
+    // Seed NN controls for the new org
+    await supabaseAdmin.rpc('seed_nn_controls_for_org', { org_uuid: newOrg.id });
+
     res.status(201).json({ org: newOrg, onboarding });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -219,6 +271,25 @@ router.post('/setup/join-request', requireAuth, async (req, res) => {
       .select()
       .single();
     if (pendError) throw pendError;
+
+    // Notify all admins in the org
+    const { data: admins } = await supabaseAdmin
+      .from('org_onboarding')
+      .select('user_id')
+      .eq('org_id', adminRecord.org_id)
+      .in('role', ['admin', 'tenant_admin'])
+      .eq('status', 'active')
+      .not('user_id', 'is', null);
+
+    if (admins && admins.length > 0) {
+      const notifications = admins.map(a => ({
+        recipient_id: a.user_id,
+        type: 'join_request',
+        message: `${email} has requested to join your organisation`,
+        org_id: adminRecord.org_id,
+      }));
+      await supabaseAdmin.from('org_notifications').insert(notifications);
+    }
 
     res.status(201).json({ pending, message: 'Join request sent. Your admin will approve your access.' });
   } catch (err) {
