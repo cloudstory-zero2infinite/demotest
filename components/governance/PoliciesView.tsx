@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
 import { marked } from 'marked';
 import jsPDF from 'jspdf';
@@ -538,7 +538,13 @@ const PolicyCard: React.FC<PolicyCardProps> = ({ policy, selected, onToggleSelec
 };
 
 // ─── PoliciesView (main) ──────────────────────────────────────────────────────
-export const PoliciesView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
+interface PoliciesViewProps {
+    isActive?: boolean;
+    autoOpenPolicyId?: string | null;
+    onAutoOpenConsumed?: () => void;
+}
+
+export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, autoOpenPolicyId, onAutoOpenConsumed }) => {
     const [policies, setPolicies] = useState<PolicyV2[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -583,6 +589,26 @@ export const PoliciesView: React.FC<{ isActive?: boolean }> = ({ isActive = true
     }, []);
 
     useUnifiedRefresh(isActive, fetchPolicies);
+
+    // Auto-open a specific policy from notification click
+    const pendingAutoOpenRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (autoOpenPolicyId) {
+            pendingAutoOpenRef.current = autoOpenPolicyId;
+            fetchPolicies();
+            onAutoOpenConsumed?.();
+        }
+    }, [autoOpenPolicyId]);
+
+    useEffect(() => {
+        if (pendingAutoOpenRef.current && policies.length > 0) {
+            const target = policies.find(p => p.policy_id === pendingAutoOpenRef.current);
+            if (target) {
+                setViewTarget(target);
+            }
+            pendingAutoOpenRef.current = null;
+        }
+    }, [policies]);
 
     const filtered = useMemo(() => {
         const q = searchQuery.toLowerCase();

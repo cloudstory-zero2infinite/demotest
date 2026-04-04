@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { InternalControlsView } from '../governance/InternalControlsView';
 import { AssetsView } from '../governance/AssetsView';
 import { PoliciesView } from '../governance/PoliciesView';
@@ -7,10 +7,36 @@ import { AssetRelationshipsView } from '../governance/AssetRelationshipsView';
 import { CapabilityRegisterView } from '../governance/CapabilityRegisterView';
 import { ControlRegistryView } from '../governance/ControlRegistryView';
 
-export const GovernanceTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
+interface GovernanceTabProps {
+    isActive?: boolean;
+    externalSubTab?: string | null;
+    externalOpenItemId?: string | null;
+    onExternalSubTabConsumed?: () => void;
+}
+
+export const GovernanceTab: React.FC<GovernanceTabProps> = ({ isActive = true, externalSubTab, externalOpenItemId, onExternalSubTabConsumed }) => {
     type SubTab = 'controls' | 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry';
     const [activeSubTab, setActiveSubTab] = useState<SubTab>('assets');
     const [mountedSubTabs, setMountedSubTabs] = useState<Set<SubTab>>(new Set(['assets']));
+
+    // Item IDs to auto-open in child views
+    const [openControlId, setOpenControlId] = useState<string | null>(null);
+    const [openPolicyId, setOpenPolicyId] = useState<string | null>(null);
+
+    // React to external subtab navigation (e.g. from notification click)
+    useEffect(() => {
+        if (externalSubTab) {
+            handleSubTabChange(externalSubTab as SubTab);
+            if (externalOpenItemId) {
+                if (externalSubTab === 'control_registry') {
+                    setOpenControlId(externalOpenItemId);
+                } else if (externalSubTab === 'policies') {
+                    setOpenPolicyId(externalOpenItemId);
+                }
+            }
+            onExternalSubTabConsumed?.();
+        }
+    }, [externalSubTab, externalOpenItemId]);
 
     const handleSubTabChange = (tab: SubTab) => {
         setActiveSubTab(tab);
@@ -57,7 +83,9 @@ export const GovernanceTab: React.FC<{ isActive?: boolean }> = ({ isActive = tru
                     <div className={activeSubTab === 'assets' ? '' : 'hidden'}><AssetsView isActive={isActive && activeSubTab === 'assets'} /></div>
                 )}
                 {mountedSubTabs.has('policies') && (
-                    <div className={activeSubTab === 'policies' ? '' : 'hidden'}><PoliciesView isActive={isActive && activeSubTab === 'policies'} /></div>
+                    <div className={activeSubTab === 'policies' ? '' : 'hidden'}>
+                        <PoliciesView isActive={isActive && activeSubTab === 'policies'} autoOpenPolicyId={openPolicyId} onAutoOpenConsumed={() => setOpenPolicyId(null)} />
+                    </div>
                 )}
                 {mountedSubTabs.has('vulnerability') && (
                     <div className={activeSubTab === 'vulnerability' ? '' : 'hidden'}><VulnerabilitiesView isActive={isActive && activeSubTab === 'vulnerability'} /></div>
@@ -69,7 +97,9 @@ export const GovernanceTab: React.FC<{ isActive?: boolean }> = ({ isActive = tru
                     <div className={activeSubTab === 'capabilities' ? '' : 'hidden'}><CapabilityRegisterView isActive={isActive && activeSubTab === 'capabilities'} /></div>
                 )}
                 {mountedSubTabs.has('control_registry') && (
-                    <div className={activeSubTab === 'control_registry' ? '' : 'hidden'}><ControlRegistryView isActive={isActive && activeSubTab === 'control_registry'} /></div>
+                    <div className={activeSubTab === 'control_registry' ? '' : 'hidden'}>
+                        <ControlRegistryView isActive={isActive && activeSubTab === 'control_registry'} autoOpenControlId={openControlId} onAutoOpenConsumed={() => setOpenControlId(null)} />
+                    </div>
                 )}
             </div>
         </div>

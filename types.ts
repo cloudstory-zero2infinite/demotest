@@ -146,7 +146,7 @@ export type CapabilityCreate = Omit<Capability, 'id' | 'created_at' | 'updated_a
 export type CapabilityUpdate = Partial<Omit<CapabilityCreate, 'org_id' | 'user_id'>>;
 
 // Control Registry Types
-export type ControlStatus = 'Enforced' | 'NotEnforced';
+export type ControlStatus = 'Enforced' | 'NotEnforced' | 'In-Review';
 export type ControlType = 'NN' | 'Regulatory' | 'Standard';
 export type EnforcementType = 'org_wide' | 'Asset_specific' | 'BU_specific';
 
@@ -161,13 +161,65 @@ export interface ControlRegistry {
     ctld_by: string[];
     ctl_ref_fw: string | null;
     ctl_other_details: string | null;
+    evidence_metadata: EvidenceFileMetadata[] | null;
+    enforced_by: string | null;
+    reviewed_by: string | null;
     org_id: string;
     user_id: string | null;
     created_at: string;
     updated_at: string;
 }
 
-export type ControlRegistryCreate = Omit<ControlRegistry, 'id' | 'created_at' | 'updated_at'>;
+export interface EvidenceFileMetadata {
+    display_name: string;
+    storage_path: string;
+    original_name: string;
+    uploaded_at: string;
+    review_id: string;
+}
+
+export interface ControlEvidenceReview {
+    id: string;
+    control_id: string;
+    requested_status: 'Enforced' | 'NotEnforced';
+    requested_by: string;
+    enforced_by_name: string;
+    enforced_by_email: string;
+    reviewer_id: string | null;
+    reviewer_name: string;
+    reviewer_email: string;
+    status: 'pending' | 'approved' | 'rejected';
+    comment: string | null;
+    review_comment: string | null;
+    evidence_files: { name: string; storage_path: string; original_name: string; size: number; type: string }[];
+    org_id: string;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface ControlNotification {
+    id: string;
+    recipient_id: string;
+    control_id: string;
+    control_name: string;
+    type: 'review_requested' | 'enforcement_approved' | 'enforcement_rejected';
+    message: string;
+    read: boolean;
+    org_id: string;
+    created_at: string;
+}
+
+export interface OrgNotification {
+    id: string;
+    recipient_id: string;
+    type: 'join_request';
+    message: string;
+    read: boolean;
+    org_id: string;
+    created_at: string;
+}
+
+export type ControlRegistryCreate = Omit<ControlRegistry, 'id' | 'created_at' | 'updated_at' | 'evidence_metadata' | 'enforced_by' | 'reviewed_by'>;
 export type ControlRegistryUpdate = Partial<Omit<ControlRegistryCreate, 'org_id' | 'user_id'>>;
 
 // Vulnerability Management Types

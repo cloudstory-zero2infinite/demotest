@@ -11,12 +11,15 @@ ZeroTo1 GRC is a Governance, Risk & Compliance (GRC) SaaS platform with multi-te
 - **React 19** + **TypeScript** + **Vite 6**
 - **Recharts** for data visualization; **Mermaid** for org diagrams; **xlsx** for spreadsheet export
 - Tailwind CSS utility classes for styling (dark mode supported via `body.classList.add('dark')`)
+- **No `src/` directory** — frontend source files live at the repo root: `App.tsx`, `index.tsx`, `types.ts`, `components/`, `hooks/`, `services/`, `utils/`
 - Entry: `App.tsx` (large file — use offset/limit when reading)
-- Tab components: `components/tabs/` — one file per main nav section
+- Tab components: `components/tabs/` — one file per main nav section (Dashboard, Program, Governance, Compliance, Organisation, Risk, Resiliency, ThreatView, ActivityLogs)
 - Domain views: `components/governance/`, `components/dashboard/`, `components/program/`, `components/org/`
+- Admin: `components/admin/PlatformAdminTab.tsx`; Auth: `components/auth/` (onboarding, name entry modals)
 - Common UI: `components/common/`
 - Types: `types.ts`
 - Service layer: `services/supabase.ts` — all API calls go through `apiRequest()` here
+- CSV parsing: `utils/csvParser.ts`
 
 ### Backend (`/server/`)
 - **Express.js** (Node.js, ESM modules — `"type": "module"`)
@@ -24,7 +27,10 @@ ZeroTo1 GRC is a Governance, Risk & Compliance (GRC) SaaS platform with multi-te
 - Routes: `server/src/routes/` — one file per domain (program, controls, assets, policies, vulnerabilities, compliance, contacts, activity, org, feedback, capabilities, control-registry)
 - Auth middleware: `server/src/middleware/auth.js` — validates JWT, attaches `req.userId`, `req.orgId`, `req.userRole`
 - Supabase admin client: `server/src/supabase.js` (service-role key, bypasses RLS)
-- In production the server also serves the built frontend from `dist/` (Dockerfile exposes port 8080, runs `node server/src/index.js`)
+- Email: uses **Resend** (`resend` npm package) for transactional email
+- All routes mounted under `/api/<domain>` (e.g., `/api/program`, `/api/controls`, `/api/org`)
+- Health check: `GET /api/health`
+- In production the Dockerfile builds the frontend, then serves it as static files from `dist/` on port 8080 via the same Express server
 
 ### AI Agent (`/ai-agent/`)
 - **FastAPI** (Python) service using **Google Gemini** for AI-powered queries
@@ -96,6 +102,7 @@ Copy `.env.example` to `.env`. Required:
 
 ## Custom Hooks
 - `useTabRefresh(activeTab)` — dispatches a `tabChanged` CustomEvent on `window` when the active tab changes; domain components listen to this event to re-fetch data
+- `useUnifiedRefresh(isActive, onRefresh)` — triggers data refresh when a component becomes active, when the browser tab regains visibility, or when the window regains focus (500ms debounce)
 - `useDataRefresh` — wraps data-fetching with loading/error state
 - `useTableSelection` — manages multi-row checkbox selection for bulk actions
 

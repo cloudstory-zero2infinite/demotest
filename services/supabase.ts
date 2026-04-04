@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate } from '../types';
+import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate } from '../types';
 
 // Supabase client is kept ONLY for Google Auth (OAuth sign-in/sign-out/session)
 const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL as string;
@@ -99,6 +99,24 @@ export const getOrganizationUsers = async (): Promise<any[]> => {
   } catch {
     return [];
   }
+};
+
+export const deleteMyAccount = async (): Promise<void> => {
+  return apiRequest<void>('/api/org/delete-my-account', { method: 'DELETE' });
+};
+
+// --- Org Notifications ---
+
+export const getOrgNotifications = async (): Promise<OrgNotification[]> => {
+  try {
+    return await apiRequest<OrgNotification[]>('/api/org/notifications');
+  } catch {
+    return [];
+  }
+};
+
+export const markOrgNotificationRead = async (id: string): Promise<void> => {
+  return apiRequest<void>(`/api/org/notifications/${id}/read`, { method: 'PUT' });
 };
 
 export const getUserRole = async (): Promise<string | null> => {
@@ -403,6 +421,98 @@ export const bulkAddControlRegistry = async (controls: ControlRegistryCreate[]):
     method: 'POST',
     body: JSON.stringify(controls),
   });
+};
+
+// --- Control Evidence & Enforcement ---
+
+export const submitControlEnforcement = async (
+  id: string,
+  data: {
+    requested_status: string;
+    comment?: string;
+    reviewer_id?: string;
+    reviewer_name: string;
+    reviewer_email: string;
+    enforced_by_name: string;
+    enforced_by_email: string;
+    files: File[];
+  }
+): Promise<{ success: boolean; review: ControlEvidenceReview }> => {
+  let token = cachedToken;
+  if (!token) {
+    const { data: session } = await supabase.auth.getSession();
+    token = session.session?.access_token || null;
+    cachedToken = token;
+  }
+
+  const formData = new FormData();
+  formData.append('requested_status', data.requested_status);
+  if (data.comment) formData.append('comment', data.comment);
+  if (data.reviewer_id) formData.append('reviewer_id', data.reviewer_id);
+  formData.append('reviewer_name', data.reviewer_name);
+  formData.append('reviewer_email', data.reviewer_email);
+  formData.append('enforced_by_name', data.enforced_by_name);
+  formData.append('enforced_by_email', data.enforced_by_email);
+  data.files.forEach(file => formData.append('files', file));
+
+  const response = await fetch(`${API_BASE_URL}/api/control-registry/${id}/submit-enforcement`, {
+    method: 'POST',
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: response.statusText }));
+    throw new Error(err.message || `Request failed with status ${response.status}`);
+  }
+  return response.json();
+};
+
+export const approveControlEnforcement = async (id: string, comment?: string): Promise<void> => {
+  return apiRequest<void>(`/api/control-registry/${id}/approve-enforcement`, {
+    method: 'POST',
+    body: JSON.stringify({ comment }),
+  });
+};
+
+export const rejectControlEnforcement = async (id: string, comment: string): Promise<void> => {
+  return apiRequest<void>(`/api/control-registry/${id}/reject-enforcement`, {
+    method: 'POST',
+    body: JSON.stringify({ comment }),
+  });
+};
+
+export const getControlEvidenceReview = async (id: string): Promise<ControlEvidenceReview | null> => {
+  try {
+    return await apiRequest<ControlEvidenceReview | null>(`/api/control-registry/${id}/evidence-review`);
+  } catch {
+    return null;
+  }
+};
+
+export const getControlEvidenceFiles = async (id: string): Promise<(EvidenceFileMetadata & { signed_url: string | null })[]> => {
+  try {
+    return await apiRequest<(EvidenceFileMetadata & { signed_url: string | null })[]>(`/api/control-registry/${id}/evidence-files`);
+  } catch {
+    return [];
+  }
+};
+
+// --- Control Notifications ---
+
+export const getControlNotifications = async (): Promise<ControlNotification[]> => {
+  try {
+    return await apiRequest<ControlNotification[]>('/api/control-registry/notifications');
+  } catch {
+    return [];
+  }
+};
+
+export const markControlNotificationRead = async (id: string): Promise<void> => {
+  return apiRequest<void>(`/api/control-registry/notifications/${id}/read`, { method: 'PUT' });
 };
 
 // --- Governance: Capability Register ---

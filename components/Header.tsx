@@ -1,9 +1,21 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { SunIcon, MoonIcon, BellIcon } from './Icons';
 import * as SupabaseService from '../services/supabase';
-import { PolicyNotification } from '../types';
 
 type UserRole = 'security-staff' | 'cxo';
+
+type UnifiedNotification = {
+    id: string;
+    message: string;
+    read: boolean;
+    created_at: string;
+    source: 'policy' | 'control' | 'org';
+    type: string;
+    policy_id?: string;
+    policy_name?: string;
+    control_id?: string;
+    control_name?: string;
+};
 
 interface HeaderProps {
     userRole: 'security-staff' | 'cxo';
@@ -12,27 +24,49 @@ interface HeaderProps {
     toggleDarkMode: () => void;
     onSignOut: () => void;
     userName: string | null;
+    userEmail: string | null;
+    userPhotoUrl: string | null;
     orgName: string | null;
     openFeedback: () => void;
-    onNavigate?: (tab: string) => void;
+    onNavigate?: (tab: string, subTab?: string, itemId?: string) => void;
+    onDeleteAccount?: () => Promise<void>;
 }
 
 export const Header: React.FC<HeaderProps> = ({
     userRole, setUserRole, isDarkMode, toggleDarkMode,
-    onSignOut, userName, orgName, openFeedback, onNavigate
+    onSignOut, userName, userEmail, userPhotoUrl, orgName, openFeedback, onNavigate, onDeleteAccount
 }) => {
-    const [notifications, setNotifications] = useState<PolicyNotification[]>([]);
-    const [showDropdown, setShowDropdown] = useState(false);
-    const dropdownRef = useRef<HTMLDivElement>(null);
+    // ─── Notifications ───
+    const [notifications, setNotifications] = useState<UnifiedNotification[]>([]);
+    const [showNotifDropdown, setShowNotifDropdown] = useState(false);
+    const notifRef = useRef<HTMLDivElement>(null);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    // ─── Profile menu ───
+    const [showProfileMenu, setShowProfileMenu] = useState(false);
+    const profileRef = useRef<HTMLDivElement>(null);
+
+    // ─── Delete account flow ───
+    const [deleteStep, setDeleteStep] = useState<'closed' | 'warning' | 'confirm'>('closed');
+    const [deleteEmailInput, setDeleteEmailInput] = useState('');
+    const [deleteError, setDeleteError] = useState<string | null>(null);
+    const [deleting, setDeleting] = useState(false);
 
     const fetchNotifications = useCallback(async () => {
         try {
-            const data = await SupabaseService.getPolicyNotifications();
-            setNotifications(data);
-        } catch {
-            // silently ignore — user may not be authenticated yet
-        }
+            const [policyNotifs, controlNotifs, orgNotifs] = await Promise.all([
+                SupabaseService.getPolicyNotifications(),
+                SupabaseService.getControlNotifications(),
+                SupabaseService.getOrgNotifications(),
+            ]);
+            const unified: UnifiedNotification[] = [
+                ...policyNotifs.map(n => ({ id: n.id, message: n.message, read: n.read, created_at: n.created_at, source: 'policy' as const, type: n.type, policy_id: n.policy_id, policy_name: n.policy_name })),
+                ...controlNotifs.map(n => ({ id: n.id, message: n.message, read: n.read, created_at: n.created_at, source: 'control' as const, type: n.type, control_id: n.control_id, control_name: n.control_name })),
+                ...orgNotifs.map(n => ({ id: n.id, message: n.message, read: n.read, created_at: n.created_at, source: 'org' as const, type: n.type })),
+            ];
+            unified.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            setNotifications(unified);
+        } catch { /* silently ignore */ }
     }, []);
 
     useEffect(() => {
@@ -41,12 +75,11 @@ export const Header: React.FC<HeaderProps> = ({
         return () => { if (pollRef.current) clearInterval(pollRef.current); };
     }, [fetchNotifications]);
 
-    // Close dropdown on outside click
+    // Click-outside handlers
     useEffect(() => {
         const handler = (e: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-                setShowDropdown(false);
-            }
+            if (notifRef.current && !notifRef.current.contains(e.target as Node)) setShowNotifDropdown(false);
+            if (profileRef.current && !profileRef.current.contains(e.target as Node)) setShowProfileMenu(false);
         };
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
@@ -54,13 +87,29 @@ export const Header: React.FC<HeaderProps> = ({
 
     const unreadCount = notifications.filter(n => !n.read).length;
 
-    const handleNotificationClick = async (notif: PolicyNotification) => {
+    const handleNotificationClick = async (notif: UnifiedNotification) => {
         if (!notif.read) {
-            await SupabaseService.markPolicyNotificationRead(notif.id);
+            if (notif.source === 'policy') {
+                await SupabaseService.markPolicyNotificationRead(notif.id);
+            } else if (notif.source === 'control') {
+                await SupabaseService.markControlNotificationRead(notif.id);
+            } else if (notif.source === 'org') {
+                await SupabaseService.markOrgNotificationRead(notif.id);
+            }
             setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, read: true } : n));
         }
-        setShowDropdown(false);
-        onNavigate?.('governance');
+        setShowNotifDropdown(false);
+        if (notif.source === 'org') {
+            onNavigate?.('organisation', 'tenant_admin');
+        } else if (notif.source === 'control' && notif.control_id) {
+            onNavigate?.('governance', 'control_registry', notif.control_id);
+        } else if (notif.source === 'policy' && notif.policy_id) {
+            onNavigate?.('governance', 'policies', notif.policy_id);
+        } else if (notif.source === 'control') {
+            onNavigate?.('governance', 'control_registry');
+        } else {
+            onNavigate?.('governance', 'policies');
+        }
     };
 
     const formatTime = (iso: string) => {
@@ -72,13 +121,41 @@ export const Header: React.FC<HeaderProps> = ({
         return `${Math.floor(hrs / 24)}d ago`;
     };
 
-    const notifTypeColor = (type: PolicyNotification['type']) => {
-        if (type === 'approval_requested') return 'text-yellow-500';
-        if (type === 'approved') return 'text-green-500';
+    const notifTypeColor = (type: string) => {
+        if (type === 'approval_requested' || type === 'review_requested') return 'text-yellow-500';
+        if (type === 'approved' || type === 'enforcement_approved') return 'text-green-500';
+        if (type === 'join_request') return 'text-blue-500';
         return 'text-red-500';
     };
 
+    // Initials fallback for avatar
+    const initials = (userName || 'U').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+
+    const handleDeleteConfirm = async () => {
+        if (!userEmail || deleteEmailInput.trim().toLowerCase() !== userEmail.toLowerCase()) {
+            setDeleteError('Email does not match. Please enter the correct email.');
+            return;
+        }
+        setDeleting(true);
+        setDeleteError(null);
+        try {
+            await onDeleteAccount?.();
+            setDeleteStep('closed');
+        } catch {
+            setDeleteError('Failed to delete account. Please try again.');
+        } finally {
+            setDeleting(false);
+        }
+    };
+
+    const closeDeleteModal = () => {
+        setDeleteStep('closed');
+        setDeleteEmailInput('');
+        setDeleteError(null);
+    };
+
     return (
+        <>
         <header className="fixed top-0 left-0 right-0 bg-white dark:bg-gray-800 shadow-sm border-b dark:border-gray-700 z-40">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="flex items-center justify-between h-16">
@@ -94,29 +171,20 @@ export const Header: React.FC<HeaderProps> = ({
                         </div>
                     </div>
 
-                    <div className="flex items-center space-x-2 sm:space-x-4">
-                        {userName && (
-                            <div className="hidden md:flex flex-col items-end leading-tight mr-2">
-                                <span className="text-sm text-gray-700 dark:text-gray-200 font-medium">
-                                    Welcome, {userName}
-                                </span>
-                                {orgName && (
-                                    <span className="text-xs text-gray-400 dark:text-gray-500">{orgName}</span>
-                                )}
-                            </div>
-                        )}
-
-                        <button
-                            onClick={openFeedback}
-                            className="text-xs text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 font-medium px-2 py-1 rounded border border-gray-200 dark:border-gray-700 hover:border-blue-200 transition-colors"
+                    <div className="flex items-center space-x-2 sm:space-x-3">
+                        <select
+                            value={userRole}
+                            onChange={(e) => setUserRole(e.target.value as UserRole)}
+                            className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-1.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                         >
-                            Feedback
-                        </button>
+                            <option value="security-staff">Security View</option>
+                            <option value="cxo">CXO View</option>
+                        </select>
 
                         {/* Notification Bell */}
-                        <div className="relative" ref={dropdownRef}>
+                        <div className="relative" ref={notifRef}>
                             <button
-                                onClick={() => setShowDropdown(prev => !prev)}
+                                onClick={() => setShowNotifDropdown(prev => !prev)}
                                 className="relative p-1.5 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                                 title="Notifications"
                             >
@@ -128,7 +196,7 @@ export const Header: React.FC<HeaderProps> = ({
                                 )}
                             </button>
 
-                            {showDropdown && (
+                            {showNotifDropdown && (
                                 <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-50 overflow-hidden">
                                     <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
                                         <span className="text-sm font-semibold text-gray-900 dark:text-white">Notifications</span>
@@ -138,59 +206,177 @@ export const Header: React.FC<HeaderProps> = ({
                                     </div>
                                     <div className="max-h-80 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
                                         {notifications.length === 0 ? (
-                                            <div className="px-4 py-6 text-center text-sm text-gray-400">
-                                                No notifications
-                                            </div>
-                                        ) : (
-                                            notifications.map(notif => (
-                                                <button
-                                                    key={notif.id}
-                                                    onClick={() => handleNotificationClick(notif)}
-                                                    className={`w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${!notif.read ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
-                                                >
-                                                    <div className="flex items-start gap-2">
-                                                        <span className={`mt-0.5 flex-shrink-0 ${notifTypeColor(notif.type)}`}>
-                                                            <BellIcon className="h-4 w-4" />
-                                                        </span>
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="text-xs text-gray-800 dark:text-gray-200 leading-snug">{notif.message}</p>
-                                                            <p className="text-[10px] text-gray-400 mt-0.5">{formatTime(notif.created_at)}</p>
-                                                        </div>
-                                                        {!notif.read && (
-                                                            <span className="flex-shrink-0 h-2 w-2 rounded-full bg-blue-500 mt-1" />
-                                                        )}
+                                            <div className="px-4 py-6 text-center text-sm text-gray-400">No notifications</div>
+                                        ) : notifications.map(notif => (
+                                            <button
+                                                key={notif.id}
+                                                onClick={() => handleNotificationClick(notif)}
+                                                className={`w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${!notif.read ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
+                                            >
+                                                <div className="flex items-start gap-2">
+                                                    <span className={`mt-0.5 flex-shrink-0 ${notifTypeColor(notif.type)}`}>
+                                                        <BellIcon className="h-4 w-4" />
+                                                    </span>
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-xs text-gray-800 dark:text-gray-200 leading-snug">{notif.message}</p>
+                                                        <p className="text-[10px] text-gray-400 mt-0.5">{formatTime(notif.created_at)}</p>
                                                     </div>
-                                                </button>
-                                            ))
-                                        )}
+                                                    {!notif.read && <span className="flex-shrink-0 h-2 w-2 rounded-full bg-blue-500 mt-1" />}
+                                                </div>
+                                            </button>
+                                        ))}
                                     </div>
                                 </div>
                             )}
                         </div>
 
-                        <select
-                            value={userRole}
-                            onChange={(e) => setUserRole(e.target.value as UserRole)}
-                            className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-1.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                        >
-                            <option value="security-staff">Security View</option>
-                            <option value="cxo">CXO View</option>
-                        </select>
+                        {/* Dark mode toggle */}
                         <button
                             onClick={toggleDarkMode}
                             className="p-1.5 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                         >
                             {isDarkMode ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
                         </button>
-                        <button
-                            onClick={onSignOut}
-                            className="px-3 py-1.5 text-xs font-semibold text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                        >
-                            Sign Out
-                        </button>
+
+                        {/* Profile Avatar + Dropdown */}
+                        <div className="relative" ref={profileRef}>
+                            <button
+                                onClick={() => setShowProfileMenu(prev => !prev)}
+                                className="flex items-center justify-center h-8 w-8 rounded-full overflow-hidden border-2 border-gray-200 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                                title={userName || 'Profile'}
+                            >
+                                {userPhotoUrl ? (
+                                    <img src={userPhotoUrl} alt={userName || 'Profile'} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                                ) : (
+                                    <span className="flex items-center justify-center h-full w-full bg-blue-500 text-white text-xs font-bold">
+                                        {initials}
+                                    </span>
+                                )}
+                            </button>
+
+                            {showProfileMenu && (
+                                <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-50 overflow-hidden">
+                                    {/* User info */}
+                                    <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+                                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{userName || 'User'}</p>
+                                        {userEmail && <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{userEmail}</p>}
+                                        {orgName && <p className="text-xs text-gray-400 dark:text-gray-500 truncate mt-0.5">{orgName}</p>}
+                                    </div>
+
+                                    {/* Menu items */}
+                                    <div className="py-1">
+                                        <button
+                                            onClick={() => { setShowProfileMenu(false); openFeedback(); }}
+                                            className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3"
+                                        >
+                                            <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
+                                            Feedback
+                                        </button>
+                                        <button
+                                            disabled
+                                            className="w-full text-left px-4 py-2.5 text-sm text-gray-400 dark:text-gray-500 cursor-not-allowed flex items-center gap-3"
+                                            title="Coming soon"
+                                        >
+                                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                            Help & Support
+                                            <span className="ml-auto text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded">Soon</span>
+                                        </button>
+                                    </div>
+
+                                    <div className="border-t border-gray-100 dark:border-gray-700 py-1">
+                                        <button
+                                            onClick={() => { setShowProfileMenu(false); onSignOut(); }}
+                                            className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3"
+                                        >
+                                            <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+                                            Sign Out
+                                        </button>
+                                    </div>
+
+                                    <div className="border-t border-gray-100 dark:border-gray-700 py-1">
+                                        <button
+                                            onClick={() => { setShowProfileMenu(false); setDeleteStep('warning'); }}
+                                            className="w-full text-left px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors flex items-center gap-3"
+                                        >
+                                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                            Delete My Account
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>
         </header>
+
+        {/* ─── Delete Account Modal ─── */}
+        {deleteStep !== 'closed' && (
+            <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/50 p-4" onClick={closeDeleteModal}>
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+                    {deleteStep === 'warning' && (
+                        <>
+                            <div className="px-6 py-4 border-b dark:border-gray-700">
+                                <h3 className="text-lg font-semibold text-red-600 dark:text-red-400">Delete Account</h3>
+                            </div>
+                            <div className="p-6">
+                                <div className="flex items-start gap-3 mb-4">
+                                    <div className="flex-shrink-0 h-10 w-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                                        <svg className="h-5 w-5 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-gray-700 dark:text-gray-300">
+                                            This action will <span className="font-semibold text-red-600 dark:text-red-400">permanently delete</span> your account and all associated data. This cannot be undone.
+                                        </p>
+                                        <p className="text-sm text-gray-700 dark:text-gray-300 mt-2">Do you still want to proceed?</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="px-6 py-4 bg-gray-50 dark:bg-gray-700/50 rounded-b-lg flex justify-end gap-3">
+                                <button onClick={closeDeleteModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 transition-colors">Cancel</button>
+                                <button onClick={() => setDeleteStep('confirm')} className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors">Yes, Proceed</button>
+                            </div>
+                        </>
+                    )}
+
+                    {deleteStep === 'confirm' && (
+                        <>
+                            <div className="px-6 py-4 border-b dark:border-gray-700">
+                                <h3 className="text-lg font-semibold text-red-600 dark:text-red-400">Confirm Deletion</h3>
+                            </div>
+                            <div className="p-6 space-y-4">
+                                <p className="text-sm text-gray-700 dark:text-gray-300">
+                                    Please enter the email address associated with your account to confirm deletion.
+                                </p>
+                                {deleteError && (
+                                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 px-3 py-2 rounded text-sm">
+                                        {deleteError}
+                                    </div>
+                                )}
+                                <input
+                                    type="email"
+                                    value={deleteEmailInput}
+                                    onChange={e => { setDeleteEmailInput(e.target.value); setDeleteError(null); }}
+                                    placeholder="Enter your email address"
+                                    className="block w-full rounded-lg border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-red-500 focus:border-red-500"
+                                    autoFocus
+                                />
+                            </div>
+                            <div className="px-6 py-4 bg-gray-50 dark:bg-gray-700/50 rounded-b-lg flex justify-end gap-3">
+                                <button onClick={closeDeleteModal} disabled={deleting} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 transition-colors">Cancel</button>
+                                <button
+                                    onClick={handleDeleteConfirm}
+                                    disabled={deleting || !deleteEmailInput.trim()}
+                                    className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    {deleting ? 'Deleting...' : 'Confirm Delete'}
+                                </button>
+                            </div>
+                        </>
+                    )}
+                </div>
+            </div>
+        )}
+        </>
     );
 };
