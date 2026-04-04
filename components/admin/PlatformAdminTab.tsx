@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback, FormEvent } from 'react';
+import React, { useState, useCallback, FormEvent, useMemo } from 'react';
 import * as SupabaseService from '../../services/supabase';
 import { useTableSelection } from '../../hooks/useTableSelection';
 import { SelectionActionBar } from '../common/SelectionActionBar';
+import { useDataRefresh } from '../../hooks/useDataRefresh';
 
 // ─── Status badge ────────────────────────────────────────────────────────────
 
@@ -41,7 +42,7 @@ const RoleBadge: React.FC<{ role: string }> = ({ role }) => {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export const PlatformAdminTab: React.FC = () => {
+export const PlatformAdminTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
     const [orgName, setOrgName] = useState<string | null>(null);
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
     const [members, setMembers] = useState<any[]>([]);
@@ -66,33 +67,38 @@ export const PlatformAdminTab: React.FC = () => {
     } = useTableSelection<any>();
 
     const loadMembers = useCallback(async () => {
-        setMembersLoading(true);
-        try {
-            const data = await SupabaseService.getOrganizationUsers();
-            setMembers(data);
-        } catch (err) {
-            console.error('Failed to load members', err);
-        } finally {
-            setMembersLoading(false);
-        }
+        const data = await SupabaseService.getOrganizationUsers();
+        setMembers(data);
+        return data;
     }, []);
 
-    useEffect(() => {
+    const { data: membersData, loading: membersLoadingState, refresh } = useDataRefresh(loadMembers, [], isActive);
+
+    // Sync local state with hook state
+    useMemo(() => {
+        if (membersData) setMembers(membersData);
+    }, [membersData]);
+
+    useMemo(() => {
+        setMembersLoading(membersLoadingState);
+    }, [membersLoadingState]);
+
+    useMemo(() => {
+        if (!isActive) return;
         const init = async () => {
             const me = await SupabaseService.getOrgMe();
             setOrgName(me?.orgName ?? null);
             setCurrentUserId(me?.userId ?? null);
         };
         init();
-        loadMembers();
-    }, [loadMembers]);
+    }, [isActive]);
 
     // ── Approve ────────────────────────────────────────────────────────────────
     const handleApprove = async (id: number) => {
         setActionLoading(id);
         try {
             await SupabaseService.approveMember(id);
-            await loadMembers();
+            await refresh();
         } catch (err: any) {
             alert(err.message || 'Failed to approve.');
         } finally {
@@ -110,7 +116,7 @@ export const PlatformAdminTab: React.FC = () => {
                 await SupabaseService.removeMember(id);
             }
             setConfirmRemove(null);
-            await loadMembers();
+            await refresh();
         } catch (err: any) {
             alert(err.message || 'Failed to remove member.');
         } finally {
@@ -161,7 +167,7 @@ export const PlatformAdminTab: React.FC = () => {
                 else if (pendingCount > 0) msg += ` (${pendingCount} pending — awaiting sign up)`;
                 setSuccessMessage(msg);
                 setEmailDescriptionPairs([{ email: '', description: '' }]);
-                await loadMembers();
+                await refresh();
             }
 
             if (failedUsers.length > 0) {
@@ -182,7 +188,7 @@ export const PlatformAdminTab: React.FC = () => {
         setIsSaving(true);
         try {
             await Promise.all(selectedPending.map(m => SupabaseService.approveMember(m.id)));
-            await loadMembers();
+            await refresh();
             clearAll();
         } catch (err: any) {
             alert(err.message || 'Failed to approve members.');
@@ -201,7 +207,7 @@ export const PlatformAdminTab: React.FC = () => {
                     ? SupabaseService.rejectMember(m.id)
                     : SupabaseService.removeMember(m.id)
             ));
-            await loadMembers();
+            await refresh();
             clearAll();
         } catch (err: any) {
             alert(err.message || 'Failed to remove members.');
@@ -242,7 +248,7 @@ export const PlatformAdminTab: React.FC = () => {
                         <span className="ml-2 text-sm font-normal text-gray-400">({members.length})</span>
                     </h2>
                     <button
-                        onClick={loadMembers}
+                        onClick={refresh}
                         className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 underline"
                     >
                         Refresh

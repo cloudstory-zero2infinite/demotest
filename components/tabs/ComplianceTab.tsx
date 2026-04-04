@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { Compliance, ComplianceStatus } from '../../types';
 import * as SupabaseService from '../../services/supabase';
+import { useDataRefresh } from '../../hooks/useDataRefresh';
 import { SortUpDownIcon, SortUpIcon, SortDownIcon } from '../Icons';
 import { Modal } from '../common/Modal';
 import { StatusBadge } from '../common/StatusBadge';
@@ -50,7 +51,7 @@ const ComplianceModal: React.FC<ComplianceModalProps> = ({ isOpen, onClose, comp
     );
 };
 
-export const ComplianceTab: React.FC = () => {
+export const ComplianceTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
     const [compliances, setCompliances] = useState<Compliance[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string|null>(null);
@@ -65,38 +66,32 @@ export const ComplianceTab: React.FC = () => {
         'Not Started': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
     };
 
-    const fetchOrgData = useCallback(async () => {
+    const fetchData = useCallback(async () => {
         try {
-            const orgData = await SupabaseService.getOrgMe();
+            setLoading(true);
+            setError(null);
+            const [orgData, complianceData] = await Promise.all([
+                SupabaseService.getOrgMe(),
+                SupabaseService.getCompliances()
+            ]);
+            
             if (orgData?.neededFramework) {
                 setNeededFrameworks(orgData.neededFramework);
-                // Set first framework as default if no framework is selected
                 if (orgData.neededFramework.length > 0 && !selectedFramework) {
                     setSelectedFramework(orgData.neededFramework[0]);
                 }
             }
-        } catch (e) {
-            console.error('Failed to load organization data:', e);
-        }
-    }, [selectedFramework]);
-
-    const fetchCompliances = useCallback(async () => {
-        try {
-            setLoading(true);
-            setError(null);
-            const data = await SupabaseService.getCompliances();
-            setCompliances(data);
+            setCompliances(complianceData);
+            return { orgData, compliances: complianceData };
         } catch(e) {
             setError("Failed to load compliance frameworks.");
+            throw e;
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [selectedFramework]);
 
-    useEffect(() => {
-        fetchOrgData();
-        fetchCompliances();
-    }, [fetchOrgData, fetchCompliances]);
+    const { data, refresh } = useDataRefresh(fetchData, [], isActive);
 
     const uniqueFrameworks = useMemo(() => {
         if (!neededFrameworks || neededFrameworks.length === 0) {

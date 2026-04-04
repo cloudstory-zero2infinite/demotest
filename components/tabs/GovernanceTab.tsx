@@ -7,7 +7,7 @@ import { AssetRelationshipsView } from '../governance/AssetRelationshipsView';
 import { CapabilityRegisterView } from '../governance/CapabilityRegisterView';
 import { ControlRegistryView } from '../governance/ControlRegistryView';
 
-export const GovernanceTab: React.FC = () => {
+export const GovernanceTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
     type SubTab = 'controls' | 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry';
     const [activeSubTab, setActiveSubTab] = useState<SubTab>('assets');
     const [mountedSubTabs, setMountedSubTabs] = useState<Set<SubTab>>(new Set(['assets']));
@@ -54,22 +54,22 @@ export const GovernanceTab: React.FC = () => {
             </div>
             <div className="mt-6">
                 {mountedSubTabs.has('assets') && (
-                    <div className={activeSubTab === 'assets' ? '' : 'hidden'}><AssetsView /></div>
+                    <div className={activeSubTab === 'assets' ? '' : 'hidden'}><AssetsView isActive={isActive && activeSubTab === 'assets'} /></div>
                 )}
                 {mountedSubTabs.has('policies') && (
-                    <div className={activeSubTab === 'policies' ? '' : 'hidden'}><PoliciesView /></div>
+                    <div className={activeSubTab === 'policies' ? '' : 'hidden'}><PoliciesView isActive={isActive && activeSubTab === 'policies'} /></div>
                 )}
                 {mountedSubTabs.has('vulnerability') && (
-                    <div className={activeSubTab === 'vulnerability' ? '' : 'hidden'}><VulnerabilitiesView /></div>
+                    <div className={activeSubTab === 'vulnerability' ? '' : 'hidden'}><VulnerabilitiesView isActive={isActive && activeSubTab === 'vulnerability'} /></div>
                 )}
                 {mountedSubTabs.has('relationships') && (
-                    <div className={activeSubTab === 'relationships' ? '' : 'hidden'}><AssetRelationshipsView /></div>
+                    <div className={activeSubTab === 'relationships' ? '' : 'hidden'}><AssetRelationshipsView isActive={isActive && activeSubTab === 'relationships'} /></div>
                 )}
                 {mountedSubTabs.has('capabilities') && (
-                    <div className={activeSubTab === 'capabilities' ? '' : 'hidden'}><CapabilityRegisterView /></div>
+                    <div className={activeSubTab === 'capabilities' ? '' : 'hidden'}><CapabilityRegisterView isActive={isActive && activeSubTab === 'capabilities'} /></div>
                 )}
                 {mountedSubTabs.has('control_registry') && (
-                    <div className={activeSubTab === 'control_registry' ? '' : 'hidden'}><ControlRegistryView /></div>
+                    <div className={activeSubTab === 'control_registry' ? '' : 'hidden'}><ControlRegistryView isActive={isActive && activeSubTab === 'control_registry'} /></div>
                 )}
             </div>
         </div>

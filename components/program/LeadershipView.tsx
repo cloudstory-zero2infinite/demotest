@@ -23,7 +23,7 @@ const leadershipDummyData: LeadershipTask[] = [
     { id: '5', workToBeDone: 'Address Audit Finding A-123', description: 'Develop a remediation plan for the critical finding from the external audit.', timestamp: '2024-07-18T16:00:00Z', status: 'Blocked', progress: 25 },
 ];
 
-export const LeadershipView: React.FC = () => {
+export const LeadershipView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
     const [items, setItems] = React.useState(leadershipDummyData);
 
     const {

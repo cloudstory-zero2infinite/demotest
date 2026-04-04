@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, ChangeEvent, useMemo } from 'react';
+import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
 import { Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, VulnerabilityStatus, VulnerabilitySource, Asset } from '../../types';
 import * as SupabaseService from '../../services/supabase';
 import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon } from '../Icons';
@@ -170,7 +171,7 @@ const VulnerabilityModal: React.FC<VulnerabilityModalProps> = ({ isOpen, onClose
     );
 };
 
-export const VulnerabilitiesView: React.FC = () => {
+export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
     const [vulnerabilities, setVulnerabilities] = useState<Vulnerability[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -194,7 +195,6 @@ export const VulnerabilitiesView: React.FC = () => {
 
     const fetchVulnerabilities = useCallback(async () => {
         try {
-            setLoading(true);
             setError(null);
             const data = await SupabaseService.getVulnerabilities();
             setVulnerabilities(data);
@@ -230,9 +230,7 @@ export const VulnerabilitiesView: React.FC = () => {
         }
     };
 
-    useEffect(() => {
-        fetchVulnerabilities();
-    }, [fetchVulnerabilities]);
+    useUnifiedRefresh(isActive, fetchVulnerabilities);
 
     const filteredAndSortedVulnerabilities = useMemo(() => {
         let filteredItems = [...vulnerabilities];

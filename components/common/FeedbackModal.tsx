@@ -23,30 +23,10 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose })
         setError('');
         setIsSubmitting(true);
         try {
-            const response = await fetch('https://formspree.io/f/mpqyzqzy', {
-                method: 'POST',
-                headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    rating,
-                    description,
-                    _subject: 'New feedback from Rapid Dev app',
-                }),
-            });
+            const success = await SupabaseService.saveFeedback({ rating, description });
 
-            if (!response.ok) {
-                let message = 'Failed to submit feedback. Please try again.';
-                try {
-                    const data = await response.json();
-                    if (data?.errors && data.errors.length > 0 && data.errors[0]?.message) {
-                        message = data.errors[0].message;
-                    }
-                } catch {
-                    // ignore JSON parse errors and use default message
-                }
-                throw new Error(message);
+            if (!success) {
+                throw new Error('Failed to submit feedback. Please try again.');
             }
 
             await SupabaseService.logAllActivity({

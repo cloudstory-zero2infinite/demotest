@@ -308,19 +308,20 @@ const OrgStructureView: React.FC = () => {
 interface OrganisationTabProps {
     userRole: UserRole | null;
     activeSubTab: 'view_org' | 'tenant_admin';
+    isActive?: boolean;
 }
 
-export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, activeSubTab }) => {
+export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, activeSubTab, isActive = true }) => {
     const isPlatformAdmin = userRole === 'tenant_admin' || userRole === 'admin';
 
     return (
         <div className="py-6">
             <div className={activeSubTab === 'view_org' ? '' : 'hidden'}>
-                <ViewOrganizationTab />
+                <ViewOrganizationTab isActive={isActive && activeSubTab === 'view_org'} />
             </div>
             {isPlatformAdmin && (
                 <div className={activeSubTab === 'tenant_admin' ? '' : 'hidden'}>
-                    <PlatformAdminTab />
+                    <PlatformAdminTab isActive={isActive && activeSubTab === 'tenant_admin'} />
                 </div>
             )}
         </div>
