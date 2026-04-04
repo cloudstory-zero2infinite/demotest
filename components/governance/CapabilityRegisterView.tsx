@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef, ChangeEvent, useMemo } from 'react';
+import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
 import { Capability, CapabilityCreate, CapabilityUpdate } from '../../types';
 import * as SupabaseService from '../../services/supabase';
 import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon } from '../Icons';
+import { parseCSVLine } from '../../utils/csvParser';
 import { Modal } from '../common/Modal';
 import { AIChatModal } from '../common/AIChatModal';
 import { BulkProgressModal } from '../common/BulkProgressModal';
@@ -196,7 +198,7 @@ const CapabilityModal: React.FC<CapabilityModalProps> = ({ isOpen, onClose, onSa
 
 type ModalState = { type: 'add' | 'edit' | 'view' | 'delete' | 'import' | null; item?: Capability | null };
 
-export const CapabilityRegisterView: React.FC = () => {
+export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
     const [capabilities, setCapabilities] = useState<Capability[]>([]);
     const [loading, setLoading] = useState(true);
     const [deleting, setDeleting] = useState(false);
@@ -216,7 +218,6 @@ export const CapabilityRegisterView: React.FC = () => {
 
     const fetchCapabilities = useCallback(async () => {
         try {
-            setLoading(true);
             setError(null);
             const data = await SupabaseService.getCapabilities();
             setCapabilities(data);
@@ -229,14 +230,7 @@ export const CapabilityRegisterView: React.FC = () => {
 
     useEffect(() => { fetchCapabilities(); }, [fetchCapabilities]);
 
-    useEffect(() => {
-        const handler = (e: Event) => {
-            const ce = e as CustomEvent;
-            if (ce.detail === 'governance') fetchCapabilities();
-        };
-        window.addEventListener('tabChanged', handler);
-        return () => window.removeEventListener('tabChanged', handler);
-    }, [fetchCapabilities]);
+    useUnifiedRefresh(isActive, fetchCapabilities);
 
     const filteredAndSorted = useMemo(() => {
         let items = [...capabilities];
@@ -375,7 +369,8 @@ export const CapabilityRegisterView: React.FC = () => {
             const lines = text.split('\n').slice(1);
             const parsed: CapabilityCreate[] = lines
                 .map(line => {
-                    const [, capab_name, capab_provider_raw, capab_cmdb_id_raw, capab_owner, capab_other_details] = line.split(',').map(s => s.trim());
+                    const fields = parseCSVLine(line);
+                    const [, capab_name, capab_provider_raw, capab_cmdb_id_raw, capab_owner, capab_other_details] = fields;
                     if (!capab_name || !capab_owner) return null;
                     return {
                         capab_name,

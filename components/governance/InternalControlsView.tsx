@@ -226,7 +226,6 @@ export const InternalControlsView: React.FC = () => {
 
     const fetchControls = useCallback(async () => {
         try {
-            setLoading(true);
             setError(null);
             const data = await SupabaseService.getInternalControls();
             setControls(data);

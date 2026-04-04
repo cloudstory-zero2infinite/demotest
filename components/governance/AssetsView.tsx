@@ -3,8 +3,10 @@ import React, { useState, useEffect, useCallback, useRef, ChangeEvent, useMemo }
 import { Asset, AssetCreate, AssetUpdate, AssetCriticality, AssetGovernedStatus, AssetExposure, AssetCategory, AssetSource } from '../../types';
 
 import * as SupabaseService from '../../services/supabase';
+import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
 
 import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon } from '../Icons';
+import { parseCSVLine } from '../../utils/csvParser';
 
 import { Modal } from '../common/Modal';
 
@@ -248,7 +250,7 @@ const displaySource = (source: string | null | undefined): string => {
     return sourceStr; // Will show 'Manual', etc.
 };
 
-export const AssetsView: React.FC = () => {
+export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
 
     const [assets, setAssets] = useState<Asset[]>([]);
 
@@ -289,9 +291,6 @@ export const AssetsView: React.FC = () => {
     const fetchAssets = useCallback(async () => {
 
         try {
-
-            setLoading(true);
-
             setError(null);
 
             const [assetsData, relationshipsData] = await Promise.all([
@@ -320,11 +319,7 @@ export const AssetsView: React.FC = () => {
 
 
 
-    useEffect(() => {
-
-        fetchAssets();
-
-    }, [fetchAssets]);
+    useUnifiedRefresh(isActive, fetchAssets);
 
 
 
@@ -755,7 +750,8 @@ export const AssetsView: React.FC = () => {
 
                 .map(line => {
 
-                    const [asset_id, name, criticality, details, governed_status, vulnerability_count, exposure, category, asset_owner, business_unit, physical_location, ip_address, mac_id] = line.split(',').map(s => s.trim());
+                    const fields = parseCSVLine(line);
+                    const [asset_id, name, criticality, details, governed_status, vulnerability_count, exposure, category, asset_owner, business_unit, physical_location, ip_address, mac_id] = fields;
 
                     // asset_id is optional — DB trigger auto-generates if blank
                     if (!name || !criticality || !governed_status || !exposure || !category) return null;
@@ -1601,4 +1597,3 @@ const handleExportCSV = () => {
     );
 
 };
-

@@ -1,7 +1,9 @@
 import React, { useState, useCallback, useMemo, useRef } from 'react';
+import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
 import * as SupabaseService from '../../services/supabase';
 import { AssetRelationship, AssetRelationshipCreate } from '../../types';
 import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon } from '../Icons';
+import { parseCSVLine } from '../../utils/csvParser';
 import { useTableSelection } from '../../hooks/useTableSelection';
 import { SelectionActionBar } from '../common/SelectionActionBar';
 import { AIChatModal } from '../common/AIChatModal';
@@ -100,7 +102,7 @@ const AssetRelationshipModal: React.FC<AssetRelationshipModalProps> = ({ isOpen,
     );
 };
 
-export const AssetRelationshipsView: React.FC = () => {
+export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
     const [relationships, setRelationships] = useState<AssetRelationship[]>([]);
     const [assets, setAssets] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -123,7 +125,6 @@ export const AssetRelationshipsView: React.FC = () => {
 
     const fetchData = useCallback(async () => {
         try {
-            setLoading(true);
             setError(null);
             const [rels, assetList] = await Promise.all([
                 SupabaseService.getAssetRelationships(),
@@ -138,36 +139,7 @@ export const AssetRelationshipsView: React.FC = () => {
         }
     }, []);
 
-    React.useEffect(() => {
-        // Initial data fetch
-        fetchData();
-    }, [fetchData]);
-
-    // Add a visibility observer to refresh data when tab becomes visible
-    React.useEffect(() => {
-        const observer = new IntersectionObserver(
-            (entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        // Tab is now visible, refresh data
-                        fetchData();
-                    }
-                });
-            },
-            { threshold: 0.1 }
-        );
-
-        const element = document.querySelector('[data-tab="relationships"]');
-        if (element) {
-            observer.observe(element);
-        }
-
-        return () => {
-            if (element) {
-                observer.unobserve(element);
-            }
-        };
-    }, [fetchData]);
+    useUnifiedRefresh(isActive, fetchData);
 
     const assetIds = useMemo(() => assets.map(a => a.asset_id).filter(Boolean) as string[], [assets]);
 
@@ -215,7 +187,8 @@ export const AssetRelationshipsView: React.FC = () => {
             let skipped = 0;
             const newRels: AssetRelationshipCreate[] = lines
                 .map(line => {
-                    const [source_asset_id, target_asset_id, relationship_type] = line.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+                    const fields = parseCSVLine(line);
+                    const [source_asset_id, target_asset_id, relationship_type] = fields;
                     if (!source_asset_id || !target_asset_id || !relationship_type) { skipped++; return null; }
                     return { source_asset_id, target_asset_id, relationship_type };
                 })

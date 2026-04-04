@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, ChangeEvent, useCallback, useMemo } from 'react';
-import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ProgramStatus } from '../../types';
+import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ProgramStatus, ActivityLog } from '../../types';
 import * as SupabaseService from '../../services/supabase';
 import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, HistoryIcon } from '../Icons';
 import { Modal } from '../common/Modal';
@@ -8,6 +8,7 @@ import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
 import { useTableSelection } from '../../hooks/useTableSelection';
 import { SelectionActionBar } from '../common/SelectionActionBar';
 import { parseCSVLine } from '../../utils/csvParser';
+import { useDataRefresh } from '../../hooks/useDataRefresh';
 
 // Helper function to sanitize input
 const sanitizeInput = (input: string): string => {
@@ -138,7 +139,7 @@ const ActivityLogModal: React.FC<ActivityLogModalProps> = ({ isOpen, onClose, ta
     );
 };
 
-export const ProgramTrackerView: React.FC = () => {
+export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
     const [tasks, setTasks] = useState<ProgramTask[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
@@ -157,22 +158,22 @@ export const ProgramTrackerView: React.FC = () => {
     const editSelectCls = "border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
 
     const fetchTasks = useCallback(async () => {
-        try {
-            setLoading(true);
-            setError(null);
-            const data = await SupabaseService.getTasks();
-            setTasks(data);
-        } catch (err) {
-            setError('Failed to fetch milestones.');
-            console.error(err);
-        } finally {
-            setLoading(false);
-        }
+        const data = await SupabaseService.getTasks();
+        setTasks(data);
+        return data;
     }, []);
 
-    useEffect(() => {
-        fetchTasks();
-    }, [fetchTasks]);
+    const { data: tasksData, loading: tasksLoading, error: tasksError, refresh } = useDataRefresh(fetchTasks, [], isActive);
+
+    // Sync local state with hook state
+    useMemo(() => {
+        if (tasksData) setTasks(tasksData);
+        if (tasksError) setError(tasksError);
+    }, [tasksData, tasksError]);
+
+    useMemo(() => {
+        setLoading(tasksLoading);
+    }, [tasksLoading]);
 
     const closeModal = () => setModalState({ type: null });
 

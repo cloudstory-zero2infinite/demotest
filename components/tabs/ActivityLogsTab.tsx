@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
 import { AllActivityLog } from '../../types';
 import * as SupabaseService from '../../services/supabase';
 import { Modal } from '../common/Modal';
@@ -13,7 +14,7 @@ export const triggerActivityUpdate = () => {
     window.dispatchEvent(new CustomEvent(ACTIVITY_UPDATE_EVENT));
 };
 
-export const ActivityLogsTab: React.FC = () => {
+export const ActivityLogsTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
     const [logs, setLogs] = useState<AllActivityLog[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -78,7 +79,6 @@ export const ActivityLogsTab: React.FC = () => {
 
     const fetchLogs = useCallback(async () => {
         try {
-            setLoading(true);
             setError(null);
             const data = await SupabaseService.getAllActivityLogs();
             
@@ -109,9 +109,7 @@ export const ActivityLogsTab: React.FC = () => {
         }
     }, [logs.length, lastLogId]);
 
-    useEffect(() => { 
-        fetchLogs(); 
-    }, [fetchLogs]);
+    useUnifiedRefresh(isActive, fetchLogs);
 
     // Listen for activity updates from other components
     useEffect(() => {

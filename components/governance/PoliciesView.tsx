@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
 import { marked } from 'marked';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -537,7 +538,7 @@ const PolicyCard: React.FC<PolicyCardProps> = ({ policy, selected, onToggleSelec
 };
 
 // ─── PoliciesView (main) ──────────────────────────────────────────────────────
-export const PoliciesView: React.FC = () => {
+export const PoliciesView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
     const [policies, setPolicies] = useState<PolicyV2[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -570,7 +571,6 @@ export const PoliciesView: React.FC = () => {
     }, []);
 
     const fetchPolicies = useCallback(async () => {
-        setIsLoading(true);
         setError(null);
         try {
             const data = await SupabaseService.getPolicies();
@@ -582,7 +582,7 @@ export const PoliciesView: React.FC = () => {
         }
     }, []);
 
-    useEffect(() => { fetchPolicies(); }, [fetchPolicies]);
+    useUnifiedRefresh(isActive, fetchPolicies);
 
     const filtered = useMemo(() => {
         const q = searchQuery.toLowerCase();

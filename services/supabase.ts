@@ -24,15 +24,30 @@ export { supabase };
 
 const API_BASE_URL = ((import.meta as any).env.VITE_API_BASE_URL as string) || 'http://localhost:3001';
 
+// --- Token Cache ---
+let cachedToken: string | null = null;
+supabase.auth.onAuthStateChange((event, session) => {
+  cachedToken = session?.access_token || null;
+});
+supabase.auth.getSession().then(({ data }) => {
+  cachedToken = data.session?.access_token || null;
+});
+
 // Internal helper — attaches the user's JWT to every backend request
 const apiRequest = async <T>(path: string, options: RequestInit = {}): Promise<T> => {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
+  let token = cachedToken;
+  if (!token) {
+    const { data } = await supabase.auth.getSession();
+    token = data.session?.access_token || null;
+    cachedToken = token;
+  }
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     },
@@ -609,25 +624,48 @@ export const saveWorkflowTemplates = async (templates: WorkflowTemplate[]) => {
 
 // --- Feedback ---
 
-export const sendFeedbackEmail = async (rating: number, description: string): Promise<boolean> => {
+export interface FeedbackData {
+  rating: number;
+  description: string;
+}
+
+export const saveFeedback = async (feedback: FeedbackData): Promise<boolean> => {
   try {
     const { data: sessionData } = await supabase.auth.getSession();
-    const userId = (sessionData?.session as any)?.user?.id ?? 'Unknown';
-    const userEmail = (sessionData?.session as any)?.user?.email ?? 'Unknown';
-    const response = await fetch(`${API_BASE_URL}/api/feedback/email`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rating, description, userId, userEmail }),
-    });
-    if (!response.ok) {
-      console.error('Feedback email failed');
+    const userId = (sessionData?.session as any)?.user?.id ?? null;
+    const userEmail = (sessionData?.session as any)?.user?.email ?? null;
+    const userName = (sessionData?.session as any)?.user?.user_metadata?.full_name ?? null;
+
+    // Get org details
+    const orgMe = await getOrgMe();
+
+    const { error } = await supabase
+      .from('feedback')
+      .insert({
+        rating: feedback.rating,
+        description: feedback.description,
+        user_id: userId,
+        user_email: userEmail,
+        user_name: userName,
+        org_id: orgMe?.orgId ?? null,
+        org_name: orgMe?.orgName ?? null,
+        metadata: {
+          timestamp: new Date().toISOString(),
+          source: 'web_app',
+        },
+      });
+
+    if (error) {
+      console.error('Error saving feedback to Supabase:', error);
+      return false;
     }
     return true;
   } catch (error) {
-    console.error('Error sending feedback email:', error);
+    console.error('Error saving feedback:', error);
     return false;
   }
 };
+
 
 export const getAssetRelationships = async (): Promise<any[]> => {
   try {

@@ -146,10 +146,15 @@ const App: React.FC = () => {
                         setOrgName(me?.orgName ?? null);
 
                         if (event === 'SIGNED_IN') {
-                            try {
-                                await SupabaseService.logAllActivity({ action: 'login', module: 'Authentication', entity_name: name }, session.user);
-                            } catch (err) {
-                                console.error('Failed to log login activity', err);
+                            // Only log login for fresh user-initiated logins, not session recovery on tab switch
+                            const isFreshLogin = sessionStorage.getItem('freshLogin') === 'true';
+                            if (isFreshLogin) {
+                                try {
+                                    await SupabaseService.logAllActivity({ action: 'login', module: 'Authentication', entity_name: name }, session.user);
+                                } catch (err) {
+                                    console.error('Failed to log login activity', err);
+                                }
+                                sessionStorage.removeItem('freshLogin');
                             }
                         }
                     }
@@ -240,18 +245,18 @@ const App: React.FC = () => {
         }
 
         // All tabs stay mounted after auth — visibility toggled with CSS only.
-        // This prevents data refetch when switching tabs (no unmount/remount).
+        // Data refetch is now triggered via isActive prop when tabs become visible.
         return (
             <div
                 className={`animate-in fade-in duration-500 ${onboardingStatus === 'pending_approval' ? 'pointer-events-none select-none' : ''}`}
                 style={onboardingStatus === 'pending_approval' ? { filter: 'blur(4px)', opacity: 0.4 } : undefined}
             >
-                <div className={activeTab === 'dashboard' ? '' : 'hidden'}><DashboardTab /></div>
-                <div className={activeTab === 'organisation' ? '' : 'hidden'}><OrganisationTab userRole={platformAdminRole} activeSubTab={activeOrgSubTab} /></div>
-                <div className={activeTab === 'program' ? '' : 'hidden'}><ProgramTab userRole={userRole} /></div>
-                <div className={activeTab === 'governance' ? '' : 'hidden'}><GovernanceTab /></div>
-                <div className={activeTab === 'compliance' ? '' : 'hidden'}><ComplianceTab /></div>
-                <div className={activeTab === 'logs' ? '' : 'hidden'}><ActivityLogsTab /></div>
+                <div className={activeTab === 'dashboard' ? '' : 'hidden'}><DashboardTab isActive={activeTab === 'dashboard'} /></div>
+                <div className={activeTab === 'organisation' ? '' : 'hidden'}><OrganisationTab userRole={platformAdminRole} activeSubTab={activeOrgSubTab} isActive={activeTab === 'organisation'} /></div>
+                <div className={activeTab === 'program' ? '' : 'hidden'}><ProgramTab userRole={userRole} isActive={activeTab === 'program'} /></div>
+                <div className={activeTab === 'governance' ? '' : 'hidden'}><GovernanceTab isActive={activeTab === 'governance'} /></div>
+                <div className={activeTab === 'compliance' ? '' : 'hidden'}><ComplianceTab isActive={activeTab === 'compliance'} /></div>
+                <div className={activeTab === 'logs' ? '' : 'hidden'}><ActivityLogsTab isActive={activeTab === 'logs'} /></div>
             </div>
         );
     };

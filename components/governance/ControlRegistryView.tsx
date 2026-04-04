@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef, ChangeEvent, useMemo } from 'react';
+import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
 import { ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlStatus, ControlType, EnforcementType, Capability } from '../../types';
 import * as SupabaseService from '../../services/supabase';
 import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon } from '../Icons';
+import { parseCSVLine } from '../../utils/csvParser';
 import { Modal } from '../common/Modal';
 import { AIChatModal } from '../common/AIChatModal';
 import { BulkProgressModal } from '../common/BulkProgressModal';
@@ -262,7 +264,7 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
 type ModalState = { type: 'add' | 'edit' | 'view' | 'delete' | 'import' | null; item?: ControlRegistry | null };
 
-export const ControlRegistryView: React.FC = () => {
+export const ControlRegistryView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
     const [controls, setControls] = useState<ControlRegistry[]>([]);
     const [capabilities, setCapabilities] = useState<Capability[]>([]);
     const [loading, setLoading] = useState(true);
@@ -283,7 +285,6 @@ export const ControlRegistryView: React.FC = () => {
 
     const fetchControls = useCallback(async () => {
         try {
-            setLoading(true);
             setError(null);
             const data = await SupabaseService.getControlRegistry();
             setControls(data);
@@ -305,14 +306,11 @@ export const ControlRegistryView: React.FC = () => {
 
     useEffect(() => { fetchControls(); fetchCapabilities(); }, [fetchControls, fetchCapabilities]);
 
-    useEffect(() => {
-        const handler = (e: Event) => {
-            const ce = e as CustomEvent;
-            if (ce.detail === 'governance') { fetchControls(); fetchCapabilities(); }
-        };
-        window.addEventListener('tabChanged', handler);
-        return () => window.removeEventListener('tabChanged', handler);
+    const refreshAll = useCallback(() => {
+        fetchControls();
+        fetchCapabilities();
     }, [fetchControls, fetchCapabilities]);
+    useUnifiedRefresh(isActive, refreshAll);
 
     const filteredAndSorted = useMemo(() => {
         let items = [...controls];
@@ -457,7 +455,7 @@ export const ControlRegistryView: React.FC = () => {
             const lines = text.split('\n').slice(1);
             const parsed: ControlRegistryCreate[] = lines
                 .map(line => {
-                    const cols = line.split(',').map(s => s.trim());
+                    const cols = parseCSVLine(line);
                     // Expected CSV: ctl_id (ignored), ctl_name, ctl_status, ctl_type, enforcement_type, ctl_description, ctld_by, ctl_ref_fw, ctl_other_details
                     const [, ctl_name, ctl_status, ctl_type, enforcement_type, ctl_description, ctld_by_raw, ctl_ref_fw, ctl_other_details] = cols;
                     if (!ctl_name) return null;

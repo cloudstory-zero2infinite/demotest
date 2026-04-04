@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Asset, Compliance, InternalControl, PolicyDocument, ProgramTask, Vulnerability, AssetCriticality, InternalControlStatus, ProgramStatus } from '../../types';
 import * as SupabaseService from '../../services/supabase';
 import { useDataRefresh } from '../../hooks/useDataRefresh';
@@ -25,7 +25,7 @@ const stringToColor = (str: string) => {
     return PALETTE[index];
 };
 
-export const DashboardTab: React.FC = () => {
+export const DashboardTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
     const [assetFilter, setAssetFilter] = useState<AssetCriticality | 'All'>('All');
 
     const fetchData = useCallback(async () => {
@@ -56,9 +56,7 @@ export const DashboardTab: React.FC = () => {
         }
     }, []);
 
-    const { data: stats, loading, error, refresh } = useDataRefresh(fetchData, []);
-
-    // Debug logging for data loading
+    const { data: stats, loading, error, refresh } = useDataRefresh(fetchData, [], isActive);
     console.log('DashboardTab data state:', { stats, loading, error });
     
     // Default stats object to prevent undefined errors
