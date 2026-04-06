@@ -17,15 +17,19 @@ interface CapabilityMultiSelectProps {
     onChange: (values: string[]) => void;
     capabilities: Capability[];
     readOnly?: boolean;
+    onCapabilityCreated?: (cap: Capability) => void;
 }
 
-const CapabilityMultiSelect: React.FC<CapabilityMultiSelectProps> = ({ values, onChange, capabilities, readOnly }) => {
+const CapabilityMultiSelect: React.FC<CapabilityMultiSelectProps> = ({ values, onChange, capabilities, readOnly, onCapabilityCreated }) => {
     const [isOpen, setIsOpen] = useState(false);
+    const [search, setSearch] = useState('');
+    const [creating, setCreating] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         const handler = (e: MouseEvent) => {
-            if (ref.current && !ref.current.contains(e.target as Node)) setIsOpen(false);
+            if (ref.current && !ref.current.contains(e.target as Node)) { setIsOpen(false); setSearch(''); }
         };
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
@@ -36,6 +40,35 @@ const CapabilityMultiSelect: React.FC<CapabilityMultiSelectProps> = ({ values, o
             onChange(values.filter(v => v !== val));
         } else {
             onChange([...values, val]);
+        }
+    };
+
+    const filtered = capabilities.filter(cap =>
+        cap.capab_name.toLowerCase().includes(search.toLowerCase()) ||
+        cap.capab_id.toLowerCase().includes(search.toLowerCase())
+    );
+
+    const exactMatch = capabilities.some(cap => cap.capab_name.toLowerCase() === search.trim().toLowerCase());
+
+    const handleCreate = async () => {
+        const trimmed = search.trim();
+        if (!trimmed) return;
+        setCreating(true);
+        try {
+            const created = await SupabaseService.addCapability({
+                capab_name: trimmed,
+                capab_provider: [],
+                capab_cmdb_id: [],
+                capab_owner: '',
+                capab_other_details: null,
+            } as any);
+            onCapabilityCreated?.(created);
+            onChange([...values, created.capab_name]);
+            setSearch('');
+        } catch (err: any) {
+            alert(err.message || 'Failed to create capability');
+        } finally {
+            setCreating(false);
         }
     };
 
@@ -52,24 +85,30 @@ const CapabilityMultiSelect: React.FC<CapabilityMultiSelectProps> = ({ values, o
 
     return (
         <div ref={ref} className="relative mt-1">
-            <button
-                type="button"
-                onClick={() => setIsOpen(!isOpen)}
-                className="flex flex-wrap gap-1.5 items-center min-h-[38px] w-full rounded-md border px-2 py-1.5 text-sm bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-left"
+            {/* Selected tags + search input */}
+            <div
+                className="flex flex-wrap gap-1.5 items-center min-h-[38px] w-full rounded-md border px-2 py-1.5 text-sm bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 cursor-text"
+                onClick={() => { setIsOpen(true); inputRef.current?.focus(); }}
             >
-                {values.length === 0 && <span className="text-gray-400">Select capabilities...</span>}
                 {values.map((v, i) => (
                     <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">
                         {v}
                         <button type="button" onClick={(e) => { e.stopPropagation(); toggleValue(v); }} className="hover:text-purple-600 dark:hover:text-purple-200 leading-none">&times;</button>
                     </span>
                 ))}
-            </button>
+                <input
+                    ref={inputRef}
+                    type="text"
+                    value={search}
+                    onChange={e => { setSearch(e.target.value); setIsOpen(true); }}
+                    onFocus={() => setIsOpen(true)}
+                    placeholder={values.length === 0 ? 'Type to search capabilities...' : ''}
+                    className="flex-1 min-w-[120px] bg-transparent outline-none text-sm text-gray-900 dark:text-white placeholder-gray-400"
+                />
+            </div>
             {isOpen && (
-                <div className="absolute z-50 mt-1 w-full max-h-48 overflow-y-auto bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg">
-                    {capabilities.length === 0 ? (
-                        <div className="px-3 py-2 text-sm text-gray-400">No capabilities found</div>
-                    ) : capabilities.map(cap => (
+                <div className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg">
+                    {filtered.map(cap => (
                         <label key={cap.id} className="flex items-center px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer text-sm text-gray-900 dark:text-white">
                             <input
                                 type="checkbox"
@@ -81,6 +120,21 @@ const CapabilityMultiSelect: React.FC<CapabilityMultiSelectProps> = ({ values, o
                             {cap.capab_name}
                         </label>
                     ))}
+                    {filtered.length === 0 && !search.trim() && (
+                        <div className="px-3 py-2 text-sm text-gray-400">No capabilities found</div>
+                    )}
+                    {search.trim() && !exactMatch && (
+                        <div className="border-t border-gray-200 dark:border-gray-600">
+                            <button
+                                type="button"
+                                onClick={handleCreate}
+                                disabled={creating}
+                                className="w-full px-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700 text-left font-medium"
+                            >
+                                {creating ? 'Creating...' : `+ Create "${search.trim()}"`}
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
         </div>
@@ -91,7 +145,8 @@ const CapabilityMultiSelect: React.FC<CapabilityMultiSelectProps> = ({ values, o
 
 const CTL_STATUS_OPTIONS: ControlStatus[] = ['Enforced', 'NotEnforced'];
 const ALL_CTL_STATUSES: ControlStatus[] = ['Enforced', 'NotEnforced', 'In-Review'];
-const CTL_TYPE_OPTIONS: ControlType[] = ['NN', 'Regulatory', 'Standard'];
+const CTL_TYPE_OPTIONS: ControlType[] = ['NN', 'Regulatory', 'Standard', 'Custom'];
+const SYSTEM_CTL_TYPES: ControlType[] = ['NN', 'Regulatory', 'Standard'];
 const ENFORCEMENT_TYPE_OPTIONS: EnforcementType[] = ['org_wide', 'Asset_specific', 'BU_specific'];
 
 const ACCEPTED_EVIDENCE_TYPES = '.png,.jpg,.jpeg,.gif,.pdf,.csv,.msg';
@@ -475,8 +530,11 @@ interface ControlModalProps {
     controlToEdit: ControlRegistry | null;
     mode: 'add' | 'edit' | 'view';
     capabilities: Capability[];
+    onCapabilityCreated?: (cap: Capability) => void;
     onRequestEnforcement?: (control: ControlRegistry, requestedStatus: 'Enforced' | 'NotEnforced') => void;
     onReviewAction?: () => void;
+    onEdit?: () => void;
+    onDelete?: () => void;
 }
 
 type FormData = {
@@ -493,7 +551,7 @@ type FormData = {
 const DEFAULT_FORM: FormData = {
     ctl_name: '',
     ctl_status: 'NotEnforced',
-    ctl_type: 'NN',
+    ctl_type: 'Custom',
     enforcement_type: 'org_wide',
     ctl_description: '',
     ctld_by: [],
@@ -501,14 +559,18 @@ const DEFAULT_FORM: FormData = {
     ctl_other_details: '',
 };
 
-const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, controlToEdit, mode, capabilities, onRequestEnforcement, onReviewAction }) => {
+const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, controlToEdit, mode, capabilities, onCapabilityCreated, onRequestEnforcement, onReviewAction, onEdit, onDelete }) => {
     const [formData, setFormData] = useState<FormData>(DEFAULT_FORM);
     const [isSaving, setIsSaving] = useState(false);
+    const isAdd = mode === 'add';
     const isView = mode === 'view';
     const isEnforced = controlToEdit?.ctl_status === 'Enforced';
     const isPending = controlToEdit?.ctl_status === 'In-Review';
     // When enforced, all fields are frozen except status (which only allows NotEnforced, triggering evidence flow)
     const isFieldFrozen = mode === 'edit' && (isEnforced || isPending);
+    // System types (NN, Regulatory, Standard): only status, controlled by, other details are editable
+    const isSystemType = mode === 'edit' && SYSTEM_CTL_TYPES.includes(controlToEdit?.ctl_type as ControlType);
+    const isSystemFieldFrozen = isFieldFrozen || isSystemType;
 
     useEffect(() => {
         if (controlToEdit) {
@@ -532,9 +594,15 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
         // Intercept status changes — only enforcement requires evidence + peer review
         if (name === 'ctl_status' && controlToEdit && mode === 'edit') {
             const newStatus = value as ControlStatus;
-            if (newStatus === 'Enforced' && controlToEdit.ctl_status !== 'Enforced' && onRequestEnforcement) {
-                onRequestEnforcement(controlToEdit, newStatus);
-                return;
+            if (newStatus === 'Enforced' && controlToEdit.ctl_status !== 'Enforced') {
+                if (!formData.ctld_by || formData.ctld_by.length === 0) {
+                    alert('"Controlled By" must be filled before a control can be moved to Enforced.');
+                    return;
+                }
+                if (onRequestEnforcement) {
+                    onRequestEnforcement(controlToEdit, newStatus);
+                    return;
+                }
             }
         }
         setFormData(prev => ({ ...prev, [name]: value }));
@@ -542,6 +610,10 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (formData.ctl_status === 'Enforced' && (!formData.ctld_by || formData.ctld_by.length === 0)) {
+            alert('"Controlled By" must be filled before a control can be moved to Enforced.');
+            return;
+        }
         setIsSaving(true);
         try {
             await onSave(formData);
@@ -580,7 +652,7 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
                     )}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Control Name {MANDATORY_LABEL}</label>
-                        <input type="text" name="ctl_name" value={formData.ctl_name} onChange={handleChange} readOnly={isView || isFieldFrozen} required placeholder="e.g. Encrypt Data on End-User Devices" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        <input type="text" name="ctl_name" value={formData.ctl_name} onChange={handleChange} readOnly={isView || isSystemFieldFrozen} required placeholder="e.g. Encrypt Data on End-User Devices" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status {MANDATORY_LABEL}</label>
@@ -590,13 +662,17 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Control Type {MANDATORY_LABEL}</label>
-                        <select name="ctl_type" value={formData.ctl_type} onChange={handleChange} disabled={isView || isFieldFrozen} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                            {CTL_TYPE_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+                        <select name="ctl_type" value={formData.ctl_type} onChange={handleChange} disabled={isView || isSystemFieldFrozen} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                            {CTL_TYPE_OPTIONS.map(t => (
+                                <option key={t} value={t} disabled={isAdd && SYSTEM_CTL_TYPES.includes(t)} className={isAdd && SYSTEM_CTL_TYPES.includes(t) ? 'text-gray-400' : ''}>
+                                    {t}{isAdd && SYSTEM_CTL_TYPES.includes(t) ? ' (system)' : ''}
+                                </option>
+                            ))}
                         </select>
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Enforcement Type {MANDATORY_LABEL}</label>
-                        <select name="enforcement_type" value={formData.enforcement_type} onChange={handleChange} disabled={isView || isFieldFrozen} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                        <select name="enforcement_type" value={formData.enforcement_type} onChange={handleChange} disabled={isView || isSystemFieldFrozen} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                             {ENFORCEMENT_TYPE_OPTIONS.map(e => <option key={e} value={e}>{e === 'org_wide' ? 'Org-Wide' : e === 'Asset_specific' ? 'Asset-Specific' : 'BU-Specific'}</option>)}
                         </select>
                     </div>
@@ -605,15 +681,15 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
                             Controlled By (Capabilities)
                             {!isView && !isFieldFrozen && <span className="ml-1 text-xs text-gray-400 font-normal">— select from Capability Register</span>}
                         </label>
-                        <CapabilityMultiSelect values={formData.ctld_by} onChange={vals => setFormData(prev => ({ ...prev, ctld_by: vals }))} capabilities={capabilities} readOnly={isView || isFieldFrozen} />
+                        <CapabilityMultiSelect values={formData.ctld_by} onChange={vals => setFormData(prev => ({ ...prev, ctld_by: vals }))} capabilities={capabilities} readOnly={isView || isFieldFrozen} onCapabilityCreated={onCapabilityCreated} />
                     </div>
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
-                        <textarea name="ctl_description" value={formData.ctl_description} onChange={handleChange} readOnly={isView || isFieldFrozen} rows={2} placeholder="Short description of the control" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        <textarea name="ctl_description" value={formData.ctl_description} onChange={handleChange} readOnly={isView || isSystemFieldFrozen} rows={2} placeholder="Short description of the control" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reference Framework</label>
-                        <input type="text" name="ctl_ref_fw" value={formData.ctl_ref_fw} onChange={handleChange} readOnly={isView || isFieldFrozen} placeholder="e.g. ISO 27001, NIST CSF" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        <input type="text" name="ctl_ref_fw" value={formData.ctl_ref_fw} onChange={handleChange} readOnly={isView || isSystemFieldFrozen} placeholder="e.g. ISO 27001, NIST CSF" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Other Details</label>
@@ -654,6 +730,16 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
                         </>
                     )}
                 </div>
+                {isView && (
+                    <div className="mt-6 flex justify-end space-x-3">
+                        <button type="button" onClick={() => { onClose(); onEdit?.(); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-yellow-700 bg-yellow-50 border border-yellow-300 rounded-md hover:bg-yellow-100 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800">
+                            <PencilIcon className="h-4 w-4" /> Edit
+                        </button>
+                        <button type="button" onClick={() => { onClose(); onDelete?.(); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-300 rounded-md hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800">
+                            <TrashIcon className="h-4 w-4" /> Delete
+                        </button>
+                    </div>
+                )}
                 {!isView && !isPending && (
                     <div className="mt-6 flex justify-end space-x-3">
                         <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
@@ -1056,14 +1142,13 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                                 </th>
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Controlled By</th>
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Ref Framework</th>
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
                             {loading ? (
-                                <tr><td colSpan={9} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading controls...</td></tr>
+                                <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading controls...</td></tr>
                             ) : filteredAndSorted.length === 0 ? (
-                                <tr><td colSpan={9} className="text-center py-4 text-gray-500 dark:text-gray-400">No controls found.</td></tr>
+                                <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">No controls found.</td></tr>
                             ) : filteredAndSorted.map(ctl => (
                                 <tr
                                     key={ctl.id}
@@ -1146,15 +1231,6 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                                             <input type="text" value={editValues[ctl.id]?.ctl_ref_fw ?? ctl.ctl_ref_fw ?? ''} onChange={e => updateField(ctl.id, 'ctl_ref_fw', e.target.value)} className={editInputCls} />
                                         ) : (ctl.ctl_ref_fw || '—')}
                                     </td>
-                                    <td onClick={e => e.stopPropagation()} className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        {!isEditing && (
-                                            <div className="flex justify-end items-center space-x-2">
-                                                <button onClick={() => setModalState({ type: 'view', item: ctl })} className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
-                                                <button onClick={() => setModalState({ type: 'edit', item: ctl })} className="text-gray-400 hover:text-yellow-500"><PencilIcon className="h-5 w-5" /></button>
-                                                <button onClick={() => { setError(null); setModalState({ type: 'delete', item: ctl }); }} className="text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5" /></button>
-                                            </div>
-                                        )}
-                                    </td>
                                 </tr>
                             ))}
                         </tbody>
@@ -1170,11 +1246,14 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                 controlToEdit={modalState.item ?? null}
                 mode={modalState.type as 'add' | 'edit' | 'view'}
                 capabilities={capabilities}
+                onCapabilityCreated={(cap) => setCapabilities(prev => [...prev, cap])}
                 onRequestEnforcement={(ctl, status) => {
                     closeModal();
                     setEnforcementModal({ isOpen: true, control: ctl, requestedStatus: status });
                 }}
                 onReviewAction={() => { closeModal(); fetchControls(); }}
+                onEdit={() => setModalState({ type: 'edit', item: modalState.item })}
+                onDelete={() => { setError(null); setModalState({ type: 'delete', item: modalState.item }); }}
             />
 
             {/* Evidence Enforcement Modal */}

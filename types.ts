@@ -6,6 +6,8 @@ export interface ProgramTask {
   program_name: string;
   description: string;
   month: string;
+  due_date: string | null;
+  assignee: string | null;
   status: ProgramStatus;
   progress_percent: number;
   last_updated: string;
@@ -147,7 +149,7 @@ export type CapabilityUpdate = Partial<Omit<CapabilityCreate, 'org_id' | 'user_i
 
 // Control Registry Types
 export type ControlStatus = 'Enforced' | 'NotEnforced' | 'In-Review';
-export type ControlType = 'NN' | 'Regulatory' | 'Standard';
+export type ControlType = 'NN' | 'Regulatory' | 'Standard' | 'Custom';
 export type EnforcementType = 'org_wide' | 'Asset_specific' | 'BU_specific';
 
 export interface ControlRegistry {
@@ -272,6 +274,24 @@ export interface Contact {
 
 export type ContactCreate = Omit<Contact, 'id' | 'created_at'>;
 export type ContactUpdate = Partial<ContactCreate>;
+
+// Organisation Contacts (Manage Members → Contacts)
+export interface OrgContact {
+    id: string;
+    org_id: string;
+    name: string;
+    email: string;
+    department: string;
+    created_at: string;
+    updated_at: string;
+}
+
+export type OrgContactCreate = Pick<OrgContact, 'name' | 'email' | 'department'>;
+export type OrgContactUpdate = Partial<OrgContactCreate>;
+
+/** Display format: "Name (Department)" */
+export const formatOrgContact = (contact: OrgContact): string =>
+    contact.department ? `${contact.name} (${contact.department})` : contact.name;
 
 // --- Activity Log Types ---
 export interface AllActivityLog {

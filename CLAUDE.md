@@ -24,18 +24,23 @@ ZeroTo1 GRC is a Governance, Risk & Compliance (GRC) SaaS platform with multi-te
 ### Backend (`/server/`)
 - **Express.js** (Node.js, ESM modules — `"type": "module"`)
 - Entry: `server/src/index.js`
-- Routes: `server/src/routes/` — one file per domain (program, controls, assets, policies, vulnerabilities, compliance, contacts, activity, org, feedback, capabilities, control-registry)
+- Routes: `server/src/routes/` — one file per domain (program, controls, assets, policies, vulnerabilities, compliance, contacts, activity, org, org-settings, feedback, capabilities, control-registry)
 - Auth middleware: `server/src/middleware/auth.js` — validates JWT, attaches `req.userId`, `req.orgId`, `req.userRole`
 - Supabase admin client: `server/src/supabase.js` (service-role key, bypasses RLS)
 - Email: uses **Resend** (`resend` npm package) for transactional email
-- All routes mounted under `/api/<domain>` (e.g., `/api/program`, `/api/controls`, `/api/org`)
+- File uploads: **Multer** with 50MB limit
+- Scheduled jobs: `server/src/jobs/policy-expiry.js` — cron job runs every 6 hours (`0 */6 * * *`) to check policy expiration
+- All routes mounted under `/api/<domain>` (e.g., `/api/program`, `/api/controls`, `/api/org`, `/api/org-settings`)
 - Health check: `GET /api/health`
-- In production the Dockerfile builds the frontend, then serves it as static files from `dist/` on port 8080 via the same Express server
+- In production the root Dockerfile (Node 20) builds the frontend into `dist/`, then serves it as static files on port 8080 via the same Express server
+- Separate Dockerfiles also exist at `server/Dockerfile` (Node 20, dev mode) and `ai-agent/Dockerfile` (Python 3.12-slim)
 
 ### AI Agent (`/ai-agent/`)
 - **FastAPI** (Python) service using **Google Gemini** (`gemini-2.0-flash` default) for AI-powered queries
 - Connects directly to Supabase Postgres via `psycopg2` (not through the Express backend)
 - Module-specific system prompts for assets, vulnerabilities, policies, capabilities
+- Module-to-table mapping: assets→`assets`, vulnerabilities→`vulnerability_management`, policies→`policy_documents`, capabilities→`capability_register`
+- AI-generated data excludes columns: `id`, `created_at`, `updated_at`, `org_id`, `user_id`, `owner_id`, `asset_id`, `capab_id`
 - Runs on port 8080 by default (`PORT` env var, auto-injected on Cloud Run)
 - Env vars: `GEMINI_API_KEY`, `GEMINI_MODEL`, `DATABASE_URL`
 

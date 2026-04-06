@@ -67,19 +67,9 @@ const MenuIcon = () => (
 export const Sidebar: React.FC<SidebarProps> = ({
     activeTab, activeOrgSubTab, isOpen, onToggle, onNavigate, isAdmin,
 }) => {
-    const [orgExpanded, setOrgExpanded] = useState(activeTab === 'organisation');
-
-    const orgChildren = [
-        { id: 'view_org' as OrgSubTab, label: 'View Organisation' },
-        ...(isAdmin ? [
-            { id: 'tenant_admin' as OrgSubTab, label: 'Manage Members' },
-            { id: 'settings' as OrgSubTab, label: 'Settings' },
-        ] : []),
-    ];
-
     const navItems: NavItem[] = [
         { id: 'dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
-        { id: 'organisation', label: 'Organisation', icon: <OrgIcon />, children: orgChildren },
+        { id: 'organisation', label: 'Organisation', icon: <OrgIcon /> },
         { id: 'program', label: 'Program', icon: <ProgramIcon /> },
         { id: 'governance', label: 'Governance', icon: <GovernanceIcon /> },
         { id: 'compliance', label: 'Compliance', icon: <ComplianceIcon /> },
@@ -87,29 +77,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     ];
 
     const handleMainClick = (item: NavItem) => {
-        if (item.children) {
-            if (!isOpen) {
-                // Expand sidebar first, then expand group
-                onToggle();
-                setOrgExpanded(true);
-                onNavigate(item.id, item.children[0].id as OrgSubTab);
-            } else {
-                const wasExpanded = orgExpanded && activeTab === item.id;
-                setOrgExpanded(!wasExpanded || activeTab !== item.id ? true : false);
-                if (activeTab !== item.id) {
-                    onNavigate(item.id, item.children[0].id as OrgSubTab);
-                }
-            }
-        } else {
-            onNavigate(item.id);
-            if (item.id !== 'organisation') setOrgExpanded(false);
-        }
+        onNavigate(item.id);
     };
 
-    const isItemActive = (item: NavItem) => {
-        if (item.id === 'organisation') return activeTab === 'organisation';
-        return activeTab === item.id;
-    };
+    const isItemActive = (item: NavItem) => activeTab === item.id;
 
     return (
         <aside
@@ -138,7 +109,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <nav className="flex-1 py-2 overflow-y-auto overflow-x-hidden">
                 {navItems.map(item => {
                     const active = isItemActive(item);
-                    const showChildren = isOpen && item.children && (orgExpanded && activeTab === 'organisation' || active);
 
                     return (
                         <div key={item.id}>
@@ -162,36 +132,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 )}
                                 <span className={active ? 'text-blue-600 dark:text-blue-400' : ''}>{item.icon}</span>
                                 {isOpen && (
-                                    <>
-                                        <span className="flex-1 text-left">{item.label}</span>
-                                        {item.children && <ChevronDown open={!!(orgExpanded && active)} />}
-                                    </>
+                                    <span className="flex-1 text-left">{item.label}</span>
                                 )}
                             </button>
-
-                            {/* Children (subtabs) */}
-                            {showChildren && item.children && (
-                                <div className="ml-4 border-l border-gray-200 dark:border-gray-700 pl-3 py-1">
-                                    {item.children.map(child => {
-                                        const childActive = activeTab === 'organisation' && activeOrgSubTab === child.id;
-                                        return (
-                                            <button
-                                                key={child.id}
-                                                onClick={() => onNavigate('organisation', child.id as OrgSubTab)}
-                                                className={`
-                                                    w-full text-left px-3 py-2 rounded-md text-sm transition-colors duration-150
-                                                    ${childActive
-                                                        ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 font-medium'
-                                                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/40'
-                                                    }
-                                                `}
-                                            >
-                                                {child.label}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            )}
                         </div>
                     );
                 })}

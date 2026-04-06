@@ -32,13 +32,17 @@ interface AssetModalProps {
 
     mode: 'add' | 'edit' | 'view';
 
+    onEdit?: () => void;
+
+    onDelete?: () => void;
+
 }
 
 
 
 const MANDATORY_LABEL = <span className="text-red-500 ml-0.5">*</span>;
 
-const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetToEdit, mode }) => {
+const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetToEdit, mode, onEdit, onDelete }) => {
 
     const [formData, setFormData] = useState<Partial<AssetCreate>>({});
     const [isSaving, setIsSaving] = useState(false);
@@ -248,6 +252,17 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
                 </div>
 
+                )}
+
+                {isViewMode && (
+                    <div className="mt-6 flex justify-end space-x-3">
+                        <button type="button" onClick={() => { onClose(); onEdit?.(); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-yellow-700 bg-yellow-50 border border-yellow-300 rounded-md hover:bg-yellow-100 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800">
+                            <PencilIcon className="h-4 w-4" /> Edit
+                        </button>
+                        <button type="button" onClick={() => { onClose(); onDelete?.(); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-300 rounded-md hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800">
+                            <TrashIcon className="h-4 w-4" /> Delete
+                        </button>
+                    </div>
                 )}
 
             </form>
@@ -1229,8 +1244,6 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
                                 </th>
 
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
-
                             </tr>
 
                         </thead>
@@ -1346,24 +1359,6 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
                                     </td>
 
-                                    <td onClick={e => e.stopPropagation()} className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-
-                                        {!isEditing && (
-
-                                            <div className="flex justify-end items-center space-x-2">
-
-                                                <button onClick={() => setModalState({ type: 'view', asset })} className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
-
-                                                <button onClick={() => setModalState({ type: 'edit', asset })} className="text-gray-400 hover:text-yellow-500"><PencilIcon className="h-5 w-5" /></button>
-
-                                                <button onClick={() => { setError(null); setModalState({ type: 'delete', asset }); }} className="text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5" /></button>
-
-                                            </div>
-
-                                        )}
-
-                                    </td>
-
                                 </tr>
 
                             ))}
@@ -1387,6 +1382,10 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                 assetToEdit={modalState.asset || null}
 
                 mode={modalState.type as 'add' | 'edit' | 'view'}
+
+                onEdit={() => modalState.asset && setModalState({ type: 'edit', asset: modalState.asset })}
+
+                onDelete={() => modalState.asset && setModalState({ type: 'delete', asset: modalState.asset })}
 
             />
 

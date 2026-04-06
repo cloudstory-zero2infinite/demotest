@@ -181,13 +181,7 @@ export const ComplianceTab: React.FC<{ isActive?: boolean }> = ({ isActive = tru
                         </button>
                     ))}
                 </div>
-            ) : (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
-                    <p className="text-sm text-yellow-800">
-                        No compliance frameworks have been assigned to your organization. Please contact your administrator to configure frameworks.
-                    </p>
-                </div>
-            )}
+            ) : null}
 
             {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">{error}</div>}
 
