@@ -42,6 +42,55 @@ export const Header: React.FC<HeaderProps> = ({
     const notifRef = useRef<HTMLDivElement>(null);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+    // ─── Change password state ───
+    const [showChangePassword, setShowChangePassword] = useState(false);
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmNewPassword, setConfirmNewPassword] = useState('');
+    const [changePwdLoading, setChangePwdLoading] = useState(false);
+    const [changePwdMessage, setChangePwdMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const [isEmailUser, setIsEmailUser] = useState(false);
+
+    useEffect(() => {
+        SupabaseService.supabase.auth.getSession().then(({ data }) => {
+            const provider = data.session?.user?.app_metadata?.provider;
+            setIsEmailUser(provider === 'email');
+        });
+    }, []);
+
+    const PASSWORD_RULES = [
+        { test: (p: string) => p.length >= 8, label: 'At least 8 characters' },
+        { test: (p: string) => /[A-Z]/.test(p), label: 'One uppercase letter' },
+        { test: (p: string) => /[a-z]/.test(p), label: 'One lowercase letter' },
+        { test: (p: string) => /[0-9]/.test(p), label: 'One number' },
+        { test: (p: string) => /[^A-Za-z0-9]/.test(p), label: 'One special character' },
+    ];
+
+    const handleChangePassword = async () => {
+        setChangePwdMessage(null);
+        const failing = PASSWORD_RULES.filter(r => !r.test(newPassword));
+        if (failing.length > 0) {
+            setChangePwdMessage({ type: 'error', text: `Password requires: ${failing.map(r => r.label.toLowerCase()).join(', ')}` });
+            return;
+        }
+        if (newPassword !== confirmNewPassword) {
+            setChangePwdMessage({ type: 'error', text: 'Passwords do not match.' });
+            return;
+        }
+        try {
+            setChangePwdLoading(true);
+            const { error } = await SupabaseService.supabase.auth.updateUser({ password: newPassword });
+            if (error) throw error;
+            setChangePwdMessage({ type: 'success', text: 'Password updated successfully.' });
+            setNewPassword('');
+            setConfirmNewPassword('');
+            setTimeout(() => setShowChangePassword(false), 1500);
+        } catch (err: any) {
+            setChangePwdMessage({ type: 'error', text: err?.message || 'Failed to update password.' });
+        } finally {
+            setChangePwdLoading(false);
+        }
+    };
+
     // ─── Profile menu ───
     const [showProfileMenu, setShowProfileMenu] = useState(false);
     const profileRef = useRef<HTMLDivElement>(null);
@@ -266,6 +315,15 @@ export const Header: React.FC<HeaderProps> = ({
 
                                     {/* Menu items */}
                                     <div className="py-1">
+                                        {isEmailUser && (
+                                            <button
+                                                onClick={() => { setShowProfileMenu(false); setShowChangePassword(true); setChangePwdMessage(null); setNewPassword(''); setConfirmNewPassword(''); }}
+                                                className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3"
+                                            >
+                                                <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+                                                Change Password
+                                            </button>
+                                        )}
                                         <button
                                             onClick={() => { setShowProfileMenu(false); openFeedback(); }}
                                             className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3"
@@ -375,6 +433,47 @@ export const Header: React.FC<HeaderProps> = ({
                             </div>
                         </>
                     )}
+                </div>
+            </div>
+        )}
+        {/* ─── Change Password Modal ─── */}
+        {showChangePassword && (
+            <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/50 p-4" onClick={() => setShowChangePassword(false)}>
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+                    <div className="px-5 py-3 border-b dark:border-gray-700 flex items-center justify-between">
+                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Change Password</h3>
+                        <button onClick={() => setShowChangePassword(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-lg leading-none">&times;</button>
+                    </div>
+                    <div className="p-5 space-y-3">
+                        {changePwdMessage && (
+                            <p className={`text-xs px-2 py-1.5 rounded ${changePwdMessage.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                                {changePwdMessage.text}
+                            </p>
+                        )}
+                        <input type="password" placeholder="New password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                            className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                        <input type="password" placeholder="Confirm new password" value={confirmNewPassword} onChange={e => setConfirmNewPassword(e.target.value)}
+                            className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                        {newPassword && (
+                            <ul className="text-[10px] text-gray-400 space-y-0.5">
+                                {PASSWORD_RULES.map(r => (
+                                    <li key={r.label} className={r.test(newPassword) ? 'text-green-500' : ''}>
+                                        {r.test(newPassword) ? '\u2713' : '\u2022'} {r.label}
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                        <div className="flex justify-end gap-2 pt-1">
+                            <button onClick={() => setShowChangePassword(false)}
+                                className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 border border-gray-200 rounded-md hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 transition">
+                                Cancel
+                            </button>
+                            <button onClick={handleChangePassword} disabled={changePwdLoading}
+                                className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 transition">
+                                {changePwdLoading ? 'Updating...' : 'Update Password'}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         )}
