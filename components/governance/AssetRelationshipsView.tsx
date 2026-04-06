@@ -4,6 +4,7 @@ import * as SupabaseService from '../../services/supabase';
 import { AssetRelationship, AssetRelationshipCreate } from '../../types';
 import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon } from '../Icons';
 import { parseCSVLine } from '../../utils/csvParser';
+import { Modal } from '../common/Modal';
 import { useTableSelection } from '../../hooks/useTableSelection';
 import { SelectionActionBar } from '../common/SelectionActionBar';
 import { AIChatModal } from '../common/AIChatModal';
@@ -47,70 +48,64 @@ const AssetRelationshipModal: React.FC<AssetRelationshipModalProps> = ({ isOpen,
     const title = mode === 'add' ? 'Add Relationship' : mode === 'edit' ? 'Edit Relationship' : 'View Relationship';
 
     return (
-        <div className={`fixed inset-0 z-50 overflow-y-auto ${isOpen ? 'block' : 'hidden'}`}>
-            <div className="flex min-h-screen items-center justify-center p-4">
-                <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
-                    <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                        <h3 className="text-lg font-medium text-gray-900 dark:text-white">{title}</h3>
-                        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
-                            <span className="h-6 w-6">×</span>
-                        </button>
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            title={title}
+            headerActions={isViewMode && (
+                <>
+                    <button onClick={() => { onClose(); onEdit?.(); }} title="Edit" className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                        <PencilIcon className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => { onClose(); onDelete?.(); }} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                        <TrashIcon className="h-4 w-4" />
+                    </button>
+                </>
+            )}
+        >
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="grid grid-cols-1 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Source Asset</label>
+                        {isViewMode ? (
+                            <input type="text" value={formData.source_asset_id || ''} readOnly className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        ) : (
+                            <select name="source_asset_id" value={formData.source_asset_id || ''} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                                <option value="">Select asset...</option>
+                                {assetIds.map(id => <option key={id} value={id}>{id}</option>)}
+                            </select>
+                        )}
                     </div>
-                    <form onSubmit={handleSubmit} className="p-6 space-y-4">
-                        <div className="grid grid-cols-1 gap-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Source Asset</label>
-                                {isViewMode ? (
-                                    <input type="text" value={formData.source_asset_id || ''} readOnly className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-                                ) : (
-                                    <select name="source_asset_id" value={formData.source_asset_id || ''} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                                        <option value="">Select asset...</option>
-                                        {assetIds.map(id => <option key={id} value={id}>{id}</option>)}
-                                    </select>
-                                )}
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Target Asset</label>
-                                {isViewMode ? (
-                                    <input type="text" value={formData.target_asset_id || ''} readOnly className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-                                ) : (
-                                    <select name="target_asset_id" value={formData.target_asset_id || ''} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                                        <option value="">Select asset...</option>
-                                        {assetIds.map(id => <option key={id} value={id}>{id}</option>)}
-                                    </select>
-                                )}
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Relationship Type</label>
-                                {isViewMode ? (
-                                    <input type="text" value={formData.relationship_type || ''} readOnly className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-                                ) : (
-                                    <select name="relationship_type" value={formData.relationship_type || ''} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                                        {RELATIONSHIP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                                    </select>
-                                )}
-                            </div>
-                        </div>
-                        {!isViewMode && (
-                            <div className="mt-6 flex justify-end space-x-3">
-                                <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
-                                <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700">Save</button>
-                            </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Target Asset</label>
+                        {isViewMode ? (
+                            <input type="text" value={formData.target_asset_id || ''} readOnly className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        ) : (
+                            <select name="target_asset_id" value={formData.target_asset_id || ''} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                                <option value="">Select asset...</option>
+                                {assetIds.map(id => <option key={id} value={id}>{id}</option>)}
+                            </select>
                         )}
-                        {isViewMode && (
-                            <div className="mt-6 flex justify-end space-x-3">
-                                <button type="button" onClick={() => { onClose(); onEdit?.(); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-yellow-700 bg-yellow-50 border border-yellow-300 rounded-md hover:bg-yellow-100 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800">
-                                    <PencilIcon className="h-4 w-4" /> Edit
-                                </button>
-                                <button type="button" onClick={() => { onClose(); onDelete?.(); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-300 rounded-md hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800">
-                                    <TrashIcon className="h-4 w-4" /> Delete
-                                </button>
-                            </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Relationship Type</label>
+                        {isViewMode ? (
+                            <input type="text" value={formData.relationship_type || ''} readOnly className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        ) : (
+                            <select name="relationship_type" value={formData.relationship_type || ''} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                                {RELATIONSHIP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
                         )}
-                    </form>
+                    </div>
                 </div>
-            </div>
-        </div>
+                {!isViewMode && (
+                    <div className="mt-6 flex justify-end space-x-3">
+                        <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
+                        <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700">Save</button>
+                    </div>
+                )}
+            </form>
+        </Modal>
     );
 };
 

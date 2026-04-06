@@ -228,8 +228,9 @@ interface ViewModalProps {
     onEdit?: () => void;
     onDelete?: () => void;
     onHistory?: () => void;
+    onDownload?: () => void;
 }
-const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUserEmail, onClose, onApproved, onEdit, onDelete, onHistory }) => {
+const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUserEmail, onClose, onApproved, onEdit, onDelete, onHistory, onDownload }) => {
     const [pendingApproval, setPendingApproval] = useState<PolicyApproval | null>(null);
     const [comment, setComment] = useState('');
     const [showRejectInput, setShowRejectInput] = useState(false);
@@ -286,6 +287,9 @@ const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUse
                     <div className="flex items-center gap-1 ml-4">
                         <button onClick={() => { onClose(); onEdit?.(); }} title="Edit" className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
                             <PencilIcon className="h-4 w-4" />
+                        </button>
+                        <button onClick={() => onDownload?.() } title="Download PDF" className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                            <DownloadIcon className="h-4 w-4" />
                         </button>
                         <button onClick={() => { onClose(); onDelete?.(); }} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
                             <TrashIcon className="h-4 w-4" />
@@ -721,6 +725,55 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
         }
     };
 
+    const handleDownloadSingle = async (policy: PolicyV2) => {
+        try {
+            const html = renderMarkdown(policy.markdown || `# ${policy.name}\n\nNo content.`);
+            const container = document.createElement('div');
+            container.style.cssText = 'position:absolute;left:-9999px;top:0;width:794px;padding:48px;background:#fff;font-family:Arial,sans-serif;font-size:12px;line-height:1.6;color:#111';
+            container.innerHTML = `<style>
+              h1{font-size:22px;font-weight:700;margin:14px 0 7px}
+              h2{font-size:18px;font-weight:600;margin:12px 0 6px}
+              h3{font-size:14px;font-weight:600;margin:10px 0 5px}
+              p{margin:7px 0;line-height:1.6}
+              ul,ol{margin:7px 0 7px 22px}
+              li{margin:4px 0}
+              table{border-collapse:collapse;width:100%;margin:10px 0;font-size:11px}
+              th,td{border:1px solid #d1d5db;padding:5px 8px;text-align:left}
+              th{background:#f3f4f6;font-weight:600}
+              code{background:#f3f4f6;padding:1px 4px;border-radius:3px;font-size:11px}
+              blockquote{border-left:4px solid #3b82f6;padding:6px 12px;background:#eff6ff;margin:7px 0}
+              hr{border:none;border-top:1px solid #e5e7eb;margin:14px 0}
+              strong{font-weight:700}
+            </style>${html}`;
+            document.body.appendChild(container);
+
+            const canvas = await html2canvas(container, { scale: 1.5, useCORS: true });
+            document.body.removeChild(container);
+
+            const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+            const pageW = pdf.internal.pageSize.getWidth();
+            const pageH = pdf.internal.pageSize.getHeight();
+            const imgW = pageW;
+            const imgH = (canvas.height * pageW) / canvas.width;
+
+            let remaining = imgH;
+            let yOffset = 0;
+            while (remaining > 0) {
+                pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, -yOffset, imgW, imgH);
+                remaining -= pageH;
+                yOffset += pageH;
+                if (remaining > 0) pdf.addPage();
+            }
+
+            const url = URL.createObjectURL(pdf.output('blob'));
+            const a = document.createElement('a');
+            a.href = url; a.download = `${policy.policy_id}.pdf`; a.click();
+            URL.revokeObjectURL(url);
+        } catch (err: any) {
+            alert('PDF export failed: ' + err.message);
+        }
+    };
+
     // ── Render ──────────────────────────────────────────────────────────────
     return (
         <div>
@@ -840,6 +893,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
                     onEdit={() => { setViewTarget(null); setEditorTarget({ policy: viewTarget }); }}
                     onDelete={() => { setViewTarget(null); handleDelete(viewTarget); }}
                     onHistory={() => { setViewTarget(null); setHistoryTarget(viewTarget); }}
+                    onDownload={() => handleDownloadSingle(viewTarget)}
                 />
             )}
             {historyTarget && (

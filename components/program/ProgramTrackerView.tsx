@@ -232,7 +232,18 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
     const title = mode === 'add' ? 'Add New Milestone' : mode === 'edit' ? 'Edit Milestone' : 'View Milestone';
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={title}>
+        <Modal isOpen={isOpen} onClose={onClose} title={title}
+            headerActions={isViewMode && (
+                <>
+                    <button onClick={() => { onClose(); onEdit?.(); }} title="Edit" className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                        <PencilIcon className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => { onClose(); onDelete?.(); }} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                        <TrashIcon className="h-4 w-4" />
+                    </button>
+                </>
+            )}
+        >
             <form onSubmit={handleSubmit}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -283,16 +294,6 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
                         <input type="date" name="due_date" value={formData.due_date || ''} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
                 </div>
-                {isViewMode && (
-                <div className="mt-6 flex justify-end space-x-3">
-                    <button type="button" onClick={() => { onClose(); onEdit?.(); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-yellow-700 bg-yellow-50 border border-yellow-300 rounded-md hover:bg-yellow-100 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800">
-                        <PencilIcon className="h-4 w-4" /> Edit
-                    </button>
-                    <button type="button" onClick={() => { onClose(); onDelete?.(); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-300 rounded-md hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800">
-                        <TrashIcon className="h-4 w-4" /> Delete
-                    </button>
-                </div>
-                )}
                 {!isViewMode && (
                 <div className="mt-6 flex justify-end space-x-3">
                     <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
@@ -513,35 +514,29 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
             
             const importedTasks: ProgramTaskCreate[] = lines
                 .map(line => {
-                    // Properly parse CSV fields with quote handling
                     const fields = parseCSVLine(line);
-                    const [program_name, description, month, status, progress_percent] = fields;
-                    
-                    // Validate required fields
+                    const [program_name, description, due_date, assignee, status, progress_percent] = fields;
+
                     if (!program_name || !program_name.trim()) {
-                        console.log('Skipping - missing program_name');
                         return null;
                     }
-                    
-                    if (!month || !month.trim()) {
-                        console.log('Skipping - missing month');
-                        return null;
-                    }
-                    
-                    // Sanitize input
+
                     const cleanProgramName = sanitizeInput(program_name.trim());
                     const cleanDescription = description ? sanitizeInput(description.trim()) : '';
-                    const cleanMonth = sanitizeInput(month.trim());
+                    const cleanDueDate = due_date ? due_date.trim() : null;
+                    const cleanAssignee = assignee ? sanitizeInput(assignee.trim()) : null;
                     const progress = Number(progress_percent) || 0;
                     const cleanStatus = (status && sanitizeInput(status.trim()) === 'Blocked') ? 'Blocked' as ProgramStatus : deriveStatus(progress);
 
                     return {
                         program_name: cleanProgramName,
                         description: cleanDescription,
-                        month: cleanMonth,
+                        month: '',
+                        due_date: cleanDueDate,
+                        assignee: cleanAssignee,
                         status: cleanStatus,
                         progress_percent: progress,
-                    };
+                    } as ProgramTaskCreate;
                 })
                 .filter((task): task is ProgramTaskCreate => task !== null);
 
@@ -554,34 +549,17 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
                     const duplicateNames = new Set<string>();
 
                     for (const importedTask of importedTasks) {
-                        // Normalize strings for better matching
                         const normalizeString = (str: string) => str.replace(/^["']|["']$/g, '').trim().toLowerCase();
-                        
+
                         const importedProgramName = normalizeString(importedTask.program_name);
-                        const importedMonth = normalizeString(importedTask.month);
-                        
-                        // Debug logging
-                        console.log('Processing imported task:', {
-                            original: `${importedTask.program_name} (${importedTask.month})`,
-                            normalized: `${importedProgramName} (${importedMonth})`
-                        });
-                        
-                        // Find existing task by normalized program_name and month
+
+                        // Find existing task by normalized program_name
                         const existingTask = existingTasks.find(t => {
-                            const existingProgramName = normalizeString(t.program_name);
-                            const existingMonth = normalizeString(t.month);
-                            const match = existingProgramName === importedProgramName && existingMonth === importedMonth;
-                            if (match) {
-                                console.log('Found existing task match:', {
-                                    existing: `${t.program_name} (${t.month})`,
-                                    existingNormalized: `${existingProgramName} (${existingMonth})`
-                                });
-                            }
-                            return match;
+                            return normalizeString(t.program_name) === importedProgramName;
                         });
 
                         if (existingTask) {
-                            duplicateNames.add(`${importedTask.program_name} (${importedTask.month})`);
+                            duplicateNames.add(importedTask.program_name);
                             console.log('Marked as duplicate:', importedTask.program_name);
 
                             // Check if anything actually changed (using normalized comparison for text fields)
@@ -729,14 +707,15 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
     };
 
     const handleExportCSV = () => {
-        const headers = ['program_name', 'description', 'month', 'status', 'progress_percent'];
+        const headers = ['program_name', 'description', 'due_date', 'assignee', 'status', 'progress_percent'];
         const csvContent = [
             headers.join(','),
             ...filteredAndSortedTasks.map(t =>
                 [
                     `"${(t.program_name || '').replace(/"/g, '""')}"`,
                     `"${(t.description || '').replace(/"/g, '""')}"`,
-                    t.month,
+                    t.due_date || '',
+                    `"${(t.assignee || '').replace(/"/g, '""')}"`,
                     t.status,
                     t.progress_percent,
                 ].join(',')

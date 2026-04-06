@@ -633,7 +633,18 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={title}>
+        <Modal isOpen={isOpen} onClose={onClose} title={title}
+            headerActions={isView && (
+                <>
+                    <button onClick={() => { onClose(); onEdit?.(); }} title="Edit" className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                        <PencilIcon className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => { onClose(); onDelete?.(); }} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                        <TrashIcon className="h-4 w-4" />
+                    </button>
+                </>
+            )}
+        >
             <form onSubmit={handleSubmit} className="space-y-4">
                 {/* Evidence Review Banner for pending controls */}
                 {(isView || mode === 'edit') && controlToEdit && isPending && (
@@ -730,16 +741,6 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
                         </>
                     )}
                 </div>
-                {isView && (
-                    <div className="mt-6 flex justify-end space-x-3">
-                        <button type="button" onClick={() => { onClose(); onEdit?.(); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-yellow-700 bg-yellow-50 border border-yellow-300 rounded-md hover:bg-yellow-100 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800">
-                            <PencilIcon className="h-4 w-4" /> Edit
-                        </button>
-                        <button type="button" onClick={() => { onClose(); onDelete?.(); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-300 rounded-md hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800">
-                            <TrashIcon className="h-4 w-4" /> Delete
-                        </button>
-                    </div>
-                )}
                 {!isView && !isPending && (
                     <div className="mt-6 flex justify-end space-x-3">
                         <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
