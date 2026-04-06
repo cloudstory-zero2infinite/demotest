@@ -50,6 +50,11 @@ const App: React.FC = () => {
     const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
     const [userEmail, setUserEmail] = useState<string | null>(null);
     const [userPhotoUrl, setUserPhotoUrl] = useState<string | null>(null);
+    const [showPasswordRecovery, setShowPasswordRecovery] = useState(false);
+    const [recoveryPassword, setRecoveryPassword] = useState('');
+    const [recoveryConfirmPassword, setRecoveryConfirmPassword] = useState('');
+    const [recoveryLoading, setRecoveryLoading] = useState(false);
+    const [recoveryMessage, setRecoveryMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
     const logoutTimerRef = useRef<number | null>(null);
 
     // Tab refresh hook
@@ -141,6 +146,14 @@ const App: React.FC = () => {
 
                     if (event === 'SIGNED_OUT') {
                         setPlatformAdminRole(null);
+                        return;
+                    }
+
+                    if (event === 'PASSWORD_RECOVERY') {
+                        setShowPasswordRecovery(true);
+                        setRecoveryPassword('');
+                        setRecoveryConfirmPassword('');
+                        setRecoveryMessage(null);
                         return;
                     }
 
@@ -243,6 +256,42 @@ const App: React.FC = () => {
 
     const toggleDarkMode = () => setIsDarkMode(!isDarkMode);
 
+    const RECOVERY_PASSWORD_RULES = [
+        { test: (p: string) => p.length >= 8, label: 'At least 8 characters' },
+        { test: (p: string) => /[A-Z]/.test(p), label: 'One uppercase letter' },
+        { test: (p: string) => /[a-z]/.test(p), label: 'One lowercase letter' },
+        { test: (p: string) => /[0-9]/.test(p), label: 'One number' },
+        { test: (p: string) => /[^A-Za-z0-9]/.test(p), label: 'One special character' },
+    ];
+
+    const handleRecoveryPasswordSubmit = async () => {
+        setRecoveryMessage(null);
+        const failing = RECOVERY_PASSWORD_RULES.filter(r => !r.test(recoveryPassword));
+        if (failing.length > 0) {
+            setRecoveryMessage({ type: 'error', text: `Password requires: ${failing.map(r => r.label.toLowerCase()).join(', ')}` });
+            return;
+        }
+        if (recoveryPassword !== recoveryConfirmPassword) {
+            setRecoveryMessage({ type: 'error', text: 'Passwords do not match.' });
+            return;
+        }
+        try {
+            setRecoveryLoading(true);
+            const { error } = await SupabaseService.supabase.auth.updateUser({ password: recoveryPassword });
+            if (error) throw error;
+            setRecoveryMessage({ type: 'success', text: 'Password updated successfully. Redirecting...' });
+            setTimeout(() => {
+                setShowPasswordRecovery(false);
+                setRecoveryPassword('');
+                setRecoveryConfirmPassword('');
+            }, 1500);
+        } catch (err: any) {
+            setRecoveryMessage({ type: 'error', text: err?.message || 'Failed to update password.' });
+        } finally {
+            setRecoveryLoading(false);
+        }
+    };
+
     const isAdmin = platformAdminRole === 'tenant_admin' || platformAdminRole === 'admin';
 
     const renderContent = () => {
@@ -300,6 +349,44 @@ const App: React.FC = () => {
                     <OnboardingModal onComplete={handleOnboardingComplete} />
                 )}
                 <FeedbackModal isOpen={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
+
+                {/* Password Recovery Modal */}
+                {showPasswordRecovery && (
+                    <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/50 p-4">
+                        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+                            <div className="px-5 py-3 border-b dark:border-gray-700">
+                                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Reset Your Password</h3>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Enter a new password for your account.</p>
+                            </div>
+                            <div className="p-5 space-y-3">
+                                {recoveryMessage && (
+                                    <p className={`text-xs px-2 py-1.5 rounded ${recoveryMessage.type === 'success' ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-300' : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300'}`}>
+                                        {recoveryMessage.text}
+                                    </p>
+                                )}
+                                <input type="password" placeholder="New password" value={recoveryPassword} onChange={e => setRecoveryPassword(e.target.value)}
+                                    className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                                <input type="password" placeholder="Confirm new password" value={recoveryConfirmPassword} onChange={e => setRecoveryConfirmPassword(e.target.value)}
+                                    className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                                {recoveryPassword && (
+                                    <ul className="text-[10px] text-gray-400 space-y-0.5">
+                                        {RECOVERY_PASSWORD_RULES.map(r => (
+                                            <li key={r.label} className={r.test(recoveryPassword) ? 'text-green-500' : ''}>
+                                                {r.test(recoveryPassword) ? '\u2713' : '\u2022'} {r.label}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                                <div className="flex justify-end gap-2 pt-1">
+                                    <button onClick={handleRecoveryPasswordSubmit} disabled={recoveryLoading}
+                                        className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 transition">
+                                        {recoveryLoading ? 'Updating...' : 'Set New Password'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Header — full width */}
                 <Header

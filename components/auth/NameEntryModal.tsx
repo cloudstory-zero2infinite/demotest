@@ -66,6 +66,19 @@ export const NameEntryModal: React.FC<NameEntryModalProps> = ({ isOpen }) => {
         }
         try {
             setEmailLoading(true);
+            // Check if user exists and has an email identity by attempting sign-in
+            // Supabase returns 'Invalid login credentials' for email users with wrong password
+            // and 'Invalid login credentials' for non-existent users too,
+            // but for OAuth-only users, signUp returns identities=[]
+            const { data: signUpCheck } = await SupabaseService.supabase.auth.signUp({
+                email,
+                password: crypto.randomUUID(), // dummy password just to check identity
+            });
+            // If identities is empty, user exists but only via OAuth (Google/GitHub)
+            if (signUpCheck.user && signUpCheck.user.identities && signUpCheck.user.identities.length === 0) {
+                setEmailMessage({ type: 'error', text: 'This account uses Google or GitHub sign-in. Please sign in with your social account, then use "Set Password" from the profile menu to enable email login.' });
+                return;
+            }
             const { error } = await SupabaseService.supabase.auth.resetPasswordForEmail(email, {
                 redirectTo: `${window.location.origin}/`,
             });
@@ -103,7 +116,7 @@ export const NameEntryModal: React.FC<NameEntryModalProps> = ({ isOpen }) => {
 
             // Supabase returns a user with identities=[] if email already exists (when email confirmations are on)
             if (data.user && data.user.identities && data.user.identities.length === 0) {
-                setEmailMessage({ type: 'error', text: 'An account with this email already exists. Use "Forgot password?" on the Sign in tab to set a password for email login.' });
+                setEmailMessage({ type: 'error', text: 'An account with this email already exists via Google or GitHub. Sign in with your social account, then use "Set Password" from the profile menu to enable email login.' });
                 return;
             }
 

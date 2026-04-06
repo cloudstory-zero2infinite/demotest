@@ -8,6 +8,7 @@ interface ScoreBreakdown {
     vulnerabilities: number;
     assets: number;
     policies: number;
+    hasData: boolean;
 }
 
 interface SecurityScoreCardProps {
@@ -39,8 +40,8 @@ export const SecurityScoreCard: React.FC<SecurityScoreCardProps> = React.memo(({
     const scoreColor = getScoreColor(score);
     const scoreLabel = getScoreLabel(score);
 
-    // Fallback display if score is 0 or invalid
-    if (score === 0 || score === undefined || score === null) {
+    // Fallback display only when there is truly no GRC data at all
+    if (!scoreBreakdown.hasData || score === undefined || score === null) {
         return (
             <div className="md:col-span-2 lg:col-span-3 p-4 bg-white dark:bg-gray-800 rounded-lg shadow flex flex-col items-center justify-center transition-all hover:shadow-md border border-transparent dark:border-gray-700">
                  <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Organisation Security Score</h3>

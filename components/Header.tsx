@@ -48,14 +48,16 @@ export const Header: React.FC<HeaderProps> = ({
     const [confirmNewPassword, setConfirmNewPassword] = useState('');
     const [changePwdLoading, setChangePwdLoading] = useState(false);
     const [changePwdMessage, setChangePwdMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-    const [isEmailUser, setIsEmailUser] = useState(false);
+    const [hasEmailIdentity, setHasEmailIdentity] = useState(false);
 
-    useEffect(() => {
+    const refreshEmailIdentity = () => {
         SupabaseService.supabase.auth.getSession().then(({ data }) => {
-            const provider = data.session?.user?.app_metadata?.provider;
-            setIsEmailUser(provider === 'email');
+            const providers: string[] = data.session?.user?.app_metadata?.providers || [];
+            setHasEmailIdentity(providers.includes('email'));
         });
-    }, []);
+    };
+
+    useEffect(() => { refreshEmailIdentity(); }, []);
 
     const PASSWORD_RULES = [
         { test: (p: string) => p.length >= 8, label: 'At least 8 characters' },
@@ -80,9 +82,10 @@ export const Header: React.FC<HeaderProps> = ({
             setChangePwdLoading(true);
             const { error } = await SupabaseService.supabase.auth.updateUser({ password: newPassword });
             if (error) throw error;
-            setChangePwdMessage({ type: 'success', text: 'Password updated successfully.' });
+            setChangePwdMessage({ type: 'success', text: hasEmailIdentity ? 'Password updated successfully.' : 'Password set! You can now sign in with email and password.' });
             setNewPassword('');
             setConfirmNewPassword('');
+            refreshEmailIdentity();
             setTimeout(() => setShowChangePassword(false), 1500);
         } catch (err: any) {
             setChangePwdMessage({ type: 'error', text: err?.message || 'Failed to update password.' });
@@ -315,15 +318,6 @@ export const Header: React.FC<HeaderProps> = ({
 
                                     {/* Menu items */}
                                     <div className="py-1">
-                                        {isEmailUser && (
-                                            <button
-                                                onClick={() => { setShowProfileMenu(false); setShowChangePassword(true); setChangePwdMessage(null); setNewPassword(''); setConfirmNewPassword(''); }}
-                                                className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3"
-                                            >
-                                                <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
-                                                Change Password
-                                            </button>
-                                        )}
                                         <button
                                             onClick={() => { setShowProfileMenu(false); openFeedback(); }}
                                             className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3"
@@ -343,6 +337,13 @@ export const Header: React.FC<HeaderProps> = ({
                                     </div>
 
                                     <div className="border-t border-gray-100 dark:border-gray-700 py-1">
+                                        <button
+                                            onClick={() => { setShowProfileMenu(false); setShowChangePassword(true); setChangePwdMessage(null); setNewPassword(''); setConfirmNewPassword(''); }}
+                                            className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3"
+                                        >
+                                            <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+                                            {hasEmailIdentity ? 'Change Password' : 'Set Password'}
+                                        </button>
                                         <button
                                             onClick={() => { setShowProfileMenu(false); onSignOut(); }}
                                             className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3"
@@ -441,7 +442,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/50 p-4" onClick={() => setShowChangePassword(false)}>
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
                     <div className="px-5 py-3 border-b dark:border-gray-700 flex items-center justify-between">
-                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Change Password</h3>
+                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{hasEmailIdentity ? 'Change Password' : 'Set Password'}</h3>
                         <button onClick={() => setShowChangePassword(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-lg leading-none">&times;</button>
                     </div>
                     <div className="p-5 space-y-3">
