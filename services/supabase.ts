@@ -338,10 +338,24 @@ export const deleteAsset = async (id: string): Promise<void> => {
 };
 
 export const bulkAddAssets = async (assets: AssetCreate[]): Promise<Asset[]> => {
-  return apiRequest<Asset[]>('/api/assets/bulk', {
+  const result = await apiRequest<{ data: Asset[]; inserted: number; total: number; errors: number; errorDetails?: any[] }>('/api/assets/bulk', {
     method: 'POST',
     body: JSON.stringify(assets),
   });
+  
+  // Handle both simple array response and chunked response format
+  if (result && typeof result === 'object' && 'data' in result) {
+    if (result.errors > 0) {
+      console.warn(`Bulk import completed with ${result.errors} errors. ${result.inserted}/${result.total} assets successfully imported.`);
+      if (result.errorDetails) {
+        console.error('Error details:', result.errorDetails);
+      }
+    }
+    return result.data || [];
+  }
+  
+  // Fallback for simple array response (small payloads)
+  return Array.isArray(result) ? result : [];
 };
 
 // --- Governance: Policies V2 (markdown-first workflow) ---

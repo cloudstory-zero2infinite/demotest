@@ -300,7 +300,12 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
     const [showAIChat, setShowAIChat] = useState(false);
 
-
+    // Import progress states
+    const [isImporting, setIsImporting] = useState(false);
+    const [importProgress, setImportProgress] = useState(0);
+    const [totalToImport, setTotalToImport] = useState(0);
+    const [importedCount, setImportedCount] = useState(0);
+    const [importErrors, setImportErrors] = useState(0);
 
     const {
 
@@ -651,7 +656,9 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
                 const assetData: AssetCreate = {
 
-                    // asset_id intentionally omitted — DB trigger auto-generates it
+                    // asset_id is optional — DB trigger auto-generates if not provided
+                    ...(record.asset_id ? { asset_id: String(record.asset_id) } : {}),
+
                     name: String(record.name || ''),
 
                     source: 'AI',
@@ -678,7 +685,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
                     details: String(record.details || ''),
 
-                };
+                } as AssetCreate;
 
                 await SupabaseService.addAsset(assetData);
 
@@ -919,23 +926,59 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
         reader.readAsText(file);
 
         if(fileInputRef.current) fileInputRef.current.value = '';
-
     };
-
-
 
     const handleConfirmImport = async () => {
         if (importData.newAssets.length > 0 || importData.updatedAssets.length > 0) {
             try {
-                // Add new assets
+                setIsImporting(true);
+                const totalItems = importData.newAssets.length + importData.updatedAssets.length;
+                setTotalToImport(totalItems);
+                setImportedCount(0);
+                setImportErrors(0);
+                setImportProgress(0);
+
+                let processed = 0;
+                let errors = 0;
+
+                // Helper function to safely calculate progress
+                const updateProgress = (processedCount: number) => {
+                    const progress = totalItems > 0 ? Math.round((processedCount / totalItems) * 100) : 0;
+                    setImportProgress(progress);
+                    setImportedCount(processedCount);
+                };
+
+                // Add new assets using single API (server handles chunking automatically)
                 if (importData.newAssets.length > 0) {
-                    await SupabaseService.bulkAddAssets(importData.newAssets);
+                    try {
+                        const result = await SupabaseService.bulkAddAssets(importData.newAssets);
+                        processed += importData.newAssets.length;
+                        updateProgress(processed);
+                        
+                        // Handle chunked response format for large imports
+                        if (result && typeof result === 'object' && 'errors' in result) {
+                            errors += (result as { errors?: number }).errors || 0;
+                            setImportErrors(errors);
+                        }
+                    } catch (err) {
+                        errors += importData.newAssets.length;
+                        setImportErrors(errors);
+                        console.error('Failed to import new assets:', err);
+                    }
                 }
                 
                 // Update existing assets
                 if (importData.updatedAssets.length > 0) {
                     for (const { id, updates } of importData.updatedAssets) {
-                        await SupabaseService.updateAsset(id, updates);
+                        try {
+                            await SupabaseService.updateAsset(id, updates);
+                            processed++;
+                            updateProgress(processed);
+                        } catch (err) {
+                            errors++;
+                            setImportErrors(errors);
+                            console.error(`Failed to update asset ${id}:`, err);
+                        }
                     }
                 }
 
@@ -944,7 +987,9 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                     module: 'Governance',
                     event_data: { 
                         newCount: importData.newAssets.length, 
-                        updatedCount: importData.updatedAssets.length 
+                        updatedCount: importData.updatedAssets.length,
+                        totalProcessed: processed,
+                        errors: errors
                     }
                 });
 
@@ -953,15 +998,15 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
             } catch (err) {
                 setError('Failed to import assets.');
                 console.error(err);
+            } finally {
+                setIsImporting(false);
             }
         }
     };
 
+    const handleExportCSV = () => {
 
-
-const handleExportCSV = () => {
-
-    const headers = ['asset_id', 'name', 'criticality', 'details', 'governed_status', 'vulnerability_count', 'exposure', 'category', 'asset_owner', 'business_unit', 'physical_location', 'ip_address', 'mac_id', 'source'];
+        const headers = ['asset_id', 'name', 'criticality', 'details', 'governed_status', 'vulnerability_count', 'exposure', 'category', 'asset_owner', 'business_unit', 'physical_location', 'ip_address', 'mac_id', 'source'];
 
     const csvContent = [
 
@@ -1592,12 +1637,22 @@ const handleExportCSV = () => {
 
                 progress={bulkProgress}
 
-                onClose={handleCloseBulkProgress}
+/>
 
-            />
+{/* Import Progress Modal */}
+<BulkProgressModal
+isOpen={isImporting}
+title="Importing Assets"
+progress={{
+total: totalToImport,
+completed: importedCount - importErrors,
+failed: importErrors,
+status: isImporting ? 'processing' : 'idle',
+}}
+onClose={() => {}} // Import can't be cancelled, so empty function
+/>
 
-        </div>
+</div>
 
-    );
-
+);
 };

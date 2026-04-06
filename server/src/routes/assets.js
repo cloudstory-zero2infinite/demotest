@@ -45,11 +45,55 @@ router.post('/', requireAuth, async (req, res) => {
 
 router.post('/bulk', requireAuth, async (req, res) => {
   try {
-    const payloads = req.body.map(({ governed_status, nn_controls, ...a }) => ({ ...a, user_id: req.userId, org_id: req.orgId }));
-    const { data, error } = await supabaseAdmin.from('assets').insert(payloads).select();
-    if (error) throw error;
-    res.status(201).json(data || []);
+    const assets = req.body;
+    
+    // If payload is small, use direct insertion
+    if (assets.length <= 200) {
+      const payloads = assets.map(({ governed_status, nn_controls, ...a }) => ({ ...a, user_id: req.userId, org_id: req.orgId }));
+      const { data, error } = await supabaseAdmin.from('assets').insert(payloads).select();
+      if (error) throw error;
+      res.status(201).json(data || []);
+      return;
+    }
+    
+    // For large payloads, process in chunks server-side
+    const CHUNK_SIZE = 100;
+    const results = [];
+    const errors = [];
+    
+    for (let i = 0; i < assets.length; i += CHUNK_SIZE) {
+      const chunk = assets.slice(i, i + CHUNK_SIZE);
+      const payloads = chunk.map(({ governed_status, nn_controls, ...a }) => ({ 
+        ...a, 
+        user_id: req.userId, 
+        org_id: req.orgId 
+      }));
+      
+      try {
+        const { data, error } = await supabaseAdmin.from('assets').insert(payloads).select();
+        if (error) throw error;
+        if (data) results.push(...data);
+      } catch (chunkError) {
+        console.error(`Error processing chunk ${Math.floor(i / CHUNK_SIZE) + 1}:`, chunkError);
+        errors.push({
+          chunk: Math.floor(i / CHUNK_SIZE) + 1,
+          error: chunkError.message,
+          startIndex: i,
+          endIndex: Math.min(i + CHUNK_SIZE - 1, assets.length - 1)
+        });
+      }
+    }
+    
+    res.status(201).json({
+      success: true,
+      inserted: results.length,
+      total: assets.length,
+      errors: errors.length,
+      errorDetails: errors,
+      data: results
+    });
   } catch (err) {
+    console.error('Bulk upload error:', err);
     res.status(500).json({ message: err.message });
   }
 });
