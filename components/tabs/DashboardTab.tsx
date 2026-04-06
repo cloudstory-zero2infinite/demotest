@@ -31,7 +31,7 @@ export const DashboardTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
     const fetchData = useCallback(async () => {
         console.log('DashboardTab: Starting data fetch...');
         try {
-            const [assets, compliances, controls, controlRegistry, policies, tasks, vulnerabilities] = await Promise.all([
+            const [assets, compliances, controls, controlRegistry, policies, tasks, vulnerabilities, orgData] = await Promise.all([
                 SupabaseService.getAssets(),
                 SupabaseService.getCompliances(),
                 SupabaseService.getInternalControls(),
@@ -39,7 +39,10 @@ export const DashboardTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
                 SupabaseService.getPolicies(),
                 SupabaseService.getTasks(),
                 SupabaseService.getVulnerabilities(),
+                SupabaseService.getOrgMe(),
             ]);
+
+            const neededFrameworks: string[] = orgData?.neededFramework ?? [];
 
             console.log('DashboardTab: Data fetch results:', {
                 assetsCount: assets?.length || 0,
@@ -48,10 +51,11 @@ export const DashboardTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
                 controlRegistryCount: controlRegistry?.length || 0,
                 policiesCount: policies?.length || 0,
                 tasksCount: tasks?.length || 0,
-                vulnerabilitiesCount: vulnerabilities?.length || 0
+                vulnerabilitiesCount: vulnerabilities?.length || 0,
+                neededFrameworks,
             });
 
-            return { assets, compliances, controls, controlRegistry, policies, tasks, vulnerabilities };
+            return { assets, compliances, controls, controlRegistry, policies, tasks, vulnerabilities, neededFrameworks };
         } catch (error) {
             console.error('DashboardTab: Data fetch error:', error);
             throw error;
@@ -70,6 +74,7 @@ export const DashboardTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
         policies: [] as PolicyDocument[],
         tasks: [] as ProgramTask[],
         vulnerabilities: [] as Vulnerability[],
+        neededFrameworks: [] as string[],
     };
     
     const currentStats = stats || defaultStats;
@@ -152,6 +157,7 @@ export const DashboardTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
 
     const frameworkComplianceData = useMemo(() => {
         if (!currentStats.compliances) return {};
+        const { neededFrameworks } = currentStats;
         // Build a lookup from ctl_id → enforcement status using both sources
         // control_registry is the source of truth for enforcement status
         const registryStatusMap = new Map<string, string>(currentStats.controlRegistry.map(c => [c.ctl_id, c.ctl_status]));
@@ -159,6 +165,8 @@ export const DashboardTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
 
         return currentStats.compliances.reduce((acc, compliance) => {
             const frameworkKey = compliance.framework;
+            // Skip frameworks not selected in org settings
+            if (neededFrameworks.length > 0 && !neededFrameworks.includes(frameworkKey)) return acc;
             if (!acc[frameworkKey]) acc[frameworkKey] = { 'Compliant': 0, 'NonCompliant': 0, 'NotMapped': 0, total: 0 };
 
             let status: DerivedComplianceStatus;

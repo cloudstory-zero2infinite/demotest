@@ -23,9 +23,11 @@ interface InternalControlModalProps {
     onSave: (control: InternalControlCreate | InternalControlUpdate, evidenceFile?: File | null) => void;
     controlToEdit: InternalControl | null;
     mode: 'add' | 'edit' | 'view';
+    onEdit?: () => void;
+    onDelete?: () => void;
 }
 
-const InternalControlModal: React.FC<InternalControlModalProps> = ({ isOpen, onClose, onSave, controlToEdit, mode }) => {
+const InternalControlModal: React.FC<InternalControlModalProps> = ({ isOpen, onClose, onSave, controlToEdit, mode, onEdit, onDelete }) => {
     const [formData, setFormData] = useState<Partial<InternalControlCreate>>({ compliance_tag3: [] });
     const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
     const [complianceTags, setComplianceTags] = useState<string[]>([]);
@@ -202,6 +204,16 @@ const InternalControlModal: React.FC<InternalControlModalProps> = ({ isOpen, onC
                 <div className="mt-6 flex justify-end space-x-3">
                     <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
                     <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">Save</button>
+                </div>
+                )}
+                {isViewMode && (
+                <div className="mt-6 flex justify-end space-x-3">
+                    <button type="button" onClick={() => { onClose(); onEdit?.(); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-yellow-700 bg-yellow-50 border border-yellow-300 rounded-md hover:bg-yellow-100 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800">
+                        <PencilIcon className="h-4 w-4" /> Edit
+                    </button>
+                    <button type="button" onClick={() => { onClose(); onDelete?.(); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-300 rounded-md hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800">
+                        <TrashIcon className="h-4 w-4" /> Delete
+                    </button>
                 </div>
                 )}
             </form>
@@ -563,16 +575,15 @@ export const InternalControlsView: React.FC = () => {
                                     </button>
                                 </th>
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Compliance Tags</th>
-                                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
                             </tr>
                         </thead>
                          <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
                             {loading ? (
-                                <tr><td colSpan={5} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading controls...</td></tr>
+                                <tr><td colSpan={4} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading controls...</td></tr>
                             ) : filteredAndSortedControls.length === 0 ? (
-                                <tr><td colSpan={5} className="text-center py-4 text-gray-500 dark:text-gray-400">No controls found.</td></tr>
+                                <tr><td colSpan={4} className="text-center py-4 text-gray-500 dark:text-gray-400">No controls found.</td></tr>
                             ) : filteredAndSortedControls.map(control => (
-                                <tr key={control.id}>
+                                <tr key={control.id} onClick={() => setModalState({ type: 'view', control })} className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50">
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{String(control.ctl_id ?? '')}</td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="text-sm font-medium text-gray-900 dark:text-white">{String(control.name ?? '')}</div>
@@ -588,13 +599,6 @@ export const InternalControlsView: React.FC = () => {
                                             ))}
                                         </div>
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        <div className="flex justify-end items-center space-x-2">
-                                            <button onClick={() => setModalState({ type: 'view', control })} className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
-                                            <button onClick={() => setModalState({ type: 'edit', control })} className="text-gray-400 hover:text-yellow-500"><PencilIcon className="h-5 w-5" /></button>
-                                            <button onClick={() => setModalState({ type: 'delete', control })} className="text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5" /></button>
-                                        </div>
-                                    </td>
                                 </tr>
                             ))}
                         </tbody>
@@ -607,6 +611,8 @@ export const InternalControlsView: React.FC = () => {
                 onSave={handleSaveControl}
                 controlToEdit={modalState.control || null}
                 mode={modalState.type as 'add' | 'edit' | 'view'}
+                onEdit={() => { if (modalState.control) setModalState({ type: 'edit', control: modalState.control }); }}
+                onDelete={() => { if (modalState.control) setModalState({ type: 'delete', control: modalState.control }); }}
             />
             <DeleteConfirmationModal
                 isOpen={modalState.type === 'delete'}

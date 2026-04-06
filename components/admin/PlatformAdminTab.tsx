@@ -1,8 +1,13 @@
-import React, { useState, useCallback, FormEvent, useMemo } from 'react';
+import React, { useState, useCallback, FormEvent, useMemo, useRef } from 'react';
 import * as SupabaseService from '../../services/supabase';
+import { OrgContact } from '../../types';
 import { useTableSelection } from '../../hooks/useTableSelection';
 import { SelectionActionBar } from '../common/SelectionActionBar';
 import { useDataRefresh } from '../../hooks/useDataRefresh';
+import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, DownloadIcon, UploadIcon, BotIcon } from '../Icons';
+import { Modal } from '../common/Modal';
+import { AIChatModal } from '../common/AIChatModal';
+import { parseCSVLine } from '../../utils/csvParser';
 
 // ─── Status badge ────────────────────────────────────────────────────────────
 
@@ -59,6 +64,15 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
     // Per-row action loading
     const [actionLoading, setActionLoading] = useState<number | null>(null);
     const [confirmRemove, setConfirmRemove] = useState<number | null>(null);
+
+    // Contacts
+    const [contacts, setContacts] = useState<OrgContact[]>([]);
+    const [contactModal, setContactModal] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | null; contact?: OrgContact }>({ type: null });
+    const [contactForm, setContactForm] = useState({ name: '', email: '', department: '' });
+    const [contactSaving, setContactSaving] = useState(false);
+    const [contactError, setContactError] = useState<string | null>(null);
+    const [showContactAI, setShowContactAI] = useState(false);
+    const contactFileRef = useRef<HTMLInputElement>(null);
 
     const {
         selectedIds, isConfirmingDelete, isSaving,
@@ -178,6 +192,106 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
         } finally {
             setAddLoading(false);
         }
+    };
+
+    // ── Contacts ───────────────────────────────────────────────────────────────
+    const loadContacts = useCallback(async () => {
+        const data = await SupabaseService.getOrgContacts();
+        setContacts(data);
+        return data;
+    }, []);
+
+    const { refresh: refreshContacts } = useDataRefresh(loadContacts, [], isActive);
+
+    const openContactModal = (type: 'add' | 'edit' | 'view' | 'delete', contact?: OrgContact) => {
+        setContactError(null);
+        if (type === 'add') {
+            setContactForm({ name: '', email: '', department: '' });
+        } else if (type === 'edit' && contact) {
+            setContactForm({ name: contact.name, email: contact.email, department: contact.department });
+        }
+        setContactModal({ type, contact });
+    };
+
+    const closeContactModal = () => setContactModal({ type: null });
+
+    const handleSaveContact = async (e: FormEvent) => {
+        e.preventDefault();
+        if (!contactForm.name.trim() || !contactForm.email.trim()) return;
+        setContactSaving(true);
+        setContactError(null);
+        try {
+            if (contactModal.type === 'add') {
+                await SupabaseService.addOrgContact(contactForm);
+            } else if (contactModal.type === 'edit' && contactModal.contact) {
+                await SupabaseService.updateOrgContact(contactModal.contact.id, contactForm);
+            }
+            closeContactModal();
+            await refreshContacts();
+        } catch (err: any) {
+            setContactError(err.message || 'Failed to save contact');
+        } finally {
+            setContactSaving(false);
+        }
+    };
+
+    const handleDeleteContact = async () => {
+        if (!contactModal.contact) return;
+        setContactSaving(true);
+        setContactError(null);
+        try {
+            await SupabaseService.deleteOrgContact(contactModal.contact.id);
+            closeContactModal();
+            await refreshContacts();
+        } catch (err: any) {
+            setContactError(err.message || 'Failed to delete contact');
+        } finally {
+            setContactSaving(false);
+        }
+    };
+
+    const handleImportContactsCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const text = await file.text();
+        const lines = text.split('\n').filter(l => l.trim());
+        if (lines.length < 2) { alert('CSV must have a header row and at least one data row.'); return; }
+
+        const header = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
+        const nameIdx = header.indexOf('name');
+        const emailIdx = header.indexOf('email');
+        const deptIdx = header.indexOf('department');
+
+        if (nameIdx === -1 || emailIdx === -1) { alert('CSV must have "Name" and "Email" columns.'); return; }
+
+        let added = 0;
+        for (let i = 1; i < lines.length; i++) {
+            const cols = parseCSVLine(lines[i]);
+            const name = cols[nameIdx]?.trim();
+            const email = cols[emailIdx]?.trim();
+            const department = deptIdx !== -1 ? (cols[deptIdx]?.trim() || '') : '';
+            if (!name || !email) continue;
+            try {
+                await SupabaseService.addOrgContact({ name, email, department });
+                added++;
+            } catch { /* skip duplicates / errors */ }
+        }
+        alert(`Imported ${added} contact(s).`);
+        await refreshContacts();
+        if (contactFileRef.current) contactFileRef.current.value = '';
+    };
+
+    const handleExportContacts = () => {
+        if (contacts.length === 0) return;
+        const header = 'Name,Email,Department';
+        const rows = contacts.map(c => `"${c.name}","${c.email}","${c.department}"`);
+        const blob = new Blob([header + '\n' + rows.join('\n')], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'org_contacts.csv';
+        a.click();
+        URL.revokeObjectURL(url);
     };
 
     const pendingApprovalCount = members.filter(m => m.status === 'pending_approval').length;
@@ -490,6 +604,163 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
                     </div>
                 </form>
             </div>
+
+            {/* ── Contacts ── */}
+            <div className="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                    <div>
+                        <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                            Contacts
+                            <span className="ml-2 text-sm font-normal text-gray-400">({contacts.length})</span>
+                        </h2>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                            Displayed as "Name (Department)" across all tabs.
+                        </p>
+                    </div>
+                    <div className="flex space-x-2">
+                        <input type="file" accept=".csv" ref={contactFileRef} onChange={handleImportContactsCSV} className="hidden" />
+                        <button onClick={() => setShowContactAI(true)} title="AI Assistant" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                            <BotIcon className="h-5 w-5" />
+                        </button>
+                        <button onClick={() => contactFileRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                            <UploadIcon className="h-5 w-5" />
+                        </button>
+                        <button onClick={handleExportContacts} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                            <DownloadIcon className="h-5 w-5" />
+                        </button>
+                        <button onClick={() => openContactModal('add')} title="Add Contact" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                            <PlusIcon className="h-5 w-5" />
+                        </button>
+                    </div>
+                </div>
+
+                {contacts.length === 0 ? (
+                    <div className="px-6 py-10 text-center text-gray-400 text-sm">No contacts yet. Click + to add one.</div>
+                ) : (
+                    <div className="overflow-auto max-h-[400px]">
+                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                            <thead className="bg-gray-50 dark:bg-gray-900">
+                                <tr>
+                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Name</th>
+                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Email</th>
+                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Department</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800">
+                                {contacts.map(c => (
+                                    <tr key={c.id} onClick={() => openContactModal('view', c)} className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                        <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{c.name}</td>
+                                        <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">{c.email}</td>
+                                        <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">{c.department || '—'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+
+            {/* ── Contact Modal (Add / Edit / View) ── */}
+            {(contactModal.type === 'add' || contactModal.type === 'edit' || contactModal.type === 'view') && (
+                <Modal
+                    isOpen={true}
+                    onClose={closeContactModal}
+                    title={contactModal.type === 'add' ? 'Add Contact' : contactModal.type === 'edit' ? 'Edit Contact' : 'View Contact'}
+                >
+                    <form onSubmit={handleSaveContact} className="space-y-4">
+                        {contactError && (
+                            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300">{contactError}</div>
+                        )}
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name <span className="text-red-500">*</span></label>
+                            <input
+                                type="text"
+                                value={contactForm.name}
+                                onChange={e => setContactForm(prev => ({ ...prev, name: e.target.value }))}
+                                readOnly={contactModal.type === 'view'}
+                                required
+                                placeholder="John Doe"
+                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email <span className="text-red-500">*</span></label>
+                            <input
+                                type="email"
+                                value={contactForm.email}
+                                onChange={e => setContactForm(prev => ({ ...prev, email: e.target.value }))}
+                                readOnly={contactModal.type === 'view'}
+                                required
+                                placeholder="john@example.com"
+                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Department</label>
+                            <input
+                                type="text"
+                                value={contactForm.department}
+                                onChange={e => setContactForm(prev => ({ ...prev, department: e.target.value }))}
+                                readOnly={contactModal.type === 'view'}
+                                placeholder="e.g. Engineering"
+                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                            />
+                        </div>
+                        {contactModal.type === 'view' && (
+                            <div className="flex justify-end gap-3 pt-2">
+                                <button type="button" onClick={() => { closeContactModal(); openContactModal('edit', contactModal.contact); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-yellow-700 bg-yellow-50 border border-yellow-300 rounded-md hover:bg-yellow-100 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800">
+                                    <PencilIcon className="h-4 w-4" /> Edit
+                                </button>
+                                <button type="button" onClick={() => { closeContactModal(); openContactModal('delete', contactModal.contact); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-300 rounded-md hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800">
+                                    <TrashIcon className="h-4 w-4" /> Delete
+                                </button>
+                            </div>
+                        )}
+                        {contactModal.type !== 'view' && contactModal.type !== null && (
+                            <div className="flex justify-end gap-3 pt-2">
+                                <button type="button" onClick={closeContactModal} className="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600">
+                                    Cancel
+                                </button>
+                                <button type="submit" disabled={contactSaving} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50">
+                                    {contactSaving ? 'Saving…' : contactModal.type === 'add' ? 'Add Contact' : 'Save Changes'}
+                                </button>
+                            </div>
+                        )}
+                    </form>
+                </Modal>
+            )}
+
+            {/* ── Contact Delete Confirmation ── */}
+            {contactModal.type === 'delete' && contactModal.contact && (
+                <Modal isOpen={true} onClose={closeContactModal} title="Delete Contact">
+                    <div className="space-y-4">
+                        {contactError && (
+                            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300">{contactError}</div>
+                        )}
+                        <p className="text-sm text-gray-700 dark:text-gray-300">
+                            Are you sure you want to delete <span className="font-semibold">{contactModal.contact.name}</span>?
+                        </p>
+                        <div className="flex justify-end gap-3">
+                            <button onClick={closeContactModal} className="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600">
+                                Cancel
+                            </button>
+                            <button onClick={handleDeleteContact} disabled={contactSaving} className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-50">
+                                {contactSaving ? 'Deleting…' : 'Delete'}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
+
+            {/* ── Contact AI Chat ── */}
+            {showContactAI && (
+                <AIChatModal
+                    isOpen={true}
+                    onClose={() => setShowContactAI(false)}
+                    module="contacts"
+                    contextLabel="Organisation Contacts"
+                />
+            )}
         </div>
     );
 };

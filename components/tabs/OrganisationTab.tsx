@@ -308,28 +308,72 @@ const OrgStructureView: React.FC = () => {
 
 interface OrganisationTabProps {
     userRole: UserRole | null;
-    activeSubTab: 'view_org' | 'tenant_admin' | 'settings';
+    activeSubTab?: string;
     isActive?: boolean;
 }
 
-export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, activeSubTab, isActive = true }) => {
+type OrgSubTabId = 'tenant_admin' | 'view_org' | 'settings';
+
+export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, isActive = true }) => {
     const isPlatformAdmin = userRole === 'tenant_admin' || userRole === 'admin';
+    const defaultTab: OrgSubTabId = isPlatformAdmin ? 'tenant_admin' : 'view_org';
+    const [activeSubTab, setActiveSubTab] = useState<OrgSubTabId>(defaultTab);
+    const [mountedTabs, setMountedTabs] = useState<Set<OrgSubTabId>>(new Set([defaultTab]));
+
+    const handleSubTabChange = (tab: OrgSubTabId) => {
+        setActiveSubTab(tab);
+        setMountedTabs(prev => {
+            if (prev.has(tab)) return prev;
+            const next = new Set(prev);
+            next.add(tab);
+            return next;
+        });
+    };
+
+    const subTabs: { id: OrgSubTabId; label: string; adminOnly?: boolean }[] = [
+        { id: 'tenant_admin', label: 'Manage Members', adminOnly: true },
+        { id: 'view_org', label: 'View Organisation' },
+        { id: 'settings', label: 'Settings', adminOnly: true },
+    ];
+
+    const visibleTabs = subTabs.filter(t => !t.adminOnly || isPlatformAdmin);
 
     return (
-        <div className="py-6">
-            <div className={activeSubTab === 'view_org' ? '' : 'hidden'}>
-                <ViewOrganizationTab isActive={isActive && activeSubTab === 'view_org'} />
+        <div className="px-4 py-6 sm:px-0">
+            <div className="border-b border-gray-200 dark:border-gray-700">
+                <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+                    {visibleTabs.map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => handleSubTabChange(tab.id)}
+                            className={`${
+                                activeSubTab === tab.id
+                                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-200'
+                            } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </nav>
             </div>
-            {isPlatformAdmin && (
-                <div className={activeSubTab === 'tenant_admin' ? '' : 'hidden'}>
-                    <PlatformAdminTab isActive={isActive && activeSubTab === 'tenant_admin'} />
-                </div>
-            )}
-            {isPlatformAdmin && (
-                <div className={activeSubTab === 'settings' ? '' : 'hidden'}>
-                    <OrgSettingsTab isActive={isActive && activeSubTab === 'settings'} />
-                </div>
-            )}
+            <div className="mt-6">
+                {isPlatformAdmin && mountedTabs.has('tenant_admin') && (
+                    <div className={activeSubTab === 'tenant_admin' ? '' : 'hidden'}>
+                        <PlatformAdminTab isActive={isActive && activeSubTab === 'tenant_admin'} />
+                    </div>
+                )}
+                {mountedTabs.has('view_org') && (
+                    <div className={activeSubTab === 'view_org' ? '' : 'hidden'}>
+                        <ViewOrganizationTab isActive={isActive && activeSubTab === 'view_org'} />
+                    </div>
+                )}
+                {isPlatformAdmin && mountedTabs.has('settings') && (
+                    <div className={activeSubTab === 'settings' ? '' : 'hidden'}>
+                        <OrgSettingsTab isActive={isActive && activeSubTab === 'settings'} />
+                    </div>
+                )}
+            </div>
         </div>
     );
 };

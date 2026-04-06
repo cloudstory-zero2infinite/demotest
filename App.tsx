@@ -315,7 +315,7 @@ const App: React.FC = () => {
                 style={onboardingStatus === 'pending_approval' ? { filter: 'blur(4px)', opacity: 0.4 } : undefined}
             >
                 <div className={activeTab === 'dashboard' ? '' : 'hidden'}><DashboardTab isActive={activeTab === 'dashboard'} /></div>
-                <div className={activeTab === 'organisation' ? '' : 'hidden'}><OrganisationTab userRole={platformAdminRole} activeSubTab={activeOrgSubTab} isActive={activeTab === 'organisation'} /></div>
+                <div className={activeTab === 'organisation' ? '' : 'hidden'}><OrganisationTab userRole={platformAdminRole} isActive={activeTab === 'organisation'} /></div>
                 <div className={activeTab === 'program' ? '' : 'hidden'}><ProgramTab userRole={userRole} isActive={activeTab === 'program'} /></div>
                 <div className={activeTab === 'governance' ? '' : 'hidden'}><GovernanceTab isActive={activeTab === 'governance'} externalSubTab={governanceSubTab} externalOpenItemId={governanceOpenItemId} onExternalSubTabConsumed={() => { setGovernanceSubTab(null); setGovernanceOpenItemId(null); }} /></div>
                 <div className={activeTab === 'compliance' ? '' : 'hidden'}><ComplianceTab isActive={activeTab === 'compliance'} /></div>

@@ -17,6 +17,7 @@ import { orgRouter } from "./routes/org.js";
 import { capabilitiesRouter } from "./routes/capabilities.js";
 import { controlRegistryRouter } from "./routes/control-registry.js";
 import { orgSettingsRouter } from "./routes/org-settings.js";
+import { orgContactsRouter } from "./routes/org-contacts.js";
 import { checkAllExpiredPolicies } from "./jobs/policy-expiry.js";
 
 dotenv.config();
@@ -51,6 +52,7 @@ app.use("/api/org", orgRouter);
 app.use("/api/capabilities", capabilitiesRouter);
 app.use("/api/control-registry", controlRegistryRouter);
 app.use("/api/org-settings", orgSettingsRouter);
+app.use("/api/org-contacts", orgContactsRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });

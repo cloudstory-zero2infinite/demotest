@@ -1,5 +1,5 @@
 import React from 'react';
-import { ResponsiveContainer, RadialBarChart, RadialBar } from 'recharts';
+import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 
 interface ScoreBreakdown {
     total: number;
@@ -15,32 +15,26 @@ interface SecurityScoreCardProps {
     scoreBreakdown: ScoreBreakdown;
 }
 
+const CATEGORY_META: { key: keyof ScoreBreakdown; label: string; max: number }[] = [
+    { key: 'controls', label: 'Controls', max: 30 },
+    { key: 'program', label: 'Program', max: 25 },
+    { key: 'vulnerabilities', label: 'Vulnerabilities', max: 20 },
+    { key: 'assets', label: 'Assets', max: 15 },
+    { key: 'policies', label: 'Policies', max: 10 },
+];
+
+const getScoreColor = (score: number) => {
+    if (score >= 80) return { fill: '#10b981', stroke: '#059669', label: 'Excellent' };
+    if (score >= 60) return { fill: '#0ea5e9', stroke: '#0284c7', label: 'Good' };
+    if (score >= 40) return { fill: '#f59e0b', stroke: '#d97706', label: 'Fair' };
+    if (score >= 20) return { fill: '#f97316', stroke: '#ea580c', label: 'Poor' };
+    return { fill: '#ef4444', stroke: '#dc2626', label: 'Critical' };
+};
+
 export const SecurityScoreCard: React.FC<SecurityScoreCardProps> = React.memo(({ scoreBreakdown }) => {
     const score = scoreBreakdown.total;
-    // Debug log
-    console.log('SecurityScoreCard received score:', score);
-    
-    // Get color based on score
-    const getScoreColor = (score: number) => {
-        if (score >= 80) return '#1e40af'; // dark blue
-        if (score >= 60) return '#2563eb'; // medium blue
-        if (score >= 40) return '#3b82f6'; // blue
-        if (score >= 20) return '#60a5fa'; // light blue
-        return '#93c5fd'; // very light blue
-    };
+    const { fill, stroke, label } = getScoreColor(score);
 
-    const getScoreLabel = (score: number) => {
-        if (score >= 80) return 'Excellent';
-        if (score >= 60) return 'Good';
-        if (score >= 40) return 'Fair';
-        if (score >= 20) return 'Poor';
-        return 'Critical';
-    };
-
-    const scoreColor = getScoreColor(score);
-    const scoreLabel = getScoreLabel(score);
-
-    // Fallback display only when there is truly no GRC data at all
     if (!scoreBreakdown.hasData || score === undefined || score === null) {
         return (
             <div className="md:col-span-2 lg:col-span-3 p-4 bg-white dark:bg-gray-800 rounded-lg shadow flex flex-col items-center justify-center transition-all hover:shadow-md border border-transparent dark:border-gray-700">
@@ -56,50 +50,58 @@ export const SecurityScoreCard: React.FC<SecurityScoreCardProps> = React.memo(({
         );
     }
 
+    // Normalize each category to 0–100 scale for the radar chart
+    const radarData = CATEGORY_META.map(({ key, label, max }) => ({
+        category: label,
+        value: max > 0 ? Math.round(((scoreBreakdown[key] as number) / max) * 100) : 0,
+        raw: scoreBreakdown[key] as number,
+        max,
+    }));
+
     return (
         <div className="md:col-span-2 lg:col-span-3 p-4 bg-white dark:bg-gray-800 rounded-lg shadow flex flex-col items-center justify-center transition-all hover:shadow-md border border-transparent dark:border-gray-700">
              <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">Organisation Security Score</h3>
-             
-             {/* Score Display */}
-             <div className="relative w-full" style={{ height: '200px' }}>
+
+             {/* Spider chart with centered score */}
+             <div className="relative w-full" style={{ height: '240px' }}>
                  <ResponsiveContainer width="100%" height="100%">
-                    <RadialBarChart innerRadius="70%" outerRadius="100%" data={[{ value: score, fill: scoreColor }]} startAngle={180} endAngle={0} background={{ fill: '#e5e7eb' }}>
-                        <RadialBar dataKey='value' cornerRadius={10} />
-                        <text x="50%" y="45%" textAnchor="middle" dominantBaseline="middle" className="text-4xl font-bold" fill={scoreColor}>
-                            {score}
-                        </text>
-                        <text x="50%" y="60%" textAnchor="middle" dominantBaseline="middle" className="text-sm fill-current text-gray-500 dark:text-gray-400">
-                            / 100
-                        </text>
-                        <text x="50%" y="75%" textAnchor="middle" dominantBaseline="middle" className="text-xs font-medium" fill={scoreColor}>
-                            {scoreLabel}
-                        </text>
-                    </RadialBarChart>
-                </ResponsiveContainer>
+                     <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
+                         <PolarGrid stroke="#d1d5db" strokeDasharray="3 3" />
+                         <PolarAngleAxis
+                             dataKey="category"
+                             tick={{ fill: '#6b7280', fontSize: 11 }}
+                         />
+                         <PolarRadiusAxis
+                             angle={90}
+                             domain={[0, 100]}
+                             tick={false}
+                             axisLine={false}
+                         />
+                         <Radar
+                             dataKey="value"
+                             stroke={stroke}
+                             fill={fill}
+                             fillOpacity={0.3}
+                             strokeWidth={2}
+                         />
+                     </RadarChart>
+                 </ResponsiveContainer>
+
+                 {/* Centered score overlay */}
+                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                     <span className="text-3xl font-bold" style={{ color: stroke }}>{score}</span>
+                     <span className="text-xs font-medium" style={{ color: stroke }}>{label}</span>
+                 </div>
              </div>
 
              {/* Score Breakdown */}
-             <div className="mt-3 text-xs text-gray-600 dark:text-gray-400 space-y-1 px-4 w-full">
-                <div className="flex justify-between">
-                    <span>Controls (30%)</span>
-                    <span className="font-medium">{scoreBreakdown.controls}/30</span>
-                </div>
-                <div className="flex justify-between">
-                    <span>Program (25%)</span>
-                    <span className="font-medium">{scoreBreakdown.program}/25</span>
-                </div>
-                <div className="flex justify-between">
-                    <span>Vulnerabilities (20%)</span>
-                    <span className="font-medium">{scoreBreakdown.vulnerabilities}/20</span>
-                </div>
-                <div className="flex justify-between">
-                    <span>Assets (15%)</span>
-                    <span className="font-medium">{scoreBreakdown.assets}/15</span>
-                </div>
-                <div className="flex justify-between">
-                    <span>Policies (10%)</span>
-                    <span className="font-medium">{scoreBreakdown.policies}/10</span>
-                </div>
+             <div className="mt-2 text-xs text-gray-600 dark:text-gray-400 space-y-1 px-4 w-full">
+                {CATEGORY_META.map(({ key, label, max }) => (
+                    <div key={key} className="flex justify-between">
+                        <span>{label} ({max}%)</span>
+                        <span className="font-medium">{scoreBreakdown[key] as number}/{max}</span>
+                    </div>
+                ))}
              </div>
 
              <p className="text-xs text-center text-gray-500 dark:text-gray-400 mt-2 italic px-4">

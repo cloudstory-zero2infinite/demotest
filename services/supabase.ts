@@ -838,8 +838,25 @@ export const deleteAssetRelationship = async (id: string): Promise<boolean> => {
 
 // ── Org Settings ──────────────────────────────────────────────────────────────
 
-export const getOrgSettings = async (): Promise<{ policy_refresh_months: number }> =>
+export const getOrgSettings = async (): Promise<{ policy_refresh_months: number; needed_framework: string[] }> =>
   apiRequest('/api/org-settings');
 
-export const updateOrgSettings = async (settings: { policy_refresh_months: number }): Promise<{ policy_refresh_months: number }> =>
+export const updateOrgSettings = async (settings: { policy_refresh_months?: number; needed_framework?: string[] }): Promise<{ policy_refresh_months: number; needed_framework?: string[] }> =>
   apiRequest('/api/org-settings', { method: 'PUT', body: JSON.stringify(settings) });
+
+export const getAvailableFrameworks = async (): Promise<string[]> =>
+  apiRequest('/api/org-settings/available-frameworks');
+
+// ── Org Contacts ─────────────────────────────────────────────────────────────
+
+export const getOrgContacts = async (): Promise<import('../types').OrgContact[]> =>
+  apiRequest('/api/org-contacts');
+
+export const addOrgContact = async (contact: import('../types').OrgContactCreate): Promise<import('../types').OrgContact> =>
+  apiRequest('/api/org-contacts', { method: 'POST', body: JSON.stringify(contact) });
+
+export const updateOrgContact = async (id: string, updates: import('../types').OrgContactUpdate): Promise<import('../types').OrgContact> =>
+  apiRequest(`/api/org-contacts/${id}`, { method: 'PUT', body: JSON.stringify(updates) });
+
+export const deleteOrgContact = async (id: string): Promise<void> =>
+  apiRequest(`/api/org-contacts/${id}`, { method: 'DELETE' });

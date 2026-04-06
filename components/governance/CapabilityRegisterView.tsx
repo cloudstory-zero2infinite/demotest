@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, ChangeEvent, useMemo } from 'react';
 import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
-import { Capability, CapabilityCreate, CapabilityUpdate } from '../../types';
+import { Capability, CapabilityCreate, CapabilityUpdate, OrgContact, Asset, formatOrgContact } from '../../types';
 import * as SupabaseService from '../../services/supabase';
 import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon } from '../Icons';
 import { parseCSVLine } from '../../utils/csvParser';
@@ -69,6 +69,212 @@ const TagInput: React.FC<TagInputProps> = ({ values, onChange, placeholder, read
     );
 };
 
+// ─── Contact Owner Search+Select ─────────────────────────────────────────────
+
+interface OwnerSelectProps {
+    value: string;
+    onChange: (value: string) => void;
+    contacts: OrgContact[];
+    onContactCreated?: (c: OrgContact) => void;
+    readOnly?: boolean;
+}
+
+const OwnerSelect: React.FC<OwnerSelectProps> = ({ value, onChange, contacts, onContactCreated, readOnly }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [search, setSearch] = useState('');
+    const [creating, setCreating] = useState(false);
+    const [newName, setNewName] = useState('');
+    const [newEmail, setNewEmail] = useState('');
+    const [newDept, setNewDept] = useState('');
+    const [showCreate, setShowCreate] = useState(false);
+    const ref = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (ref.current && !ref.current.contains(e.target as Node)) { setIsOpen(false); setSearch(''); }
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, []);
+
+    const filtered = contacts.filter(c => {
+        const display = formatOrgContact(c).toLowerCase();
+        const s = search.toLowerCase();
+        return display.includes(s) || c.email.toLowerCase().includes(s);
+    });
+
+    const handleCreate = async () => {
+        if (!newName.trim() || !newEmail.trim()) return;
+        setCreating(true);
+        try {
+            const created = await SupabaseService.addOrgContact({ name: newName.trim(), email: newEmail.trim(), department: newDept.trim() });
+            onContactCreated?.(created);
+            onChange(formatOrgContact(created));
+            setShowCreate(false);
+            setNewName(''); setNewEmail(''); setNewDept('');
+            setIsOpen(false);
+            setSearch('');
+        } catch (err: any) {
+            alert(err.message || 'Failed to create contact');
+        } finally {
+            setCreating(false);
+        }
+    };
+
+    if (readOnly) {
+        return (
+            <div className="mt-1 px-3 py-2 rounded-md bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-sm text-gray-900 dark:text-white min-h-[38px]">
+                {value || '—'}
+            </div>
+        );
+    }
+
+    return (
+        <div ref={ref} className="relative mt-1">
+            <input
+                ref={inputRef}
+                type="text"
+                value={isOpen ? search : value}
+                onChange={e => { setSearch(e.target.value); setIsOpen(true); }}
+                onFocus={() => { setIsOpen(true); setSearch(''); }}
+                placeholder="Type to search contacts..."
+                className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            />
+            {isOpen && (
+                <div className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg">
+                    {filtered.map(c => {
+                        const display = formatOrgContact(c);
+                        return (
+                            <button
+                                key={c.id}
+                                type="button"
+                                onClick={() => { onChange(display); setIsOpen(false); setSearch(''); }}
+                                className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${value === display ? 'bg-blue-50 dark:bg-blue-900/20 font-medium' : 'text-gray-900 dark:text-white'}`}
+                            >
+                                <span>{c.name}</span>
+                                {c.department && <span className="text-gray-400 ml-1">({c.department})</span>}
+                                <span className="block text-xs text-gray-400">{c.email}</span>
+                            </button>
+                        );
+                    })}
+                    {filtered.length === 0 && !showCreate && (
+                        <div className="px-3 py-2 text-sm text-gray-400">No matching contacts</div>
+                    )}
+                    <div className="border-t border-gray-200 dark:border-gray-600">
+                        {showCreate ? (
+                            <div className="px-3 py-2 space-y-2">
+                                <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Name *" className="w-full text-sm px-2 py-1 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
+                                <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="Email *" className="w-full text-sm px-2 py-1 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
+                                <input type="text" value={newDept} onChange={e => setNewDept(e.target.value)} placeholder="Department" className="w-full text-sm px-2 py-1 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
+                                <div className="flex gap-2">
+                                    <button type="button" onClick={handleCreate} disabled={creating || !newName.trim() || !newEmail.trim()} className="px-2 py-1 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 disabled:bg-gray-300">
+                                        {creating ? '...' : 'Create'}
+                                    </button>
+                                    <button type="button" onClick={() => { setShowCreate(false); setNewName(''); setNewEmail(''); setNewDept(''); }} className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">Cancel</button>
+                                </div>
+                            </div>
+                        ) : (
+                            <button type="button" onClick={() => setShowCreate(true)} className="w-full px-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700 text-left font-medium">
+                                + Create new contact
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ─── Asset CMDB Multi-Select ─────────────────────────────────────────────────
+
+interface AssetMultiSelectProps {
+    values: string[];
+    onChange: (values: string[]) => void;
+    assets: Asset[];
+    readOnly?: boolean;
+}
+
+const AssetMultiSelect: React.FC<AssetMultiSelectProps> = ({ values, onChange, assets, readOnly }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [search, setSearch] = useState('');
+    const ref = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (ref.current && !ref.current.contains(e.target as Node)) { setIsOpen(false); setSearch(''); }
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, []);
+
+    const toggleValue = (val: string) => {
+        if (values.includes(val)) onChange(values.filter(v => v !== val));
+        else onChange([...values, val]);
+    };
+
+    const filtered = assets.filter(a => {
+        const s = search.toLowerCase();
+        return a.asset_id.toLowerCase().includes(s) || a.name.toLowerCase().includes(s);
+    });
+
+    if (readOnly) {
+        return (
+            <div className="mt-1 flex flex-wrap gap-1.5 min-h-[38px] items-center px-2 py-1.5 rounded-md border bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-sm">
+                {values.length === 0 && <span className="text-gray-400 text-sm">—</span>}
+                {values.map((v, i) => (
+                    <span key={i} className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 font-mono">{v}</span>
+                ))}
+            </div>
+        );
+    }
+
+    return (
+        <div ref={ref} className="relative mt-1">
+            <div
+                className="flex flex-wrap gap-1.5 items-center min-h-[38px] w-full rounded-md border px-2 py-1.5 text-sm bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 cursor-text"
+                onClick={() => { setIsOpen(true); inputRef.current?.focus(); }}
+            >
+                {values.map((v, i) => (
+                    <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 font-mono">
+                        {v}
+                        <button type="button" onClick={e => { e.stopPropagation(); toggleValue(v); }} className="hover:text-gray-800 dark:hover:text-gray-100 leading-none">&times;</button>
+                    </span>
+                ))}
+                <input
+                    ref={inputRef}
+                    type="text"
+                    value={search}
+                    onChange={e => { setSearch(e.target.value); setIsOpen(true); }}
+                    onFocus={() => setIsOpen(true)}
+                    placeholder={values.length === 0 ? 'Type to search assets...' : ''}
+                    className="flex-1 min-w-[120px] bg-transparent outline-none text-sm text-gray-900 dark:text-white placeholder-gray-400"
+                />
+            </div>
+            {isOpen && (
+                <div className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg">
+                    {filtered.length === 0 && (
+                        <div className="px-3 py-2 text-sm text-gray-400">No matching assets</div>
+                    )}
+                    {filtered.map(a => (
+                        <label key={a.id} className="flex items-center px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer text-sm text-gray-900 dark:text-white">
+                            <input
+                                type="checkbox"
+                                checked={values.includes(a.asset_id)}
+                                onChange={() => toggleValue(a.asset_id)}
+                                className="rounded border-gray-300 dark:border-gray-600 mr-2"
+                            />
+                            <span className="font-mono text-xs text-gray-400 mr-2">{a.asset_id}</span>
+                            {a.name}
+                        </label>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
 const MANDATORY_LABEL = <span className="text-red-500 ml-0.5">*</span>;
@@ -79,6 +285,11 @@ interface CapabilityModalProps {
     onSave: (data: CapabilityCreate | CapabilityUpdate) => Promise<void>;
     capabilityToEdit: Capability | null;
     mode: 'add' | 'edit' | 'view';
+    contacts: OrgContact[];
+    assets: Asset[];
+    onContactCreated?: (c: OrgContact) => void;
+    onEdit?: () => void;
+    onDelete?: () => void;
 }
 
 type FormData = {
@@ -97,7 +308,7 @@ const DEFAULT_FORM: FormData = {
     capab_other_details: '',
 };
 
-const CapabilityModal: React.FC<CapabilityModalProps> = ({ isOpen, onClose, onSave, capabilityToEdit, mode }) => {
+const CapabilityModal: React.FC<CapabilityModalProps> = ({ isOpen, onClose, onSave, capabilityToEdit, mode, contacts, assets, onContactCreated, onEdit, onDelete }) => {
     const [formData, setFormData] = useState<FormData>(DEFAULT_FORM);
     const [isSaving, setIsSaving] = useState(false);
     const isView = mode === 'view';
@@ -152,7 +363,13 @@ const CapabilityModal: React.FC<CapabilityModalProps> = ({ isOpen, onClose, onSa
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Capability Owner {MANDATORY_LABEL}</label>
-                        <input type="text" name="capab_owner" value={formData.capab_owner} onChange={handleChange} readOnly={isView} required placeholder="e.g. Jane Smith" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        <OwnerSelect
+                            value={formData.capab_owner}
+                            onChange={val => setFormData(prev => ({ ...prev, capab_owner: val }))}
+                            contacts={contacts}
+                            onContactCreated={onContactCreated}
+                            readOnly={isView}
+                        />
                     </div>
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -164,15 +381,30 @@ const CapabilityModal: React.FC<CapabilityModalProps> = ({ isOpen, onClose, onSa
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                             CMDB ID(s) {MANDATORY_LABEL}
-                            {!isView && <span className="ml-1 text-xs text-gray-400 font-normal">— press Enter or comma to add</span>}
+                            {!isView && <span className="ml-1 text-xs text-gray-400 font-normal">— type to search by asset ID or name</span>}
                         </label>
-                        <TagInput values={formData.capab_cmdb_id} onChange={vals => setFormData(prev => ({ ...prev, capab_cmdb_id: vals }))} placeholder="e.g. cmdb-001, cmdb-003" readOnly={isView} />
+                        <AssetMultiSelect
+                            values={formData.capab_cmdb_id}
+                            onChange={vals => setFormData(prev => ({ ...prev, capab_cmdb_id: vals }))}
+                            assets={assets}
+                            readOnly={isView}
+                        />
                     </div>
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Other Details</label>
                         <textarea name="capab_other_details" value={formData.capab_other_details} onChange={handleChange} readOnly={isView} rows={3} placeholder="Additional notes, scope, maturity level, etc." className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
                 </div>
+                {isView && (
+                    <div className="mt-6 flex justify-end space-x-3">
+                        <button type="button" onClick={() => { onClose(); onEdit?.(); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-yellow-700 bg-yellow-50 border border-yellow-300 rounded-md hover:bg-yellow-100 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800">
+                            <PencilIcon className="h-4 w-4" /> Edit
+                        </button>
+                        <button type="button" onClick={() => { onClose(); onDelete?.(); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-300 rounded-md hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800">
+                            <TrashIcon className="h-4 w-4" /> Delete
+                        </button>
+                    </div>
+                )}
                 {!isView && (
                     <div className="mt-6 flex justify-end space-x-3">
                         <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
@@ -209,6 +441,8 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
     const [sortConfig, setSortConfig] = useState<{ key: keyof Capability; direction: 'ascending' | 'descending' } | null>(null);
     const [importData, setImportData] = useState<{ newCapabilities: CapabilityCreate[]; duplicates: string[] }>({ newCapabilities: [], duplicates: [] });
     const [showAIChat, setShowAIChat] = useState(false);
+    const [orgContacts, setOrgContacts] = useState<OrgContact[]>([]);
+    const [orgAssets, setOrgAssets] = useState<Asset[]>([]);
 
     const {
         selectedIds, isEditing, editValues, isConfirmingDelete, isSaving, bulkProgress,
@@ -228,9 +462,18 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
         }
     }, []);
 
-    useEffect(() => { fetchCapabilities(); }, [fetchCapabilities]);
+    const fetchSupportingData = useCallback(async () => {
+        const [contacts, assets] = await Promise.all([
+            SupabaseService.getOrgContacts(),
+            SupabaseService.getAssets(),
+        ]);
+        setOrgContacts(contacts);
+        setOrgAssets(assets);
+    }, []);
 
-    useUnifiedRefresh(isActive, fetchCapabilities);
+    useEffect(() => { fetchCapabilities(); fetchSupportingData(); }, [fetchCapabilities, fetchSupportingData]);
+
+    useUnifiedRefresh(isActive, () => { fetchCapabilities(); fetchSupportingData(); });
 
     const filteredAndSorted = useMemo(() => {
         let items = [...capabilities];
@@ -486,14 +729,13 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('capab_other_details')} className="flex items-center w-full text-left focus:outline-none">Other Details {getSortIconFor('capab_other_details')}</button>
                                 </th>
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
                             {loading ? (
-                                <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading capabilities...</td></tr>
+                                <tr><td colSpan={7} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading capabilities...</td></tr>
                             ) : filteredAndSorted.length === 0 ? (
-                                <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">No capabilities found.</td></tr>
+                                <tr><td colSpan={7} className="text-center py-4 text-gray-500 dark:text-gray-400">No capabilities found.</td></tr>
                             ) : filteredAndSorted.map(cap => (
                                 <tr
                                     key={cap.id}
@@ -551,15 +793,6 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
                                             <input type="text" value={editValues[cap.id]?.capab_other_details ?? cap.capab_other_details ?? ''} onChange={e => updateField(cap.id, 'capab_other_details', e.target.value)} className={editInputCls} />
                                         ) : (cap.capab_other_details || '—')}
                                     </td>
-                                    <td onClick={e => e.stopPropagation()} className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        {!isEditing && (
-                                            <div className="flex justify-end items-center space-x-2">
-                                                <button onClick={() => setModalState({ type: 'view', item: cap })} className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
-                                                <button onClick={() => setModalState({ type: 'edit', item: cap })} className="text-gray-400 hover:text-yellow-500"><PencilIcon className="h-5 w-5" /></button>
-                                                <button onClick={() => { setError(null); setModalState({ type: 'delete', item: cap }); }} className="text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5" /></button>
-                                            </div>
-                                        )}
-                                    </td>
                                 </tr>
                             ))}
                         </tbody>
@@ -574,6 +807,11 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
                 onSave={handleSave}
                 capabilityToEdit={modalState.item ?? null}
                 mode={modalState.type as 'add' | 'edit' | 'view'}
+                contacts={orgContacts}
+                assets={orgAssets}
+                onContactCreated={c => setOrgContacts(prev => [...prev, c])}
+                onEdit={() => setModalState({ type: 'edit', item: modalState.item })}
+                onDelete={() => { setError(null); setModalState({ type: 'delete', item: modalState.item }); }}
             />
 
             {/* Delete Confirm Modal */}

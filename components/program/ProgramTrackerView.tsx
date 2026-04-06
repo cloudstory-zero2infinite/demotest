@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, ChangeEvent, useCallback, useMemo } from 'react';
-import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ProgramStatus, ActivityLog, AllActivityLog } from '../../types';
+import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ProgramStatus, ActivityLog, AllActivityLog, OrgContact, formatOrgContact } from '../../types';
 import * as SupabaseService from '../../services/supabase';
 import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, HistoryIcon } from '../Icons';
 import { Modal } from '../common/Modal';
@@ -9,6 +9,123 @@ import { useTableSelection } from '../../hooks/useTableSelection';
 import { SelectionActionBar } from '../common/SelectionActionBar';
 import { parseCSVLine } from '../../utils/csvParser';
 import { useDataRefresh } from '../../hooks/useDataRefresh';
+
+// ─── Assignee Search+Select (same pattern as OwnerSelect in CapabilityRegisterView) ───
+
+interface AssigneeSelectProps {
+    value: string;
+    onChange: (value: string) => void;
+    contacts: OrgContact[];
+    onContactCreated?: (c: OrgContact) => void;
+    readOnly?: boolean;
+}
+
+const AssigneeSelect: React.FC<AssigneeSelectProps> = ({ value, onChange, contacts, onContactCreated, readOnly }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [search, setSearch] = useState('');
+    const [creating, setCreating] = useState(false);
+    const [newName, setNewName] = useState('');
+    const [newEmail, setNewEmail] = useState('');
+    const [newDept, setNewDept] = useState('');
+    const [showCreate, setShowCreate] = useState(false);
+    const ref = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (ref.current && !ref.current.contains(e.target as Node)) { setIsOpen(false); setSearch(''); }
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, []);
+
+    const filtered = contacts.filter(c => {
+        const display = formatOrgContact(c).toLowerCase();
+        const s = search.toLowerCase();
+        return display.includes(s) || c.email.toLowerCase().includes(s);
+    });
+
+    const handleCreate = async () => {
+        if (!newName.trim() || !newEmail.trim()) return;
+        setCreating(true);
+        try {
+            const created = await SupabaseService.addOrgContact({ name: newName.trim(), email: newEmail.trim(), department: newDept.trim() });
+            onContactCreated?.(created);
+            onChange(formatOrgContact(created));
+            setShowCreate(false);
+            setNewName(''); setNewEmail(''); setNewDept('');
+            setIsOpen(false);
+            setSearch('');
+        } catch (err: any) {
+            alert(err.message || 'Failed to create contact');
+        } finally {
+            setCreating(false);
+        }
+    };
+
+    if (readOnly) {
+        return (
+            <div className="mt-1 px-3 py-2 rounded-md bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-sm text-gray-900 dark:text-white min-h-[38px]">
+                {value || '—'}
+            </div>
+        );
+    }
+
+    return (
+        <div ref={ref} className="relative mt-1">
+            <input
+                ref={inputRef}
+                type="text"
+                value={isOpen ? search : value}
+                onChange={e => { setSearch(e.target.value); setIsOpen(true); }}
+                onFocus={() => { setIsOpen(true); setSearch(''); }}
+                placeholder="Type to search contacts..."
+                className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            />
+            {isOpen && (
+                <div className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg">
+                    {filtered.map(c => {
+                        const display = formatOrgContact(c);
+                        return (
+                            <button
+                                key={c.id}
+                                type="button"
+                                onClick={() => { onChange(display); setIsOpen(false); setSearch(''); }}
+                                className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 ${value === display ? 'bg-blue-50 dark:bg-blue-900/20 font-medium' : 'text-gray-900 dark:text-white'}`}
+                            >
+                                <span>{c.name}</span>
+                                {c.department && <span className="text-gray-400 ml-1">({c.department})</span>}
+                                <span className="block text-xs text-gray-400">{c.email}</span>
+                            </button>
+                        );
+                    })}
+                    {filtered.length === 0 && !showCreate && (
+                        <div className="px-3 py-2 text-sm text-gray-400">No matching contacts</div>
+                    )}
+                    <div className="border-t border-gray-200 dark:border-gray-600">
+                        {showCreate ? (
+                            <div className="px-3 py-2 space-y-2">
+                                <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Name *" className="w-full text-sm px-2 py-1 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
+                                <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="Email *" className="w-full text-sm px-2 py-1 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
+                                <input type="text" value={newDept} onChange={e => setNewDept(e.target.value)} placeholder="Department" className="w-full text-sm px-2 py-1 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" />
+                                <div className="flex gap-2">
+                                    <button type="button" onClick={handleCreate} disabled={creating || !newName.trim() || !newEmail.trim()} className="px-2 py-1 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 disabled:bg-gray-300">
+                                        {creating ? '...' : 'Create'}
+                                    </button>
+                                    <button type="button" onClick={() => { setShowCreate(false); setNewName(''); setNewEmail(''); setNewDept(''); }} className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">Cancel</button>
+                                </div>
+                            </div>
+                        ) : (
+                            <button type="button" onClick={() => setShowCreate(true)} className="w-full px-3 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700 text-left font-medium">
+                                + Create new contact
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
 
 // Helper function to sanitize input
 const sanitizeInput = (input: string): string => {
@@ -52,9 +169,13 @@ interface ProgramModalProps {
     onSave: (task: ProgramTaskCreate | ProgramTaskUpdate) => void;
     taskToEdit: ProgramTask | null;
     mode: 'add' | 'edit' | 'view';
+    contacts: OrgContact[];
+    onContactCreated?: (c: OrgContact) => void;
+    onEdit?: () => void;
+    onDelete?: () => void;
 }
 
-const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, taskToEdit, mode }) => {
+const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, taskToEdit, mode, contacts, onContactCreated, onEdit, onDelete }) => {
     const [formData, setFormData] = useState<ProgramTaskCreate | ProgramTaskUpdate>({});
     const isViewMode = mode === 'view';
 
@@ -64,12 +185,14 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
                 program_name: taskToEdit.program_name,
                 description: taskToEdit.description,
                 month: taskToEdit.month,
+                due_date: taskToEdit.due_date || '',
+                assignee: taskToEdit.assignee || '',
                 status: taskToEdit.status,
                 progress_percent: taskToEdit.progress_percent
             });
         } else {
             setFormData({
-                program_name: '', description: '', month: 'January', status: 'Planned', progress_percent: 0
+                program_name: '', description: '', month: 'January', due_date: '', assignee: '', status: 'Planned', progress_percent: 0
             });
         }
     }, [taskToEdit, isOpen, mode]);
@@ -97,7 +220,13 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onSave(formData);
+        // Clean empty strings to null for nullable DB fields
+        const cleaned = {
+            ...formData,
+            due_date: formData.due_date || null,
+            assignee: formData.assignee || null,
+        };
+        onSave(cleaned);
     };
 
     const title = mode === 'add' ? 'Add New Milestone' : mode === 'edit' ? 'Edit Milestone' : 'View Milestone';
@@ -110,11 +239,15 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Milestone Name</label>
                         <input type="text" name="program_name" value={formData.program_name || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
-                     <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Month</label>
-                        <select name="month" value={formData.month || 'January'} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                            {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map(m => <option key={m} value={m}>{m}</option>)}
-                        </select>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Assignee</label>
+                        <AssigneeSelect
+                            value={formData.assignee || ''}
+                            onChange={val => setFormData(prev => ({ ...prev, assignee: val }))}
+                            contacts={contacts}
+                            onContactCreated={onContactCreated}
+                            readOnly={isViewMode}
+                        />
                     </div>
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
@@ -145,7 +278,21 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
                         <input type="range" name="progress_percent" min="0" max="100" value={formData.progress_percent || 0} onChange={handleChange} disabled={isViewMode || isBlocked} className="mt-1 block w-full" />
                         <span className="text-sm dark:text-gray-300">{formData.progress_percent || 0}%</span>
                     </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Due Date</label>
+                        <input type="date" name="due_date" value={formData.due_date || ''} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                    </div>
                 </div>
+                {isViewMode && (
+                <div className="mt-6 flex justify-end space-x-3">
+                    <button type="button" onClick={() => { onClose(); onEdit?.(); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-yellow-700 bg-yellow-50 border border-yellow-300 rounded-md hover:bg-yellow-100 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800">
+                        <PencilIcon className="h-4 w-4" /> Edit
+                    </button>
+                    <button type="button" onClick={() => { onClose(); onDelete?.(); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-300 rounded-md hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800">
+                        <TrashIcon className="h-4 w-4" /> Delete
+                    </button>
+                </div>
+                )}
                 {!isViewMode && (
                 <div className="mt-6 flex justify-end space-x-3">
                     <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
@@ -224,6 +371,7 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
     const [filter, setFilter] = useState('');
     const [sortConfig, setSortConfig] = useState<{ key: keyof ProgramTask; direction: 'ascending' | 'descending' } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [orgContacts, setOrgContacts] = useState<OrgContact[]>([]);
 
     const {
         selectedIds, isEditing, editValues, isConfirmingDelete, isSaving,
@@ -240,7 +388,14 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
         return data;
     }, []);
 
+    const fetchContacts = useCallback(async () => {
+        const data = await SupabaseService.getOrgContacts();
+        setOrgContacts(data);
+    }, []);
+
     const { data: tasksData, loading: tasksLoading, error: tasksError, refresh } = useDataRefresh(fetchTasks, [], isActive);
+
+    useEffect(() => { fetchContacts(); }, [fetchContacts]);
 
     // Sync local state with hook state
     useMemo(() => {
@@ -544,7 +699,8 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
                 t.program_name.toLowerCase().includes(q) ||
                 (t.description && t.description.toLowerCase().includes(q)) ||
                 t.month.toLowerCase().includes(q) ||
-                t.status.toLowerCase().includes(q)
+                t.status.toLowerCase().includes(q) ||
+                (t.assignee && t.assignee.toLowerCase().includes(q))
             );
         }
         if (sortConfig) {
@@ -676,10 +832,10 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
                                         className="rounded border-gray-300 dark:border-gray-600 cursor-pointer" />
                                 </th>
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-                                    <button onClick={() => requestSort('month')} className="flex items-center focus:outline-none">Month {getSortIconFor('month')}</button>
+                                    <button onClick={() => requestSort('program_name')} className="flex items-center focus:outline-none">Name {getSortIconFor('program_name')}</button>
                                 </th>
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-                                    <button onClick={() => requestSort('program_name')} className="flex items-center focus:outline-none">Name {getSortIconFor('program_name')}</button>
+                                    Assignee
                                 </th>
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('status')} className="flex items-center focus:outline-none">Status {getSortIconFor('status')}</button>
@@ -687,14 +843,16 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('progress_percent')} className="flex items-center focus:outline-none">Progress {getSortIconFor('progress_percent')}</button>
                                 </th>
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Actions</th>
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                    <button onClick={() => requestSort('due_date' as any)} className="flex items-center focus:outline-none">Due Date {getSortIconFor('due_date' as any)}</button>
+                                </th>
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
                             {loading ? (
-                                <tr><td colSpan={6} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading milestones...</td></tr>
+                                <tr><td colSpan={7} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading milestones...</td></tr>
                             ) : filteredAndSortedTasks.length === 0 ? (
-                                <tr><td colSpan={6} className="text-center py-4 text-gray-500 dark:text-gray-400">No milestones found.</td></tr>
+                                <tr><td colSpan={7} className="text-center py-4 text-gray-500 dark:text-gray-400">No milestones found.</td></tr>
                             ) : filteredAndSortedTasks.map(task => (
                                 <tr key={task.id}
                                     onClick={() => !isEditing && setModalState({ type: 'view', task })}
@@ -708,28 +866,15 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
                                             onChange={() => toggle(task.id)}
                                             className="rounded border-gray-300 dark:border-gray-600 cursor-pointer" />
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                        {isEditing && selectedIds.has(task.id) ? (
-                                            <select value={editValues[task.id]?.month ?? task.month} onChange={e => updateField(task.id, 'month', e.target.value)} className={editSelectCls}>
-                                                <option>January</option>
-                                                <option>February</option>
-                                                <option>March</option>
-                                                <option>April</option>
-                                                <option>May</option>
-                                                <option>June</option>
-                                                <option>July</option>
-                                                <option>August</option>
-                                                <option>September</option>
-                                                <option>October</option>
-                                                <option>November</option>
-                                                <option>December</option>
-                                            </select>
-                                        ) : task.month}
-                                    </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white" title={task.description || undefined}>
                                         {isEditing && selectedIds.has(task.id) ? (
                                             <input type="text" value={editValues[task.id]?.program_name ?? task.program_name} onChange={e => updateField(task.id, 'program_name', e.target.value)} className={editInputCls} />
                                         ) : task.program_name}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                        {isEditing && selectedIds.has(task.id) ? (
+                                            <input type="text" value={editValues[task.id]?.assignee ?? task.assignee ?? ''} onChange={e => updateField(task.id, 'assignee', e.target.value)} className={editInputCls} placeholder="Type assignee" />
+                                        ) : (task.assignee || '—')}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         {isEditing && selectedIds.has(task.id) ? (
@@ -776,15 +921,10 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
                                             </div>
                                         )}
                                     </td>
-                                    <td onClick={e => e.stopPropagation()} className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        {!isEditing && (
-                                            <div className="flex justify-end items-center space-x-2">
-                                                <button onClick={() => setModalState({ type: 'log', task })} title="View History" className="text-gray-400 hover:text-blue-500"><HistoryIcon className="h-5 w-5" /></button>
-                                                <button onClick={() => setModalState({ type: 'view', task })} title="View Milestone" className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
-                                                <button onClick={() => setModalState({ type: 'edit', task })} title="Edit Milestone" className="text-gray-400 hover:text-yellow-500"><PencilIcon className="h-5 w-5" /></button>
-                                                <button onClick={() => setModalState({ type: 'delete', task })} title="Delete Milestone" className="text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5" /></button>
-                                            </div>
-                                        )}
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                        {isEditing && selectedIds.has(task.id) ? (
+                                            <input type="date" value={editValues[task.id]?.due_date ?? task.due_date ?? ''} onChange={e => updateField(task.id, 'due_date', e.target.value)} className={editInputCls} />
+                                        ) : (task.due_date ? new Date(task.due_date).toLocaleDateString() : '—')}
                                     </td>
                                 </tr>
                             ))}
@@ -799,6 +939,10 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
                 onSave={handleSaveTask}
                 taskToEdit={modalState.task || null}
                 mode={modalState.type as 'add' | 'edit' | 'view'}
+                contacts={orgContacts}
+                onContactCreated={c => setOrgContacts(prev => [...prev, c])}
+                onEdit={() => setModalState({ type: 'edit', task: modalState.task })}
+                onDelete={() => setModalState({ type: 'delete', task: modalState.task })}
             />
 
             {modalState.type === 'log' && modalState.task && (

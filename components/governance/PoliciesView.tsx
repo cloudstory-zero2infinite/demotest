@@ -6,7 +6,7 @@ import html2canvas from 'html2canvas';
 import JSZip from 'jszip';
 import { PolicyV2, PolicyWorkflowStatus, PolicyApproval, AllActivityLog } from '../../types';
 import * as SupabaseService from '../../services/supabase';
-import { EyeIcon, PlusIcon, UploadIcon, DownloadIcon, BotIcon, HistoryIcon, TrashIcon } from '../Icons';
+import { EyeIcon, PencilIcon, PlusIcon, UploadIcon, DownloadIcon, BotIcon, HistoryIcon, TrashIcon } from '../Icons';
 
 // ─── Markdown config ─────────────────────────────────────────────────────────
 marked.setOptions({ gfm: true, breaks: true });
@@ -225,8 +225,11 @@ interface ViewModalProps {
     currentUserEmail: string | null;
     onClose: () => void;
     onApproved: () => void;
+    onEdit?: () => void;
+    onDelete?: () => void;
+    onHistory?: () => void;
 }
-const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUserEmail, onClose, onApproved }) => {
+const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUserEmail, onClose, onApproved, onEdit, onDelete, onHistory }) => {
     const [pendingApproval, setPendingApproval] = useState<PolicyApproval | null>(null);
     const [comment, setComment] = useState('');
     const [showRejectInput, setShowRejectInput] = useState(false);
@@ -280,7 +283,18 @@ const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUse
                             {policy.version && ` · ${policy.version}`}
                         </p>
                     </div>
-                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none ml-4">&times;</button>
+                    <div className="flex items-center gap-1 ml-4">
+                        <button onClick={() => { onClose(); onEdit?.(); }} title="Edit" className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                            <PencilIcon className="h-4 w-4" />
+                        </button>
+                        <button onClick={() => { onClose(); onDelete?.(); }} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                            <TrashIcon className="h-4 w-4" />
+                        </button>
+                        <button onClick={() => { onClose(); onHistory?.(); }} title="History" className="p-1.5 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                            <HistoryIcon className="h-4 w-4" />
+                        </button>
+                        <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">&times;</button>
+                    </div>
                 </div>
 
                 <div className="flex-1 overflow-y-auto px-8 py-6">
@@ -484,18 +498,18 @@ interface PolicyCardProps {
     selected: boolean;
     onToggleSelect: () => void;
     onView: () => void;
-    onEdit: () => void;
-    onDelete: () => void;
-    onHistory: () => void;
 }
-const PolicyCard: React.FC<PolicyCardProps> = ({ policy, selected, onToggleSelect, onView, onEdit, onDelete, onHistory }) => {
+const PolicyCard: React.FC<PolicyCardProps> = ({ policy, selected, onToggleSelect, onView }) => {
     const s = effectiveStatus(policy);
     const meta = STATUS_META[s] || STATUS_META.draft;
     const expired = isExpired(policy);
 
     return (
-        <div className={`relative bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 border-l-4 ${meta.border} transition-shadow hover:shadow-md`}>
-            <div className="absolute top-3 right-3">
+        <div
+            onClick={onView}
+            className={`relative bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 border-l-4 ${meta.border} transition-shadow hover:shadow-md cursor-pointer`}
+        >
+            <div className="absolute top-3 right-3" onClick={e => e.stopPropagation()}>
                 <input
                     type="checkbox"
                     checked={selected}
@@ -524,31 +538,12 @@ const PolicyCard: React.FC<PolicyCardProps> = ({ policy, selected, onToggleSelec
                 </div>
 
                 {(policy.version || policy.owner_name) && (
-                    <div className="text-[10px] text-gray-400 dark:text-gray-500 mb-3 truncate">
+                    <div className="text-[10px] text-gray-400 dark:text-gray-500 truncate">
                         {policy.version && <span>v{policy.version}</span>}
                         {policy.version && policy.owner_name && <span> · </span>}
                         {policy.owner_name && <span>{policy.owner_name}</span>}
                     </div>
                 )}
-
-                <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-700">
-                    <div className="flex items-center gap-0.5">
-                        <button onClick={onView} title="View" className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
-                            <EyeIcon className="h-4 w-4" />
-                        </button>
-                        <button onClick={onEdit} title="Edit" className="p-1.5 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L15.232 5.232z" />
-                            </svg>
-                        </button>
-                        <button onClick={onDelete} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
-                            <TrashIcon className="h-4 w-4" />
-                        </button>
-                    </div>
-                    <button onClick={onHistory} title="View History" className="p-1.5 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
-                        <HistoryIcon className="h-4 w-4" />
-                    </button>
-                </div>
             </div>
         </div>
     );
@@ -822,9 +817,6 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
                             selected={selectedIds.has(policy.policy_id)}
                             onToggleSelect={() => toggleSelect(policy.policy_id)}
                             onView={() => setViewTarget(policy)}
-                            onEdit={() => setEditorTarget({ policy })}
-                            onDelete={() => handleDelete(policy)}
-                            onHistory={() => setHistoryTarget(policy)}
                         />
                     ))}
                 </div>
@@ -845,6 +837,9 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
                     currentUserEmail={currentUserEmail}
                     onClose={() => setViewTarget(null)}
                     onApproved={fetchPolicies}
+                    onEdit={() => { setViewTarget(null); setEditorTarget({ policy: viewTarget }); }}
+                    onDelete={() => { setViewTarget(null); handleDelete(viewTarget); }}
+                    onHistory={() => { setViewTarget(null); setHistoryTarget(viewTarget); }}
                 />
             )}
             {historyTarget && (
