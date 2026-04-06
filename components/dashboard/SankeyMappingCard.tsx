@@ -91,10 +91,10 @@ export const SankeyMappingCard: React.FC<SankeyMappingCardProps> = React.memo(({
     };
 
     return (
-        <div className="md:col-span-2 lg:col-span-6 p-4 bg-white dark:bg-gray-800 rounded-lg shadow transition-all hover:shadow-md border border-transparent dark:border-gray-700">
-             <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-6">Internal Controls to Frameworks Mapping</h3>
+        <div className="p-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+             <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Controls to Frameworks Mapping</h3>
             {data.nodes.length > 0 ? (
-                <div className="h-[450px]">
+                <div className="h-[350px]">
                     <ResponsiveContainer width="100%" height="100%">
                         <Sankey
                             data={data}

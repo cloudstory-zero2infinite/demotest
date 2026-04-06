@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { SunIcon, MoonIcon, BellIcon } from './Icons';
 import * as SupabaseService from '../services/supabase';
 
+declare const __APP_VERSION__: string;
+
 type UserRole = 'security-staff' | 'cxo';
 
 type UnifiedNotification = {
@@ -215,9 +217,14 @@ export const Header: React.FC<HeaderProps> = ({
                     <div className="flex items-center gap-3">
                         <img src="/logo.png" alt="Zero to Infinite" className="h-9 w-9 object-contain" />
                         <div className="flex flex-col">
-                            <h1 className="text-xl font-bold text-gray-900 dark:text-white leading-none">
-                                Zero to Infinite
-                            </h1>
+                            <div className="flex items-baseline gap-2">
+                                <h1 className="text-xl font-bold text-gray-900 dark:text-white leading-none">
+                                    Zero to Infinite
+                                </h1>
+                                <span className="text-[9px] font-mono text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">
+                                    {__APP_VERSION__}
+                                </span>
+                            </div>
                             <span className="text-[10px] text-gray-500 font-medium tracking-widest uppercase">
                                 Governance Risk Compliance
                             </span>
@@ -233,6 +240,33 @@ export const Header: React.FC<HeaderProps> = ({
                             <option value="security-staff">Security View</option>
                             <option value="cxo">CXO View</option>
                         </select>
+
+                        {/* AI Employee (coming soon) */}
+                        <button
+                            disabled
+                            className="relative p-1.5 rounded-full text-gray-300 dark:text-gray-600 cursor-not-allowed"
+                            title="AI Employee - Coming Soon"
+                        >
+                            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                                {/* Head */}
+                                <rect x="5" y="4" width="14" height="12" rx="2" />
+                                {/* Eyes */}
+                                <circle cx="9" cy="10" r="1.5" fill="currentColor" stroke="none" />
+                                <circle cx="15" cy="10" r="1.5" fill="currentColor" stroke="none" />
+                                {/* Antenna */}
+                                <line x1="12" y1="4" x2="12" y2="1" />
+                                <circle cx="12" cy="1" r="1" fill="currentColor" stroke="none" />
+                                {/* Mouth */}
+                                <line x1="9" y1="13" x2="15" y2="13" />
+                                {/* Neck */}
+                                <line x1="12" y1="16" x2="12" y2="18" />
+                                {/* Body */}
+                                <rect x="7" y="18" width="10" height="4" rx="1" />
+                                {/* Arms */}
+                                <line x1="5" y1="19" x2="3" y2="17" />
+                                <line x1="19" y1="19" x2="21" y2="17" />
+                            </svg>
+                        </button>
 
                         {/* Notification Bell */}
                         <div className="relative" ref={notifRef}>

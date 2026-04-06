@@ -666,6 +666,16 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
                     isOpen={true}
                     onClose={closeContactModal}
                     title={contactModal.type === 'add' ? 'Add Contact' : contactModal.type === 'edit' ? 'Edit Contact' : 'View Contact'}
+                    headerActions={contactModal.type === 'view' && (
+                        <>
+                            <button onClick={() => { closeContactModal(); openContactModal('edit', contactModal.contact); }} title="Edit" className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                                <PencilIcon className="h-4 w-4" />
+                            </button>
+                            <button onClick={() => { closeContactModal(); openContactModal('delete', contactModal.contact); }} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                                <TrashIcon className="h-4 w-4" />
+                            </button>
+                        </>
+                    )}
                 >
                     <form onSubmit={handleSaveContact} className="space-y-4">
                         {contactError && (
@@ -706,16 +716,6 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
                                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-blue-500 focus:border-blue-500"
                             />
                         </div>
-                        {contactModal.type === 'view' && (
-                            <div className="flex justify-end gap-3 pt-2">
-                                <button type="button" onClick={() => { closeContactModal(); openContactModal('edit', contactModal.contact); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-yellow-700 bg-yellow-50 border border-yellow-300 rounded-md hover:bg-yellow-100 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800">
-                                    <PencilIcon className="h-4 w-4" /> Edit
-                                </button>
-                                <button type="button" onClick={() => { closeContactModal(); openContactModal('delete', contactModal.contact); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-300 rounded-md hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800">
-                                    <TrashIcon className="h-4 w-4" /> Delete
-                                </button>
-                            </div>
-                        )}
                         {contactModal.type !== 'view' && contactModal.type !== null && (
                             <div className="flex justify-end gap-3 pt-2">
                                 <button type="button" onClick={closeContactModal} className="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600">

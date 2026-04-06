@@ -65,6 +65,7 @@ jobs:
             --build-arg VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }} \
             --build-arg VITE_AI_AGENT_URL=${{ secrets.VITE_AI_AGENT_URL }} \
             --build-arg VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }} \
+            --build-arg VITE_APP_VERSION=V$(date +%m-%d)-$(echo ${{ github.sha }} | cut -c1-7) \
             -t $IMAGE_URI \
             --push .
 

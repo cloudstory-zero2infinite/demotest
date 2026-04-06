@@ -22,7 +22,8 @@ export default defineConfig(({ mode }) => {
         }
       },
       define: {
-        'VITE_AI_AGENT_URL': JSON.stringify(env.VITE_AI_AGENT_URL || 'http://localhost:8080')
+        'VITE_AI_AGENT_URL': JSON.stringify(env.VITE_AI_AGENT_URL || 'http://localhost:8080'),
+        '__APP_VERSION__': JSON.stringify(env.VITE_APP_VERSION || 'dev'),
       }
     };
 });

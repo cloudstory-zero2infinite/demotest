@@ -122,7 +122,18 @@ const InternalControlModal: React.FC<InternalControlModalProps> = ({ isOpen, onC
     const title = mode === 'add' ? 'Add New Control' : mode === 'edit' ? 'Edit Control' : 'View Control';
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={title}>
+        <Modal isOpen={isOpen} onClose={onClose} title={title}
+            headerActions={isViewMode && (
+                <>
+                    <button onClick={() => { onClose(); onEdit?.(); }} title="Edit" className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                        <PencilIcon className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => { onClose(); onDelete?.(); }} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                        <TrashIcon className="h-4 w-4" />
+                    </button>
+                </>
+            )}
+        >
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -206,16 +217,7 @@ const InternalControlModal: React.FC<InternalControlModalProps> = ({ isOpen, onC
                     <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">Save</button>
                 </div>
                 )}
-                {isViewMode && (
-                <div className="mt-6 flex justify-end space-x-3">
-                    <button type="button" onClick={() => { onClose(); onEdit?.(); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-yellow-700 bg-yellow-50 border border-yellow-300 rounded-md hover:bg-yellow-100 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800">
-                        <PencilIcon className="h-4 w-4" /> Edit
-                    </button>
-                    <button type="button" onClick={() => { onClose(); onDelete?.(); }} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-300 rounded-md hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800">
-                        <TrashIcon className="h-4 w-4" /> Delete
-                    </button>
-                </div>
-                )}
+}
             </form>
         </Modal>
     );
