@@ -78,90 +78,27 @@ export const DashboardTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
     const securityScore = useMemo(() => {
         const { controlRegistry, tasks, assets, policies, vulnerabilities } = currentStats;
 
-        let totalScore = 0;
-        let totalWeight = 0;
-        let controlsScore = 0;
-        let programScore = 0;
-        let assetsScore = 0;
-        let policiesScore = 0;
-        let vulnerabilitiesScore = 0;
+        // (success_count / total_count) * weight — no data = 0
+        const score = (successCount: number, total: number, weight: number) =>
+            total > 0 ? (successCount / total) * weight : 0;
 
-        // Controls Score (30%) — uses control_registry (ctl_status) as source of truth
-        if (controlRegistry.length > 0) {
-            const enforcedControls = controlRegistry.filter(c => c.ctl_status === 'Enforced').length;
-            controlsScore = (enforcedControls / controlRegistry.length) * 30;
-            totalScore += controlsScore;
-            totalWeight += 30;
-        }
+        const controlsScore = score(controlRegistry.filter(c => c.ctl_status === 'Enforced').length, controlRegistry.length, 30);
+        const programScore = score(tasks.filter(t => t.status === 'Completed').length, tasks.length, 25);
+        const vulnerabilitiesScore = score(vulnerabilities.filter(v => v.status === 'Remediated').length, vulnerabilities.length, 20);
+        const assetsScore = score(assets.filter(a => a.governed_status === 'Governed').length, assets.length, 15);
+        const policiesScore = score(policies.filter((p: any) => p.policy_status === 'approved').length, policies.length, 10);
 
-        // Program Score (25%) — total completion % across all tasks
-        if (tasks.length > 0) {
-            const totalProgress = tasks.reduce((acc, t) => acc + t.progress_percent, 0);
-            const maxProgress = tasks.length * 100;
-            programScore = (totalProgress / maxProgress) * 25;
-            totalScore += programScore;
-            totalWeight += 25;
-        }
-
-        // Assets Score (15%)
-        if (assets.length > 0) {
-            const governedAssets = assets.filter(a => a.governed_status === 'Governed').length;
-            assetsScore = (governedAssets / assets.length) * 15;
-            totalScore += assetsScore;
-            totalWeight += 15;
-        }
-
-        // Policies Score (10%)
-        if (policies.length > 0) {
-            const activePolicies = policies.filter((p: any) => p.policy_status === 'approved').length;
-            policiesScore = (activePolicies / policies.length) * 10;
-            totalScore += policiesScore;
-            totalWeight += 10;
-        }
-
-        // Vulnerabilities Score (20%)
-        if (vulnerabilities.length > 0) {
-            const relevantVulnerabilities = vulnerabilities.filter(v => v.status !== 'NA');
-            if (relevantVulnerabilities.length > 0) {
-                const remediatedCount = relevantVulnerabilities.filter(v => v.status === 'Remediated').length;
-                vulnerabilitiesScore = (remediatedCount / relevantVulnerabilities.length) * 20;
-                totalScore += vulnerabilitiesScore;
-                totalWeight += 20;
-            } else {
-                vulnerabilitiesScore = 20;
-                totalScore += 20;
-                totalWeight += 20;
-            }
-        } else {
-            vulnerabilitiesScore = 20;
-            totalScore += 20;
-            totalWeight += 20;
-        }
-
-        // Normalize to 100 if we have partial data
-        const normalizer = totalWeight > 0 ? 100 / totalWeight : 0;
-        const finalScore = totalWeight > 0 ? Math.round((totalScore / totalWeight) * 100) : 0;
-
-        console.log('Security Score Calculation:', {
-            controlRegistry: controlRegistry.length,
-            enforcedControls: controlRegistry.filter(c => c.ctl_status === 'Enforced').length,
-            tasks: tasks.length,
-            assets: assets.length,
-            governedAssets: assets.filter(a => a.governed_status === 'Governed').length,
-            policies: policies.length,
-            vulnerabilities: vulnerabilities.length,
-            totalScore,
-            totalWeight,
-            finalScore
-        });
+        const totalScore = controlsScore + programScore + vulnerabilitiesScore + assetsScore + policiesScore;
+        const hasData = controlRegistry.length > 0 || tasks.length > 0 || assets.length > 0 || policies.length > 0 || vulnerabilities.length > 0;
 
         return {
-            total: Math.min(finalScore, 100),
-            controls: Math.round(controlsScore * normalizer),
-            program: Math.round(programScore * normalizer),
-            assets: Math.round(assetsScore * normalizer),
-            policies: Math.round(policiesScore * normalizer),
-            vulnerabilities: Math.round(vulnerabilitiesScore * normalizer),
+            total: Math.round(totalScore),
+            controls: Math.round(controlsScore),
+            program: Math.round(programScore),
+            assets: Math.round(assetsScore),
+            policies: Math.round(policiesScore),
+            vulnerabilities: Math.round(vulnerabilitiesScore),
+            hasData,
         };
     }, [currentStats]);
     
