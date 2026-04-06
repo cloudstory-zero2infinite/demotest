@@ -6,6 +6,7 @@ import { Modal } from '../common/Modal';
 import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
 import { PlatformAdminTab } from '../admin/PlatformAdminTab';
 import { ViewOrganizationTab } from '../org/ViewOrganizationTab';
+import { OrgSettingsTab } from '../org/OrgSettingsTab';
 
 interface ContactModalProps {
     isOpen: boolean;
@@ -307,7 +308,7 @@ const OrgStructureView: React.FC = () => {
 
 interface OrganisationTabProps {
     userRole: UserRole | null;
-    activeSubTab: 'view_org' | 'tenant_admin';
+    activeSubTab: 'view_org' | 'tenant_admin' | 'settings';
     isActive?: boolean;
 }
 
@@ -322,6 +323,11 @@ export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, acti
             {isPlatformAdmin && (
                 <div className={activeSubTab === 'tenant_admin' ? '' : 'hidden'}>
                     <PlatformAdminTab isActive={isActive && activeSubTab === 'tenant_admin'} />
+                </div>
+            )}
+            {isPlatformAdmin && (
+                <div className={activeSubTab === 'settings' ? '' : 'hidden'}>
+                    <OrgSettingsTab isActive={isActive && activeSubTab === 'settings'} />
                 </div>
             )}
         </div>

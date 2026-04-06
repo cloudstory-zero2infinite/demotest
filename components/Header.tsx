@@ -125,6 +125,7 @@ export const Header: React.FC<HeaderProps> = ({
         if (type === 'approval_requested' || type === 'review_requested') return 'text-yellow-500';
         if (type === 'approved' || type === 'enforcement_approved') return 'text-green-500';
         if (type === 'join_request') return 'text-blue-500';
+        if (type === 'policy_expired') return 'text-red-800 dark:text-red-400';
         return 'text-red-500';
     };
 

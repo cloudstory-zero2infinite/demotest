@@ -60,9 +60,62 @@ async function generatePolicyId(orgId) {
   return `IT-POL-${orgPrefix}-${seq}`;
 }
 
+// ── Utility: check and expire policies for an org ─────────────────────────
+async function checkAndExpirePolicies(orgId) {
+  const now = new Date().toISOString().split('T')[0];
+  const { data: expired } = await supabaseAdmin
+    .from('policy_documents')
+    .select('policy_id, name, user_id')
+    .eq('org_id', orgId)
+    .eq('policy_status', 'approved')
+    .lt('refresh_date', now);
+
+  if (!expired || expired.length === 0) return;
+
+  for (const policy of expired) {
+    const { count } = await supabaseAdmin
+      .from('policy_documents')
+      .update({ policy_status: 'to_review', updated_at: new Date().toISOString() })
+      .eq('policy_id', policy.policy_id)
+      .eq('policy_status', 'approved'); // idempotency guard
+
+    // Only log & notify if the row was actually transitioned
+    if (count === 0) continue;
+
+    logActivity({
+      action: 'policy_expired',
+      module: 'Policy',
+      entity_id: policy.policy_id,
+      entity_name: policy.name,
+      user_id: null,
+      org_id: orgId,
+      severity: 'warning',
+      event_data: {
+        message: `Policy "${policy.name}" has expired and moved to To Review`,
+        from_status: 'approved',
+        to_status: 'to_review',
+      },
+    });
+
+    if (policy.user_id) {
+      supabaseAdmin.from('policy_notifications').insert({
+        recipient_id: policy.user_id,
+        policy_id: policy.policy_id,
+        policy_name: policy.name,
+        type: 'policy_expired',
+        message: `Policy "${policy.name}" has expired and requires review`,
+        org_id: orgId,
+      }).then(() => {});
+    }
+  }
+}
+
 // ── GET /  ─ list all policies ─────────────────────────────────────────────
 router.get('/', requireAuth, async (req, res) => {
   try {
+    // Fire-and-forget expiry check on every list fetch
+    checkAndExpirePolicies(req.orgId).catch(() => {});
+
     const { data, error } = await supabaseAdmin
       .from('policy_documents')
       .select('policy_id,name,policy_ref,policy_status,refresh_date,version,document_type,owner_name,org_id,user_id,created_at,updated_at,markdown')
@@ -397,6 +450,17 @@ router.post('/:id/approve', requireAuth, async (req, res) => {
     if (!policy) return res.status(404).json({ message: 'Policy not found' });
     const prevStatus = policy.policy_status;
 
+    // Calculate refresh_date from org settings
+    const { data: settings } = await supabaseAdmin
+      .from('org_settings')
+      .select('policy_refresh_months')
+      .eq('org_id', req.orgId)
+      .maybeSingle();
+    const months = settings?.policy_refresh_months || 3;
+    const refreshDate = new Date();
+    refreshDate.setMonth(refreshDate.getMonth() + months);
+    const refreshDateStr = refreshDate.toISOString().split('T')[0];
+
     await supabaseAdmin
       .from('policy_approvals')
       .update({ status: 'approved', comment: comment || null, updated_at: new Date().toISOString() })
@@ -405,7 +469,7 @@ router.post('/:id/approve', requireAuth, async (req, res) => {
 
     await supabaseAdmin
       .from('policy_documents')
-      .update({ policy_status: 'approved', updated_at: new Date().toISOString() })
+      .update({ policy_status: 'approved', refresh_date: refreshDateStr, updated_at: new Date().toISOString() })
       .eq('policy_id', policyId);
 
     if (policy.user_id && policy.user_id !== req.userId) {
@@ -501,4 +565,5 @@ router.post('/:id/reject', requireAuth, async (req, res) => {
   }
 });
 
+export { checkAndExpirePolicies };
 export const policiesRouter = router;

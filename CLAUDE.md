@@ -33,9 +33,10 @@ ZeroTo1 GRC is a Governance, Risk & Compliance (GRC) SaaS platform with multi-te
 - In production the Dockerfile builds the frontend, then serves it as static files from `dist/` on port 8080 via the same Express server
 
 ### AI Agent (`/ai-agent/`)
-- **FastAPI** (Python) service using **Google Gemini** for AI-powered queries
+- **FastAPI** (Python) service using **Google Gemini** (`gemini-2.0-flash` default) for AI-powered queries
 - Connects directly to Supabase Postgres via `psycopg2` (not through the Express backend)
-- Runs on port 8080 by default
+- Module-specific system prompts for assets, vulnerabilities, policies, capabilities
+- Runs on port 8080 by default (`PORT` env var, auto-injected on Cloud Run)
 - Env vars: `GEMINI_API_KEY`, `GEMINI_MODEL`, `DATABASE_URL`
 
 ## Key Commands
@@ -106,8 +107,18 @@ Copy `.env.example` to `.env`. Required:
 - `useDataRefresh` — wraps data-fetching with loading/error state
 - `useTableSelection` — manages multi-row checkbox selection for bulk actions
 
+## Deployment
+- **CI/CD**: `.github/workflows/deploy-cloudrun.yml` — triggers on push to `main`, builds Docker image, pushes to Google Artifact Registry (`asia-southeast1`), deploys to Cloud Run (`asia-south1`, service name: `pre-prod`)
+- Build args inject `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_BASE_URL`, `VITE_AI_AGENT_URL` at image build time
+- In production, the single Dockerfile builds the frontend into `dist/`, then Express serves both static files and API routes on port 8080
+- Database schema is managed directly in Supabase (no migration files in the repo)
+
+## CORS
+- Server CORS origin defaults to `process.env.FRONTEND_URL || 'http://localhost:5173'`
+- **Note**: Vite dev server actually runs on port **5174** (configured in `vite.config.ts`), not 5173 — set `FRONTEND_URL=http://localhost:5174` in `server/.env` for local dev
+
 ## Vite Config Notes
 - Dev server on `0.0.0.0:5174` with `allowedHosts: true` (Docker-friendly)
-- HMR on `localhost:5174`
+- HMR via WebSocket on `localhost:5174`
 - Path alias `@` maps to project root
 - `VITE_AI_AGENT_URL` is injected at build time via `define`
