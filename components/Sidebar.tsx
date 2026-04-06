@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 
 export type MainTab = 'dashboard' | 'organisation' | 'program' | 'governance' | 'compliance' | 'logs';
-export type OrgSubTab = 'view_org' | 'tenant_admin';
+export type OrgSubTab = 'view_org' | 'tenant_admin' | 'settings';
 
 interface NavItem {
     id: MainTab;
@@ -71,7 +71,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     const orgChildren = [
         { id: 'view_org' as OrgSubTab, label: 'View Organisation' },
-        ...(isAdmin ? [{ id: 'tenant_admin' as OrgSubTab, label: 'Manage Members' }] : []),
+        ...(isAdmin ? [
+            { id: 'tenant_admin' as OrgSubTab, label: 'Manage Members' },
+            { id: 'settings' as OrgSubTab, label: 'Settings' },
+        ] : []),
     ];
 
     const navItems: NavItem[] = [

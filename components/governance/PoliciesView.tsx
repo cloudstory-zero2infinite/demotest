@@ -33,10 +33,10 @@ const PROSE_STYLE = `
 // ─── Status helpers ───────────────────────────────────────────────────────────
 const STATUS_META: Record<string, { label: string; border: string; badge: string; dot: string }> = {
     draft:       { label: 'Draft',       border: 'border-l-blue-500',   badge: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',       dot: 'bg-blue-500' },
-    in_review:   { label: 'In Review',   border: 'border-l-purple-500', badge: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300', dot: 'bg-purple-500' },
+    to_review:   { label: 'To Review',   border: 'border-l-purple-500', badge: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300', dot: 'bg-purple-500' },
     in_approval: { label: 'In Approval', border: 'border-l-yellow-500', badge: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300', dot: 'bg-yellow-500' },
     approved:    { label: 'Approved',    border: 'border-l-green-500',  badge: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',     dot: 'bg-green-500' },
-    expired:     { label: 'Expired',     border: 'border-l-red-500',    badge: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',             dot: 'bg-red-500' },
+    expired:     { label: 'Expired',     border: 'border-l-red-900',    badge: 'bg-red-200 text-red-900 dark:bg-red-900/40 dark:text-red-200',             dot: 'bg-red-900' },
 };
 
 const isExpired = (p: PolicyV2) =>
@@ -351,12 +351,20 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, onClose, onSaved }) =
     const [showApprover, setShowApprover] = useState(false);
     const previewHtml = useMemo(() => renderMarkdown(markdown), [markdown]);
     const isEdit = !!policy;
+    const isApproved = isEdit && policy?.policy_status === 'approved';
+    const isPolicyExpired = isEdit && policy ? isExpired(policy) : false;
+    const isFrozen = isApproved || isPolicyExpired;
 
     const handleSave = async () => {
         setSaving(true);
         try {
             if (isEdit) {
-                await SupabaseService.updatePolicy(policy!.policy_id, { markdown, policy_status: status });
+                // When frozen (approved/expired), only send status change, not markdown
+                if (isFrozen) {
+                    await SupabaseService.updatePolicy(policy!.policy_id, { policy_status: status });
+                } else {
+                    await SupabaseService.updatePolicy(policy!.policy_id, { markdown, policy_status: status });
+                }
             } else {
                 await SupabaseService.addPolicy(markdown, status);
             }
@@ -412,18 +420,26 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, onClose, onSaved }) =
                                 className="text-xs border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1 dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                             >
                                 <option value="draft">Draft</option>
-                                <option value="in_review">In Review</option>
+                                <option value="to_review">To Review</option>
                                 <option value="in_approval">In Approval</option>
                                 <option value="approved">Approved</option>
                             </select>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
-                            <button onClick={handleSave} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300">
-                                {saving ? 'Saving...' : 'Save'}
-                            </button>
-                            <button onClick={handleSendForApproval} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-300">
-                                Send for Approval
-                            </button>
+                            {isFrozen && status !== policy?.policy_status ? (
+                                <button onClick={handleSave} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300">
+                                    {saving ? 'Updating...' : 'Update Status'}
+                                </button>
+                            ) : !isFrozen && (
+                                <>
+                                    <button onClick={handleSave} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300">
+                                        {saving ? 'Saving...' : 'Save'}
+                                    </button>
+                                    <button onClick={handleSendForApproval} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-300">
+                                        Send for Approval
+                                    </button>
+                                </>
+                            )}
                             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none ml-1">&times;</button>
                         </div>
                     </div>
@@ -436,8 +452,9 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, onClose, onSaved }) =
                             </div>
                             <textarea
                                 value={markdown}
-                                onChange={e => setMarkdown(e.target.value)}
-                                className="flex-1 p-4 text-sm font-mono text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-900 resize-none focus:outline-none"
+                                onChange={e => { if (!isFrozen) setMarkdown(e.target.value); }}
+                                readOnly={isFrozen}
+                                className={`flex-1 p-4 text-sm font-mono text-gray-800 dark:text-gray-200 resize-none focus:outline-none ${isFrozen ? 'bg-gray-100 dark:bg-gray-950 cursor-not-allowed opacity-75' : 'bg-white dark:bg-gray-900'}`}
                                 placeholder="Paste or type your markdown policy here..."
                                 spellCheck={false}
                             />

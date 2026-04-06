@@ -1,11 +1,21 @@
 import React from 'react';
 import { ResponsiveContainer, RadialBarChart, RadialBar } from 'recharts';
 
-interface SecurityScoreCardProps {
-    score: number;
+interface ScoreBreakdown {
+    total: number;
+    controls: number;
+    program: number;
+    vulnerabilities: number;
+    assets: number;
+    policies: number;
 }
 
-export const SecurityScoreCard: React.FC<SecurityScoreCardProps> = React.memo(({ score }) => {
+interface SecurityScoreCardProps {
+    scoreBreakdown: ScoreBreakdown;
+}
+
+export const SecurityScoreCard: React.FC<SecurityScoreCardProps> = React.memo(({ scoreBreakdown }) => {
+    const score = scoreBreakdown.total;
     // Debug log
     console.log('SecurityScoreCard received score:', score);
     
@@ -71,23 +81,23 @@ export const SecurityScoreCard: React.FC<SecurityScoreCardProps> = React.memo(({
              <div className="mt-3 text-xs text-gray-600 dark:text-gray-400 space-y-1 px-4 w-full">
                 <div className="flex justify-between">
                     <span>Controls (30%)</span>
-                    <span className="font-medium">{Math.round(score * 0.30)}/30</span>
+                    <span className="font-medium">{scoreBreakdown.controls}/30</span>
                 </div>
                 <div className="flex justify-between">
                     <span>Program (25%)</span>
-                    <span className="font-medium">{Math.round(score * 0.25)}/25</span>
+                    <span className="font-medium">{scoreBreakdown.program}/25</span>
                 </div>
                 <div className="flex justify-between">
                     <span>Vulnerabilities (20%)</span>
-                    <span className="font-medium">{Math.round(score * 0.20)}/20</span>
+                    <span className="font-medium">{scoreBreakdown.vulnerabilities}/20</span>
                 </div>
                 <div className="flex justify-between">
                     <span>Assets (15%)</span>
-                    <span className="font-medium">{Math.round(score * 0.15)}/15</span>
+                    <span className="font-medium">{scoreBreakdown.assets}/15</span>
                 </div>
                 <div className="flex justify-between">
                     <span>Policies (10%)</span>
-                    <span className="font-medium">{Math.round(score * 0.10)}/10</span>
+                    <span className="font-medium">{scoreBreakdown.policies}/10</span>
                 </div>
              </div>
 

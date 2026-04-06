@@ -238,6 +238,10 @@ export const getActivityLogs = async (programId: string): Promise<ActivityLog[]>
   return apiRequest<ActivityLog[]>(`/api/program/${programId}/activity`);
 };
 
+export const getProgramHistory = async (id: string): Promise<AllActivityLog[]> => {
+  return apiRequest<AllActivityLog[]>(`/api/program/${id}/history`);
+};
+
 export const getAllOrgActivityLogs = async (): Promise<ActivityLog[]> => {
   return apiRequest<ActivityLog[]>('/api/activity/program');
 };
@@ -817,3 +821,11 @@ export const deleteAssetRelationship = async (id: string): Promise<boolean> => {
     return false;
   }
 };
+
+// ── Org Settings ──────────────────────────────────────────────────────────────
+
+export const getOrgSettings = async (): Promise<{ policy_refresh_months: number }> =>
+  apiRequest('/api/org-settings');
+
+export const updateOrgSettings = async (settings: { policy_refresh_months: number }): Promise<{ policy_refresh_months: number }> =>
+  apiRequest('/api/org-settings', { method: 'PUT', body: JSON.stringify(settings) });

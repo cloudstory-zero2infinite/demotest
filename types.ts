@@ -297,7 +297,7 @@ export interface AllActivityLog {
 
 // --- Policy V2 Types (Markdown-first workflow) ---
 
-export type PolicyWorkflowStatus = 'draft' | 'in_review' | 'in_approval' | 'approved';
+export type PolicyWorkflowStatus = 'draft' | 'to_review' | 'in_approval' | 'approved';
 
 export interface PolicyV2 {
   policy_id: string;
@@ -375,7 +375,7 @@ export interface WorkflowTemplate {
 
 // --- Policy V2 Types (Markdown-first workflow) ---
 
-export type PolicyWorkflowStatus = 'draft' | 'in_review' | 'in_approval' | 'approved';
+export type PolicyWorkflowStatus = 'draft' | 'to_review' | 'in_approval' | 'approved';
 
 export interface PolicyV2 {
   policy_id: string;

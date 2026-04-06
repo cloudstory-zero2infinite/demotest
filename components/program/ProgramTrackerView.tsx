@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, ChangeEvent, useCallback, useMemo } from 'react';
-import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ProgramStatus, ActivityLog } from '../../types';
+import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ProgramStatus, ActivityLog, AllActivityLog } from '../../types';
 import * as SupabaseService from '../../services/supabase';
 import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, HistoryIcon } from '../Icons';
 import { Modal } from '../common/Modal';
@@ -18,6 +18,32 @@ const sanitizeInput = (input: string): string => {
         .replace(/javascript:/gi, '') // Remove javascript protocols
         .replace(/on\w+\s*=/gi, '') // Remove event handlers
         .trim();
+};
+
+// Derive status from progress
+const deriveStatus = (progress: number): ProgramStatus => {
+    if (progress === 0) return 'Planned';
+    if (progress >= 100) return 'Completed';
+    return 'InProgress';
+};
+
+// ─── History action labels & colors ──────────────────────────────────────────
+const PROGRAM_ACTION_LABELS: Record<string, string> = {
+    'Created Milestone':  'Milestone created',
+    'Updated Milestone':  'Milestone updated',
+    'Deleted Milestone':  'Milestone deleted',
+    'Imported Milestones': 'Milestones imported',
+    'program_blocked':    'Blocked',
+    'program_unblocked':  'Unblocked',
+};
+
+const PROGRAM_ACTION_COLORS: Record<string, string> = {
+    'Created Milestone':  'bg-blue-500',
+    'Updated Milestone':  'bg-purple-500',
+    'Deleted Milestone':  'bg-red-700',
+    'Imported Milestones': 'bg-teal-500',
+    'program_blocked':    'bg-red-500',
+    'program_unblocked':  'bg-green-500',
 };
 
 interface ProgramModalProps {
@@ -48,9 +74,25 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
         }
     }, [taskToEdit, isOpen, mode]);
 
+    const isBlocked = formData.status === 'Blocked';
+
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: name === 'progress_percent' ? Number(value) : value }));
+        if (name === 'progress_percent') {
+            const progress = Number(value);
+            setFormData(prev => ({ ...prev, progress_percent: progress, status: deriveStatus(progress) }));
+        } else {
+            setFormData(prev => ({ ...prev, [name]: value }));
+        }
+    };
+
+    const toggleBlocked = () => {
+        setFormData(prev => {
+            if (prev.status === 'Blocked') {
+                return { ...prev, status: deriveStatus(prev.progress_percent || 0) };
+            }
+            return { ...prev, status: 'Blocked' as ProgramStatus };
+        });
     };
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -80,16 +122,27 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
-                        <select name="status" value={formData.status || 'Planned'} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                            <option value="Planned">Planned</option>
-                            <option value="InProgress">InProgress</option>
-                            <option value="Completed">Completed</option>
-                            <option value="Blocked">Blocked</option>
-                        </select>
+                        <div className="mt-1 flex items-center gap-3">
+                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                                formData.status === 'Blocked' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300' :
+                                formData.status === 'Completed' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' :
+                                formData.status === 'InProgress' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300' :
+                                'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
+                            }`}>{formData.status || 'Planned'}</span>
+                            {!isViewMode && (
+                                <button type="button" onClick={toggleBlocked} className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
+                                    isBlocked
+                                        ? 'border-green-300 text-green-700 hover:bg-green-50 dark:border-green-600 dark:text-green-300 dark:hover:bg-green-900/30'
+                                        : 'border-red-300 text-red-700 hover:bg-red-50 dark:border-red-600 dark:text-red-300 dark:hover:bg-red-900/30'
+                                }`}>
+                                    {isBlocked ? 'Unblock' : 'Block'}
+                                </button>
+                            )}
+                        </div>
                     </div>
                      <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Progress (%)</label>
-                        <input type="range" name="progress_percent" min="0" max="100" value={formData.progress_percent || 0} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full" />
+                        <input type="range" name="progress_percent" min="0" max="100" value={formData.progress_percent || 0} onChange={handleChange} disabled={isViewMode || isBlocked} className="mt-1 block w-full" />
                         <span className="text-sm dark:text-gray-300">{formData.progress_percent || 0}%</span>
                     </div>
                 </div>
@@ -104,38 +157,62 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
     );
 };
 
-interface ActivityLogModalProps {
-    isOpen: boolean;
-    onClose: () => void;
-    taskId: string | null;
-}
-
-const ActivityLogModal: React.FC<ActivityLogModalProps> = ({ isOpen, onClose, taskId }) => {
-    const [logs, setLogs] = useState<ActivityLog[]>([]);
-    const [loading, setLoading] = useState(false);
+const HistoryModal: React.FC<{ task: ProgramTask; onClose: () => void }> = ({ task, onClose }) => {
+    const [entries, setEntries] = useState<AllActivityLog[]>([]);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (isOpen && taskId) {
-            setLoading(true);
-            SupabaseService.getActivityLogs(taskId)
-                .then(setLogs)
-                .catch(console.error)
-                .finally(() => setLoading(false));
-        }
-    }, [isOpen, taskId]);
+        SupabaseService.getProgramHistory(task.id)
+            .then(setEntries)
+            .finally(() => setLoading(false));
+    }, [task.id]);
+
+    const fmt = (iso: string) => new Date(iso).toLocaleString();
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Activity Log">
-            {loading ? <p className="text-center py-4">Loading logs...</p> : (
-                <ul className="space-y-2">
-                    {logs.length > 0 ? logs.map(log => (
-                        <li key={log.id} className="text-sm text-gray-600 dark:text-gray-300">
-                            <span className="font-semibold">{new Date(log.created_at).toLocaleString()}:</span> {log.activity}
-                        </li>
-                    )) : <p className="text-center py-4">No activity logs found for this milestone.</p>}
-                </ul>
-            )}
-        </Modal>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700">
+                    <div>
+                        <h2 className="text-base font-semibold text-gray-900 dark:text-white">Milestone History</h2>
+                        <p className="text-xs text-gray-500 mt-0.5">{task.program_name}</p>
+                    </div>
+                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">&times;</button>
+                </div>
+                <div className="flex-1 overflow-y-auto px-6 py-4">
+                    {loading ? (
+                        <p className="text-sm text-gray-400 text-center py-8">Loading...</p>
+                    ) : entries.length === 0 ? (
+                        <p className="text-sm text-gray-400 text-center py-8">No history yet.</p>
+                    ) : (
+                        <ol className="relative border-l border-gray-200 dark:border-gray-700 space-y-6 ml-3">
+                            {entries.map(e => {
+                                const ed = (e.event_data || {}) as Record<string, any>;
+                                const actorName = ed.actor_name || ed.user_email || e.user_id || 'Unknown';
+                                const fromStatus = ed.from_status as string | null;
+                                const toStatus = ed.to_status as string | null;
+                                const dotColor = PROGRAM_ACTION_COLORS[e.action] || 'bg-gray-400';
+                                return (
+                                    <li key={e.id} className="ml-4">
+                                        <span className={`absolute -left-1.5 flex h-3 w-3 items-center justify-center rounded-full ${dotColor} ring-4 ring-white dark:ring-gray-800`} />
+                                        <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                            {PROGRAM_ACTION_LABELS[e.action] || e.action}
+                                        </p>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                                            by <span className="font-medium">{actorName}</span>
+                                            {fromStatus && toStatus && fromStatus !== toStatus && (
+                                                <span className="ml-1 text-gray-400">· {fromStatus} → {toStatus}</span>
+                                            )}
+                                        </p>
+                                        <time className="text-[10px] text-gray-400">{fmt(e.created_at)}</time>
+                                    </li>
+                                );
+                            })}
+                        </ol>
+                    )}
+                </div>
+            </div>
+        </div>
     );
 };
 
@@ -183,12 +260,17 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
                 const oldTask = modalState.task;
                 const updatedTask = await SupabaseService.updateTask(modalState.task.id, formData);
 
+                const statusChanged = oldTask.status !== updatedTask.status;
                 await SupabaseService.logAllActivity({
-                    action: 'Updated Milestone',
+                    action: statusChanged ? 'Updated Milestone' : 'Updated Milestone',
                     module: 'Program',
                     entity_id: updatedTask.id,
                     entity_name: updatedTask.program_name,
-                    event_data: { changes: formData }
+                    event_data: {
+                        from_status: oldTask.status,
+                        to_status: updatedTask.status,
+                        changes: formData,
+                    }
                 });
 
                 const changes: string[] = [];
@@ -291,23 +373,19 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
                         return null;
                     }
                     
-                    if (!status || !status.trim()) {
-                        console.log('Skipping - missing status');
-                        return null;
-                    }
-                    
                     // Sanitize input
                     const cleanProgramName = sanitizeInput(program_name.trim());
                     const cleanDescription = description ? sanitizeInput(description.trim()) : '';
                     const cleanMonth = sanitizeInput(month.trim());
-                    const cleanStatus = sanitizeInput(status.trim());
-                    
+                    const progress = Number(progress_percent) || 0;
+                    const cleanStatus = (status && sanitizeInput(status.trim()) === 'Blocked') ? 'Blocked' as ProgramStatus : deriveStatus(progress);
+
                     return {
                         program_name: cleanProgramName,
                         description: cleanDescription,
                         month: cleanMonth,
-                        status: cleanStatus as ProgramStatus,
-                        progress_percent: Number(progress_percent) || 0,
+                        status: cleanStatus,
+                        progress_percent: progress,
                     };
                 })
                 .filter((task): task is ProgramTaskCreate => task !== null);
@@ -655,18 +733,38 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         {isEditing && selectedIds.has(task.id) ? (
-                                            <select value={editValues[task.id]?.status ?? task.status} onChange={e => updateField(task.id, 'status', e.target.value as any)} className={editSelectCls}>
-                                                <option>Planned</option>
-                                                <option>InProgress</option>
-                                                <option>Completed</option>
-                                                <option>Blocked</option>
-                                            </select>
+                                            <div className="flex items-center gap-2">
+                                                <StatusBadge status={(editValues[task.id]?.status ?? task.status) as ProgramStatus} colorMap={programStatusStyles} />
+                                                <button type="button" onClick={() => {
+                                                    const currentStatus = (editValues[task.id]?.status ?? task.status) as ProgramStatus;
+                                                    if (currentStatus === 'Blocked') {
+                                                        const progress = editValues[task.id]?.progress_percent ?? task.progress_percent;
+                                                        updateField(task.id, 'status', deriveStatus(progress));
+                                                    } else {
+                                                        updateField(task.id, 'status', 'Blocked');
+                                                    }
+                                                }} className={`px-1.5 py-0.5 rounded text-[10px] font-medium border ${
+                                                    (editValues[task.id]?.status ?? task.status) === 'Blocked'
+                                                        ? 'border-green-300 text-green-700 hover:bg-green-50 dark:border-green-600 dark:text-green-300'
+                                                        : 'border-red-300 text-red-700 hover:bg-red-50 dark:border-red-600 dark:text-red-300'
+                                                }`}>
+                                                    {(editValues[task.id]?.status ?? task.status) === 'Blocked' ? 'Unblock' : 'Block'}
+                                                </button>
+                                            </div>
                                         ) : <StatusBadge status={task.status} colorMap={programStatusStyles} />}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         {isEditing && selectedIds.has(task.id) ? (
                                             <div className="flex items-center gap-2">
-                                                <input type="range" min="0" max="100" value={editValues[task.id]?.progress_percent ?? task.progress_percent} onChange={e => updateField(task.id, 'progress_percent', Number(e.target.value))} className="w-24" />
+                                                <input type="range" min="0" max="100"
+                                                    value={editValues[task.id]?.progress_percent ?? task.progress_percent}
+                                                    disabled={(editValues[task.id]?.status ?? task.status) === 'Blocked'}
+                                                    onChange={e => {
+                                                        const progress = Number(e.target.value);
+                                                        updateField(task.id, 'progress_percent', progress);
+                                                        updateField(task.id, 'status', deriveStatus(progress));
+                                                    }}
+                                                    className="w-24" />
                                                 <span className="text-xs w-8 text-gray-500 dark:text-gray-400">{editValues[task.id]?.progress_percent ?? task.progress_percent}%</span>
                                             </div>
                                         ) : (
@@ -681,7 +779,7 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
                                     <td onClick={e => e.stopPropagation()} className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                         {!isEditing && (
                                             <div className="flex justify-end items-center space-x-2">
-                                                <button onClick={() => setModalState({ type: 'log', task })} title="View Logs" className="text-gray-400 hover:text-blue-500"><HistoryIcon className="h-5 w-5" /></button>
+                                                <button onClick={() => setModalState({ type: 'log', task })} title="View History" className="text-gray-400 hover:text-blue-500"><HistoryIcon className="h-5 w-5" /></button>
                                                 <button onClick={() => setModalState({ type: 'view', task })} title="View Milestone" className="text-gray-400 hover:text-green-500"><EyeIcon className="h-5 w-5" /></button>
                                                 <button onClick={() => setModalState({ type: 'edit', task })} title="Edit Milestone" className="text-gray-400 hover:text-yellow-500"><PencilIcon className="h-5 w-5" /></button>
                                                 <button onClick={() => setModalState({ type: 'delete', task })} title="Delete Milestone" className="text-gray-400 hover:text-red-500"><TrashIcon className="h-5 w-5" /></button>
@@ -703,11 +801,9 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
                 mode={modalState.type as 'add' | 'edit' | 'view'}
             />
 
-            <ActivityLogModal
-                isOpen={modalState.type === 'log'}
-                onClose={closeModal}
-                taskId={modalState.task?.id || null}
-            />
+            {modalState.type === 'log' && modalState.task && (
+                <HistoryModal task={modalState.task} onClose={closeModal} />
+            )}
 
             <DeleteConfirmationModal
                 isOpen={modalState.type === 'delete'}
