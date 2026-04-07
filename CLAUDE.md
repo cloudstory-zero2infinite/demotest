@@ -25,12 +25,12 @@ ZeroTo1 GRC is a Governance, Risk & Compliance (GRC) SaaS platform with multi-te
 - **Express.js** (Node.js, ESM modules — `"type": "module"`)
 - Entry: `server/src/index.js`
 - Routes: `server/src/routes/` — one file per domain (program, controls, assets, policies, vulnerabilities, compliance, contacts, activity, org, org-settings, feedback, capabilities, control-registry)
-- Auth middleware: `server/src/middleware/auth.js` — validates JWT, attaches `req.userId`, `req.orgId`, `req.userRole`
+- Auth middleware: `server/src/middleware/auth.js` — extracts JWT from `Authorization: Bearer <token>`, validates via `supabaseAdmin.auth.getUser()`, then looks up `org_onboarding` to attach `req.userId`, `req.orgId`, `req.userRole`, `req.onboardingStatus`
 - Supabase admin client: `server/src/supabase.js` (service-role key, bypasses RLS)
 - Email: uses **Resend** (`resend` npm package) for transactional email
 - File uploads: **Multer** with 50MB limit
 - Scheduled jobs: `server/src/jobs/policy-expiry.js` — cron job runs every 6 hours (`0 */6 * * *`) to check policy expiration
-- All routes mounted under `/api/<domain>` (e.g., `/api/program`, `/api/controls`, `/api/org`, `/api/org-settings`)
+- All routes mounted under `/api/<domain>` (e.g., `/api/program`, `/api/controls`, `/api/org`, `/api/org-settings`, `/api/org-contacts`, `/api/capabilities`, `/api/control-registry`, `/api/feedback`)
 - Health check: `GET /api/health`
 - In production the root Dockerfile (Node 20) builds the frontend into `dist/`, then serves it as static files on port 8080 via the same Express server
 - Separate Dockerfiles also exist at `server/Dockerfile` (Node 20, dev mode) and `ai-agent/Dockerfile` (Python 3.12-slim)
@@ -66,6 +66,17 @@ npm start               # node src/index.js (no watch)
 ```bash
 cd ai-agent && pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+```
+
+### Local Dev Setup (after cloning)
+```bash
+cp .env.example .env                    # Fill in Supabase credentials
+cp server/.env.example server/.env      # Fill in service-role key, set FRONTEND_URL=http://localhost:5174
+cp ai-agent/.env.example ai-agent/.env  # Fill in Gemini key, DATABASE_URL
+npm install && npm run server:install
+# Then run frontend + backend in separate terminals:
+npm run dev       # Terminal 1: Vite on :5174
+npm run server    # Terminal 2: Express on :3001
 ```
 
 ### Docker
@@ -126,4 +137,4 @@ Copy `.env.example` to `.env`. Required:
 - Dev server on `0.0.0.0:5174` with `allowedHosts: true` (Docker-friendly)
 - HMR via WebSocket on `localhost:5174`
 - Path alias `@` maps to project root
-- `VITE_AI_AGENT_URL` is injected at build time via `define`
+- `VITE_AI_AGENT_URL` and `__APP_VERSION__` are injected at build time via `define`

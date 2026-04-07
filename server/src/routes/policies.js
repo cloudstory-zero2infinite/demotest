@@ -41,11 +41,6 @@ function extractMetadata(markdown) {
 
 // ── Utility: generate sequential human-readable policy ID ──────────────────
 async function generatePolicyId(orgId) {
-  const { count } = await supabaseAdmin
-    .from('policy_documents')
-    .select('*', { count: 'exact', head: true })
-    .eq('org_id', orgId);
-
   const { data: org } = await supabaseAdmin
     .from('organizations')
     .select('name')
@@ -56,8 +51,27 @@ async function generatePolicyId(orgId) {
     .slice(0, 4)
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, '');
-  const seq = String((count || 0) + 1).padStart(3, '0');
-  return `IT-POL-${orgPrefix}-${seq}`;
+
+  // Search GLOBALLY (not per-org) because policy_id is a global primary key.
+  // Two orgs with the same 4-char prefix (e.g. Consultant1, Consultant2 → "CONS")
+  // would collide if we only checked within the current org.
+  const prefix = `IT-POL-${orgPrefix}-`;
+  const { data: existing } = await supabaseAdmin
+    .from('policy_documents')
+    .select('policy_id')
+    .like('policy_id', `${prefix}%`)
+    .order('policy_id', { ascending: false })
+    .limit(1);
+
+  let nextSeq = 1;
+  if (existing && existing.length > 0) {
+    const lastId = existing[0].policy_id;
+    const lastSeqStr = lastId.replace(prefix, '');
+    const lastSeq = parseInt(lastSeqStr, 10);
+    if (!isNaN(lastSeq)) nextSeq = lastSeq + 1;
+  }
+
+  return `${prefix}${String(nextSeq).padStart(3, '0')}`;
 }
 
 // ── Utility: check and expire policies for an org ─────────────────────────
@@ -213,6 +227,9 @@ router.get('/:id', requireAuth, async (req, res) => {
 // ── POST /  ─ create policy ───────────────────────────────────────────────
 router.post('/', requireAuth, async (req, res) => {
   try {
+    if (!req.orgId) {
+      return res.status(400).json({ message: 'No organisation found. Please complete onboarding first.' });
+    }
     const { markdown, policy_status = 'draft' } = req.body;
     const meta = extractMetadata(markdown);
     const policyId = await generatePolicyId(req.orgId);

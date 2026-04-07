@@ -173,6 +173,9 @@ const App: React.FC = () => {
                         setOrgName(me?.orgName ?? null);
 
                         if (event === 'SIGNED_IN') {
+                            // Trigger data refresh in all tab components after login
+                            window.dispatchEvent(new CustomEvent('tabChanged', { detail: { newTab: 'signed_in' } }));
+
                             // Only log login for fresh user-initiated logins, not session recovery on tab switch
                             const isFreshLogin = sessionStorage.getItem('freshLogin') === 'true';
                             if (isFreshLogin) {
@@ -295,7 +298,7 @@ const App: React.FC = () => {
     const isAdmin = platformAdminRole === 'tenant_admin' || platformAdminRole === 'admin';
 
     const renderContent = () => {
-        if (!authChecked) {
+        if (!authChecked || isNameModalOpen) {
             return (
                 <div className="flex items-center justify-center py-24">
                     <svg className="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
