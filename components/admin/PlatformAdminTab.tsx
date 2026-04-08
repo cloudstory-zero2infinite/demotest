@@ -47,7 +47,7 @@ const RoleBadge: React.FC<{ role: string }> = ({ role }) => {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export const PlatformAdminTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
+export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean }> = ({ isActive = true, readOnly = false }) => {
     const [orgName, setOrgName] = useState<string | null>(null);
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
     const [members, setMembers] = useState<any[]>([]);
@@ -378,19 +378,23 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
                         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                             <thead className="bg-gray-50 dark:bg-gray-900">
                                 <tr>
-                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 py-3 w-10">
-                                        <input
-                                            type="checkbox"
-                                            checked={allMemberIds.length > 0 && selectedIds.size === allMemberIds.length}
-                                            onChange={() => toggleAll(allMemberIds)}
-                                            className="rounded border-gray-300 dark:border-gray-600"
-                                        />
-                                    </th>
+                                    {!readOnly && (
+                                        <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 py-3 w-10">
+                                            <input
+                                                type="checkbox"
+                                                checked={allMemberIds.length > 0 && selectedIds.size === allMemberIds.length}
+                                                onChange={() => toggleAll(allMemberIds)}
+                                                className="rounded border-gray-300 dark:border-gray-600"
+                                            />
+                                        </th>
+                                    )}
                                     <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Email</th>
                                     <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Role</th>
                                     <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Status</th>
                                     <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Added</th>
-                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Actions</th>
+                                    {!readOnly && (
+                                        <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Actions</th>
+                                    )}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800">
@@ -404,14 +408,16 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
 
                                     return (
                                         <tr key={member.id} className={`${isPendingApproval ? 'bg-amber-50/40 dark:bg-amber-900/10' : ''} ${isSelected ? 'bg-blue-50 dark:bg-blue-900/10' : ''}`}>
-                                            <td className="px-4 py-4 w-10" onClick={e => e.stopPropagation()}>
-                                                <input
-                                                    type="checkbox"
-                                                    checked={isSelected}
-                                                    onChange={() => toggle(member.id)}
-                                                    className="rounded border-gray-300 dark:border-gray-600"
-                                                />
-                                            </td>
+                                            {!readOnly && (
+                                                <td className="px-4 py-4 w-10" onClick={e => e.stopPropagation()}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isSelected}
+                                                        onChange={() => toggle(member.id)}
+                                                        className="rounded border-gray-300 dark:border-gray-600"
+                                                    />
+                                                </td>
+                                            )}
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
                                                 {member.email}
                                                 {isSelf && <span className="ml-2 text-xs text-blue-500">(you)</span>}
@@ -428,56 +434,58 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
                                                 {member.created_at ? new Date(member.created_at).toLocaleDateString() : '—'}
                                             </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-right">
-                                                <div className="flex items-center justify-end gap-2">
-                                                    {/* Approve button — only for pending_approval */}
-                                                    {isPendingApproval && (
-                                                        <button
-                                                            onClick={() => handleApprove(member.id)}
-                                                            disabled={isLoading}
-                                                            className="px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded-md transition-colors"
-                                                        >
-                                                            {isLoading ? '…' : 'Approve'}
-                                                        </button>
-                                                    )}
+                                            {!readOnly && (
+                                                <td className="px-6 py-4 whitespace-nowrap text-right">
+                                                    <div className="flex items-center justify-end gap-2">
+                                                        {/* Approve button — only for pending_approval */}
+                                                        {isPendingApproval && (
+                                                            <button
+                                                                onClick={() => handleApprove(member.id)}
+                                                                disabled={isLoading}
+                                                                className="px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded-md transition-colors"
+                                                            >
+                                                                {isLoading ? '…' : 'Approve'}
+                                                            </button>
+                                                        )}
 
-                                                    {/* Remove / Reject — not for self or tenant_admin */}
-                                                    {!isSelf && !isTenantAdmin && (
-                                                        <>
-                                                            {isConfirming ? (
-                                                                <div className="flex items-center gap-1">
-                                                                    <span className="text-xs text-gray-500 dark:text-gray-400 mr-1">Sure?</span>
+                                                        {/* Remove / Reject — not for self or tenant_admin */}
+                                                        {!isSelf && !isTenantAdmin && (
+                                                            <>
+                                                                {isConfirming ? (
+                                                                    <div className="flex items-center gap-1">
+                                                                        <span className="text-xs text-gray-500 dark:text-gray-400 mr-1">Sure?</span>
+                                                                        <button
+                                                                            onClick={() => handleRemove(member.id, isPendingApproval)}
+                                                                            disabled={isLoading}
+                                                                            className="px-2 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded transition-colors"
+                                                                        >
+                                                                            {isLoading ? '…' : 'Yes, remove'}
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => setConfirmRemove(null)}
+                                                                            className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                                                        >
+                                                                            Cancel
+                                                                        </button>
+                                                                    </div>
+                                                                ) : (
                                                                     <button
-                                                                        onClick={() => handleRemove(member.id, isPendingApproval)}
-                                                                        disabled={isLoading}
-                                                                        className="px-2 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded transition-colors"
+                                                                        onClick={() => setConfirmRemove(member.id)}
+                                                                        className="px-3 py-1.5 text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 border border-red-200 dark:border-red-800 rounded-md transition-colors"
                                                                     >
-                                                                        {isLoading ? '…' : 'Yes, remove'}
+                                                                        {isPendingApproval ? 'Reject' : 'Remove'}
                                                                     </button>
-                                                                    <button
-                                                                        onClick={() => setConfirmRemove(null)}
-                                                                        className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                                                                    >
-                                                                        Cancel
-                                                                    </button>
-                                                                </div>
-                                                            ) : (
-                                                                <button
-                                                                    onClick={() => setConfirmRemove(member.id)}
-                                                                    className="px-3 py-1.5 text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 border border-red-200 dark:border-red-800 rounded-md transition-colors"
-                                                                >
-                                                                    {isPendingApproval ? 'Reject' : 'Remove'}
-                                                                </button>
-                                                            )}
-                                                        </>
-                                                    )}
+                                                                )}
+                                                            </>
+                                                        )}
 
-                                                    {/* Placeholder for self / tenant_admin rows */}
-                                                    {(isSelf || isTenantAdmin) && !isPendingApproval && (
-                                                        <span className="text-xs text-gray-300 dark:text-gray-600">—</span>
-                                                    )}
-                                                </div>
-                                            </td>
+                                                        {/* Placeholder for self / tenant_admin rows */}
+                                                        {(isSelf || isTenantAdmin) && !isPendingApproval && (
+                                                            <span className="text-xs text-gray-300 dark:text-gray-600">—</span>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            )}
                                         </tr>
                                     );
                                 })}
@@ -489,12 +497,14 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
                 {/* Data preservation notice */}
                 <div className="px-6 py-3 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700">
                     <p className="text-xs text-gray-400 dark:text-gray-500">
-                        Removing a member revokes their access. All data they added to this workspace is preserved.
+                        {readOnly
+                            ? 'You have view-only access to member management. Contact your admin to make changes.'
+                            : 'Removing a member revokes their access. All data they added to this workspace is preserved.'}
                     </p>
                 </div>
             </div>
 
-            <SelectionActionBar
+            {!readOnly && <SelectionActionBar
                 selectedCount={selectedIds.size}
                 isEditing={false}
                 isConfirmingDelete={isConfirmingDelete}
@@ -517,9 +527,10 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
                 onConfirmDelete={handleBulkRemove}
                 onCancelDelete={() => setIsConfirmingDelete(false)}
                 onClear={clearAll}
-            />
+            />}
 
             {/* ── Add Members form ── */}
+            {!readOnly && (
             <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                 <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-5">Add Members</h2>
 
@@ -604,6 +615,7 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
                     </div>
                 </form>
             </div>
+            )}
 
             {/* ── Contacts ── */}
             <div className="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden">
@@ -617,21 +629,23 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
                             Displayed as "Name (Department)" across all tabs.
                         </p>
                     </div>
-                    <div className="flex space-x-2">
-                        <input type="file" accept=".csv" ref={contactFileRef} onChange={handleImportContactsCSV} className="hidden" />
-                        <button onClick={() => setShowContactAI(true)} title="AI Assistant" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-                            <BotIcon className="h-5 w-5" />
-                        </button>
-                        <button onClick={() => contactFileRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-                            <UploadIcon className="h-5 w-5" />
-                        </button>
-                        <button onClick={handleExportContacts} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-                            <DownloadIcon className="h-5 w-5" />
-                        </button>
-                        <button onClick={() => openContactModal('add')} title="Add Contact" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-                            <PlusIcon className="h-5 w-5" />
-                        </button>
-                    </div>
+                    {!readOnly && (
+                        <div className="flex space-x-2">
+                            <input type="file" accept=".csv" ref={contactFileRef} onChange={handleImportContactsCSV} className="hidden" />
+                            <button onClick={() => setShowContactAI(true)} title="AI Assistant" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                                <BotIcon className="h-5 w-5" />
+                            </button>
+                            <button onClick={() => contactFileRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                                <UploadIcon className="h-5 w-5" />
+                            </button>
+                            <button onClick={handleExportContacts} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                                <DownloadIcon className="h-5 w-5" />
+                            </button>
+                            <button onClick={() => openContactModal('add')} title="Add Contact" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                                <PlusIcon className="h-5 w-5" />
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 {contacts.length === 0 ? (
@@ -666,7 +680,7 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean }> = ({ isActive = 
                     isOpen={true}
                     onClose={closeContactModal}
                     title={contactModal.type === 'add' ? 'Add Contact' : contactModal.type === 'edit' ? 'Edit Contact' : 'View Contact'}
-                    headerActions={contactModal.type === 'view' && (
+                    headerActions={contactModal.type === 'view' && !readOnly && (
                         <>
                             <button onClick={() => { closeContactModal(); openContactModal('edit', contactModal.contact); }} title="Edit" className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
                                 <PencilIcon className="h-4 w-4" />
