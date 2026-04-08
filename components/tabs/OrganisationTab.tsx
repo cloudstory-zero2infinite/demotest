@@ -321,6 +321,7 @@ export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, isAc
     const [mountedTabs, setMountedTabs] = useState<Set<OrgSubTabId>>(new Set([defaultTab]));
 
     const handleSubTabChange = (tab: OrgSubTabId) => {
+        // Non-admins can view admin tabs (read-only), so allow navigation
         setActiveSubTab(tab);
         setMountedTabs(prev => {
             if (prev.has(tab)) return prev;
@@ -336,31 +337,34 @@ export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, isAc
         { id: 'settings', label: 'Settings', adminOnly: true },
     ];
 
-    const visibleTabs = subTabs.filter(t => !t.adminOnly || isPlatformAdmin);
-
     return (
         <div className="px-4 py-6 sm:px-0">
             <div className="border-b border-gray-200 dark:border-gray-700">
                 <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-                    {visibleTabs.map(tab => (
+                    {subTabs.map(tab => (
                         <button
                             key={tab.id}
                             onClick={() => handleSubTabChange(tab.id)}
                             className={`${
                                 activeSubTab === tab.id
                                     ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-200'
+                                    : tab.adminOnly && !isPlatformAdmin
+                                        ? 'border-transparent text-gray-300 dark:text-gray-600 cursor-default'
+                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-200'
                             } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
                         >
                             {tab.label}
+                            {tab.adminOnly && !isPlatformAdmin && (
+                                <span className="ml-1.5 text-[10px] text-gray-400 dark:text-gray-500">(View only)</span>
+                            )}
                         </button>
                     ))}
                 </nav>
             </div>
             <div className="mt-6">
-                {isPlatformAdmin && mountedTabs.has('tenant_admin') && (
+                {mountedTabs.has('tenant_admin') && (
                     <div className={activeSubTab === 'tenant_admin' ? '' : 'hidden'}>
-                        <PlatformAdminTab isActive={isActive && activeSubTab === 'tenant_admin'} />
+                        <PlatformAdminTab isActive={isActive && activeSubTab === 'tenant_admin'} readOnly={!isPlatformAdmin} />
                     </div>
                 )}
                 {mountedTabs.has('view_org') && (
@@ -368,9 +372,9 @@ export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, isAc
                         <ViewOrganizationTab isActive={isActive && activeSubTab === 'view_org'} />
                     </div>
                 )}
-                {isPlatformAdmin && mountedTabs.has('settings') && (
+                {mountedTabs.has('settings') && (
                     <div className={activeSubTab === 'settings' ? '' : 'hidden'}>
-                        <OrgSettingsTab isActive={isActive && activeSubTab === 'settings'} />
+                        <OrgSettingsTab isActive={isActive && activeSubTab === 'settings'} readOnly={!isPlatformAdmin} />
                     </div>
                 )}
             </div>

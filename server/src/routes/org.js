@@ -4,6 +4,30 @@ import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
 
+const CONSULTANT_MEMBER_LIMIT = 3; // 1 tenant_admin + 2 users
+const DEFAULT_FRAMEWORKS = ['CISv8.1'];
+
+// Check if org is a Consultant org and has reached its member limit
+async function checkConsultantLimit(orgId) {
+  const { data: org } = await supabaseAdmin
+    .from('organizations')
+    .select('name')
+    .eq('id', orgId)
+    .single();
+
+  if (!org || !org.name.match(/^Consultant\d+$/i)) return null; // not a consultant org
+
+  const { count } = await supabaseAdmin
+    .from('org_onboarding')
+    .select('*', { count: 'exact', head: true })
+    .eq('org_id', orgId);
+
+  if ((count || 0) >= CONSULTANT_MEMBER_LIMIT) {
+    return `Consultant workspaces are limited to ${CONSULTANT_MEMBER_LIMIT} members (1 admin + 2 users).`;
+  }
+  return null;
+}
+
 // GET current user's org, role, and onboarding status
 router.get('/me', requireAuth, async (req, res) => {
   try {
@@ -100,8 +124,16 @@ router.put('/notifications/:notifId/read', requireAuth, async (req, res) => {
 // POST onboard a user to the org (used by admin from org management UI)
 router.post('/onboard', requireAuth, async (req, res) => {
   try {
+    if (!['admin', 'tenant_admin'].includes(req.userRole)) {
+      return res.status(403).json({ message: 'Only admins can add members.' });
+    }
+
     const { email, role = 'user', description } = req.body;
     const orgId = req.orgId;
+
+    // Enforce member limit for Consultant orgs
+    const limitError = await checkConsultantLimit(orgId);
+    if (limitError) return res.status(403).json({ message: limitError });
 
     // Look up user_id by email
     const { data: userId } = await supabaseAdmin
@@ -154,7 +186,7 @@ router.post('/setup/individual', requireAuth, async (req, res) => {
 
     const { data: newOrg, error: orgError } = await supabaseAdmin
       .from('organizations')
-      .insert({ name: orgName, created_by: userId })
+      .insert({ name: orgName, created_by: userId, needed_framework: DEFAULT_FRAMEWORKS })
       .select()
       .single();
     if (orgError) throw orgError;
@@ -165,7 +197,7 @@ router.post('/setup/individual', requireAuth, async (req, res) => {
         org_id: newOrg.id,
         user_id: userId,
         email: email,
-        role: 'user',
+        role: 'tenant_admin',
         status: 'active',
       })
       .select()
@@ -209,6 +241,7 @@ router.post('/setup/create-org', requireAuth, async (req, res) => {
         location: location.trim(),
         website: website?.trim() || null,
         created_by: userId,
+        needed_framework: DEFAULT_FRAMEWORKS,
       })
       .select()
       .single();
@@ -257,6 +290,10 @@ router.post('/setup/join-request', requireAuth, async (req, res) => {
     if (!adminRecord) {
       return res.status(404).json({ message: 'No active admin found with that email. Please check and try again.' });
     }
+
+    // Enforce member limit for Consultant orgs
+    const limitError = await checkConsultantLimit(adminRecord.org_id);
+    if (limitError) return res.status(403).json({ message: limitError });
 
     // Insert pending record
     const { data: pending, error: pendError } = await supabaseAdmin
