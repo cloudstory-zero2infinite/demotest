@@ -348,7 +348,6 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
             ]);
 
-            console.log(`[DIAGNOSTIC] Assets received: ${assetsData?.length}`);
             setAssets(assetsData);
 
             setRelationships(relationshipsData);
@@ -590,54 +589,37 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
     const handleBulkDelete = async () => {
+
         setIsConfirmingDelete(false);
-        const idsToDelete = Array.from(selectedIds) as string[];
-        
-        // Optimistic UI update: instantly remove assets from the list
-        const backupAssets = [...assets];
-        const updatedAssets = assets.filter(asset => !selectedIds.has(asset.id));
-        setAssets(updatedAssets);
-        
+
         startBulkOperation(selectedIds.size);
-        
-        try {
-            // Bulk call to backend
-            const result = await SupabaseService.bulkDeleteAssets(idsToDelete);
-            
-            // Log bulk activity
-            await SupabaseService.logAllActivity({
-                action: 'Bulk Deleted Assets',
-                module: 'Governance',
-                entity_id: null,
-                entity_name: `${result.deletedCount} assets deleted`,
-                event_data: { count: result.deletedCount, ids: idsToDelete }
-            });
-            
-            // Update progress bar instantly to 100% since it's a single batch
-            for (let i = 0; i < selectedIds.size; i++) {
+
+        let hasError = false;
+
+        for (const id of selectedIds) {
+
+            try {
+
+                await SupabaseService.deleteAsset(id as string);
+
                 incrementBulkProgress(true);
-            }
-            
-            finishBulkOperation(false);
-            // Final fetch to synchronize state (just in case)
-            fetchAssets();
-            
-            // Auto-close progress popup after 5 seconds
-            setTimeout(() => {
-                handleCloseBulkProgress();
-            }, 5000);
-        } catch (err: any) {
-            console.error('Failed to perform bulk delete', err);
-            setError(err.message || 'Failed to delete assets.');
-            
-            // Rollback optimistic update
-            setAssets(backupAssets);
-            
-            for (let i = 0; i < selectedIds.size; i++) {
+
+            } catch (err) {
+
+                console.error('Failed to delete asset', id, err);
+
+                hasError = true;
+
                 incrementBulkProgress(false);
+
             }
-            finishBulkOperation(true);
+
         }
+
+        finishBulkOperation(hasError);
+
+        fetchAssets();
+
     };
 
 

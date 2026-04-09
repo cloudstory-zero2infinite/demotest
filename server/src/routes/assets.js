@@ -1,28 +1,19 @@
-import express from 'express';
+import { Router } from 'express';
 import { supabaseAdmin } from '../supabase.js';
 import { requireAuth } from '../middleware/auth.js';
-import pkg from 'pg';
-const { Pool } = pkg;
 
-const router = express.Router();
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
+const router = Router();
 
 router.get('/', requireAuth, async (req, res) => {
   try {
-    // We use raw SQL to bypass the Supabase API's 1000-row default limit
-    const query = `
-      SELECT * FROM assets 
-      WHERE org_id = $1 
-      ORDER BY created_at DESC 
-      LIMIT 10000
-    `;
-    const result = await pool.query(query, [req.orgId]);
-    res.json(result.rows || []);
+    const { data, error } = await supabaseAdmin
+      .from('assets')
+      .select('*')
+      .eq('org_id', req.orgId)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json(data || []);
   } catch (err) {
-    console.error('[ASSETS-GET] Error:', err.message);
     res.status(500).json({ message: err.message });
   }
 });
@@ -131,86 +122,6 @@ router.put('/:id', requireAuth, async (req, res) => {
     console.error('Asset update error:', err);
     res.status(500).json({ message: err.message });
   }
-});
-
-router.delete('/bulk', requireAuth, async (req, res) => {
-  const CHUNK_SIZE = 50;
-  const { ids } = req.body;
-  
-  if (!ids || !Array.isArray(ids) || ids.length === 0) {
-    return res.status(400).json({ message: 'No IDs provided for bulk deletion' });
-  }
-
-  const userId = req.userId;
-  const sessionOrgId = req.orgId;
-  console.log(`[BULK-SAFE] Request from User: ${userId}, Session Org: ${sessionOrgId}. IDs: ${ids.length}`);
-  
-  let totalDeleted = 0;
-  const errors = [];
-
-  for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
-    const chunkIds = ids.slice(i, i + CHUNK_SIZE);
-    const client = await pool.connect();
-    
-    try {
-      await client.query('BEGIN');
-
-      // Diagnostic: Check what's in the DB for these IDs before deleting
-      const diagQuery = 'SELECT id, org_id, user_id FROM assets WHERE id = ANY($1)';
-      const diagResult = await client.query(diagQuery, [chunkIds]);
-      
-      if (diagResult.rows.length === 0) {
-        console.warn(`[BULK-SAFE] Batch ${i}: Found 0 matching assets in DB for ${chunkIds.length} requested IDs.`);
-      } else {
-        const first = diagResult.rows[0];
-        console.log(`[BULK-SAFE] Batch ${i}: Found ${diagResult.rows.length} assets. Sample - ID: ${first.id}, Org: ${first.org_id}, User: ${first.user_id}`);
-      }
-
-      // 1. Delete relationships (using subquery based on found IDs)
-      const relQuery = `
-        DELETE FROM asset_relationships 
-        WHERE (
-          source_asset_id IN (SELECT asset_id FROM assets WHERE id = ANY($1))
-          OR 
-          target_asset_id IN (SELECT asset_id FROM assets WHERE id = ANY($1))
-        )
-      `;
-      // Note: We remove the strict org_id filter for relationships to ensure cleanup, 
-      // but Step 3 still enforces ownership for the main asset deletion.
-      await client.query(relQuery, [chunkIds]);
-
-      // 2. Delete vulnerabilities
-      const vulnQuery = `DELETE FROM vulnerability_management WHERE asset_id = ANY($1)`;
-      await client.query(vulnQuery, [chunkIds]);
-
-      // 3. Delete the assets (Enforce that they belonged to the user's Orgs or the user themselves)
-      // For now, we allow deletion if the ID matches, as Step 0 verified they exist.
-      // We log if anything is skipped due to org mismatch.
-      const assetQuery = `
-        DELETE FROM assets 
-        WHERE id = ANY($1)
-      `;
-      const result = await client.query(assetQuery, [chunkIds]);
-
-      await client.query('COMMIT');
-      totalDeleted += result.rowCount;
-      console.log(`[BULK-SAFE] Batch ${i} Success. Deleted: ${result.rowCount} / Requested: ${chunkIds.length}. Total: ${totalDeleted}`);
-
-    } catch (err) {
-      if (client) await client.query('ROLLBACK');
-      console.error(`[BULK-SAFE] Fatal SQL Error:`, err.message);
-      errors.push(`Internal SQL error: ${err.message}`);
-    } finally {
-      client.release();
-    }
-  }
-
-  res.status(200).json({ 
-    success: true, 
-    requestedCount: ids.length,
-    deletedCount: totalDeleted,
-    errors: errors.length > 0 ? errors : undefined
-  });
 });
 
 router.delete('/:id', requireAuth, async (req, res) => {
