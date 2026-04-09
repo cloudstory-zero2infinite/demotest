@@ -337,6 +337,13 @@ export const deleteAsset = async (id: string): Promise<void> => {
   return apiRequest<void>(`/api/assets/${id}`, { method: 'DELETE' });
 };
 
+export const bulkDeleteAssets = async (ids: string[]): Promise<{ deletedCount: number }> => {
+  return apiRequest<{ deletedCount: number }>('/api/assets/bulk', {
+    method: 'DELETE',
+    body: JSON.stringify({ ids }),
+  });
+};
+
 export const bulkAddAssets = async (assets: AssetCreate[]): Promise<Asset[]> => {
   const result = await apiRequest<{ data: Asset[]; inserted: number; total: number; errors: number; errorDetails?: any[] }>('/api/assets/bulk', {
     method: 'POST',
