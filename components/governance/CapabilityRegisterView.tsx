@@ -427,8 +427,6 @@ const CapabilityModal: React.FC<CapabilityModalProps> = ({ isOpen, onClose, onSa
     );
 };
 
-// ─── Main View ────────────────────────────────────────────────────────────────
-
 type ModalState = { type: 'add' | 'edit' | 'view' | 'delete' | 'import' | null; item?: Capability | null };
 
 export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
@@ -437,9 +435,11 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
     const [deleting, setDeleting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [modalState, setModalState] = useState<ModalState>({ type: null });
-    const fileInputRef = useRef<HTMLInputElement>(null);
     const [filter, setFilter] = useState('');
     const [sortConfig, setSortConfig] = useState<{ key: keyof Capability; direction: 'ascending' | 'descending' } | null>(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(100);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const [importData, setImportData] = useState<{ newCapabilities: CapabilityCreate[]; duplicates: string[] }>({ newCapabilities: [], duplicates: [] });
     const [showAIChat, setShowAIChat] = useState(false);
     const [orgContacts, setOrgContacts] = useState<OrgContact[]>([]);
@@ -503,6 +503,14 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
         return items;
     }, [capabilities, filter, sortConfig]);
 
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const paginatedCapabilities = filteredAndSorted.slice(startIndex, endIndex);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [filter]);
+
     const requestSort = (key: keyof Capability) => {
         let direction: 'ascending' | 'descending' = 'ascending';
         if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') direction = 'descending';
@@ -553,15 +561,27 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
         setIsConfirmingDelete(false);
         startBulkOperation(selectedIds.size);
         let hasError = false;
-        for (const id of selectedIds) {
-            try {
-                await SupabaseService.deleteCapability(id as string);
+        
+        try {
+            // Convert selectedIds Set to array for bulk deletion
+            const idsToDelete = Array.from(selectedIds) as string[];
+            
+            // Use the optimized bulk delete method
+            await SupabaseService.deleteCapabilitiesBulk(idsToDelete);
+            
+            // Update progress for all items at once since bulk delete is atomic
+            for (let i = 0; i < selectedIds.size; i++) {
                 incrementBulkProgress(true);
-            } catch (err) {
-                hasError = true;
+            }
+            
+        } catch (err) {
+            hasError = true;
+            // Mark all as failed if bulk operation fails
+            for (let i = 0; i < selectedIds.size; i++) {
                 incrementBulkProgress(false);
             }
         }
+        
         finishBulkOperation(hasError);
         await SupabaseService.logAllActivity({ action: 'Bulk Deleted Capabilities', module: 'Governance', event_data: { count: selectedIds.size } });
         fetchCapabilities();
@@ -632,25 +652,10 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
             setModalState({ type: 'import' });
         };
         reader.readAsText(file);
-        if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
-    const handleConfirmImport = async () => {
-        if (importData.newCapabilities.length > 0) {
-            try {
-                await SupabaseService.bulkAddCapabilities(importData.newCapabilities);
-                await SupabaseService.logAllActivity({ action: 'CSV Import - Added Capabilities', module: 'Governance', event_data: { count: importData.newCapabilities.length } });
-                closeModal();
-                fetchCapabilities();
-            } catch (err) {
-                setError('Failed to import capabilities.');
-            }
-        }
-    };
-
-    // ── CSV Export ──
     const handleExportCSV = () => {
-        const headers = ['capab_id', 'capab_name', 'capab_provider', 'capab_cmdb_id', 'capab_owner', 'capab_other_details'];
+        const headers = ['Capability ID', 'Name', 'Provider(s)', 'CMDB ID(s)', 'Owner', 'Other Details'];
         const csvContent = [
             headers.join(','),
             ...filteredAndSorted.map(c => [
@@ -669,6 +674,17 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
         link.click();
     };
 
+    const handleConfirmImport = async () => {
+        try {
+            await SupabaseService.bulkAddCapabilities(importData.newCapabilities);
+            await SupabaseService.logAllActivity({ action: 'Bulk Imported Capabilities', module: 'Governance', entity_name: `${importData.newCapabilities.length} capabilities imported`, event_data: { count: importData.newCapabilities.length } });
+            fetchCapabilities();
+            closeModal();
+        } catch (err) {
+            setError('Failed to import capabilities.');
+        }
+    };
+
     const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
 
     return (
@@ -679,13 +695,13 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
                         type="text"
                         placeholder="Filter capabilities..."
                         value={filter}
-                        onChange={e => setFilter(e.target.value)}
+                        onChange={(e) => setFilter(e.target.value)}
                         className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                         aria-label="Filter capabilities"
                     />
                 </div>
                 <div className="flex space-x-2">
-                    <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
+                    <input type="file" accept=".csv" ref={fileInputRef} onChange={(e) => handleImportCSV(e)} className="hidden" />
                     <button onClick={() => setShowAIChat(true)} title="AI Assistant" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <BotIcon className="h-5 w-5" />
                     </button>
@@ -711,7 +727,7 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 w-10 px-4 py-3">
                                     <input
                                         type="checkbox"
-                                        checked={selectedIds.size === filteredAndSorted.length && filteredAndSorted.length > 0}
+                                        checked={filteredAndSorted.length > 0 && filteredAndSorted.every(i => selectedIds.has(i.id))}
                                         onChange={() => toggleAll(filteredAndSorted.map(i => i.id))}
                                         className="rounded border-gray-300 dark:border-gray-600 cursor-pointer"
                                     />
@@ -735,9 +751,9 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
                         <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
                             {loading ? (
                                 <tr><td colSpan={7} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading capabilities...</td></tr>
-                            ) : filteredAndSorted.length === 0 ? (
+                            ) : paginatedCapabilities.length === 0 ? (
                                 <tr><td colSpan={7} className="text-center py-4 text-gray-500 dark:text-gray-400">No capabilities found.</td></tr>
-                            ) : filteredAndSorted.map(cap => (
+                            ) : paginatedCapabilities.map(cap => (
                                 <tr
                                     key={cap.id}
                                     onClick={() => !isEditing && setModalState({ type: 'view', item: cap })}
@@ -792,12 +808,55 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
                                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 max-w-[200px] truncate" title={cap.capab_other_details ?? ''}>
                                         {isEditing && selectedIds.has(cap.id) ? (
                                             <input type="text" value={editValues[cap.id]?.capab_other_details ?? cap.capab_other_details ?? ''} onChange={e => updateField(cap.id, 'capab_other_details', e.target.value)} className={editInputCls} />
-                                        ) : (cap.capab_other_details || '—')}
+                                        ) : (cap.capab_other_details || '---')}
                                     </td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
+                </div>
+            </div>
+
+            {/* Pagination Controls */}
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex items-center space-x-2">
+                    <button
+                        onClick={() => setCurrentPage(currentPage - 1)}
+                        disabled={currentPage === 1}
+                        className="px-3 py-1 text-sm bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                    >
+                        Previous
+                    </button>
+                    <div className="px-4 py-1 text-sm text-gray-700 dark:text-gray-300 bg-white border border-gray-300 rounded-md shadow-sm dark:bg-gray-800 dark:border-gray-600">
+                        {currentPage} of {Math.ceil(filteredAndSorted.length / itemsPerPage)}
+                    </div>
+                    <button
+                        onClick={() => setCurrentPage(currentPage + 1)}
+                        disabled={currentPage === Math.ceil(filteredAndSorted.length / itemsPerPage)}
+                        className="px-3 py-1 text-sm bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                    >
+                        Next
+                    </button>
+                </div>
+                <div className="flex items-center space-x-4">
+                    <div className="text-sm text-gray-700 dark:text-gray-300">
+                        Showing {startIndex + 1} to {Math.min(endIndex, filteredAndSorted.length)} of {filteredAndSorted.length} results
+                    </div>
+                    <div className="flex items-center space-x-2">
+                        <span className="text-sm text-gray-700 dark:text-gray-300">
+                            Items per page:
+                        </span>
+                        <select
+                            value={itemsPerPage}
+                            onChange={e => setItemsPerPage(Number(e.target.value))}
+                            className="rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                        >
+                            <option value={50}>50</option>
+                            <option value={100}>100</option>
+                            <option value={200}>200</option>
+                            <option value={500}>500</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 

@@ -12,7 +12,6 @@ import { AIChatModal } from '../common/AIChatModal';
 import * as XLSX from 'xlsx';
 import { parseCSVLine } from '../../utils/csvParser';
 import { BulkProgressModal } from '../common/BulkProgressModal';
-
 // Helper function to sanitize input
 const sanitizeInput = (input: string): string => {
     return input
@@ -22,7 +21,6 @@ const sanitizeInput = (input: string): string => {
         .replace(/on\w+\s*=/gi, '') // Remove event handlers
         .trim();
 };
-
 interface VulnerabilityModalProps {
     isOpen: boolean;
     onClose: () => void;
@@ -32,7 +30,6 @@ interface VulnerabilityModalProps {
     onEdit?: () => void;
     onDelete?: () => void;
 }
-
 const VulnerabilityModal: React.FC<VulnerabilityModalProps> = ({ isOpen, onClose, onSave, vulnerabilityToEdit, mode, onEdit, onDelete }) => {
     const [formData, setFormData] = useState<Partial<VulnerabilityCreate>>({});
     const isViewMode = mode === 'view';
@@ -40,9 +37,7 @@ const VulnerabilityModal: React.FC<VulnerabilityModalProps> = ({ isOpen, onClose
     const [assetSearchText, setAssetSearchText] = useState('');
     const [showAssetSuggestions, setShowAssetSuggestions] = useState(false);
     const autocompleteRef = useRef<HTMLDivElement>(null);
-
     const vulnerabilitySources: VulnerabilitySource[] = ['KEV', 'Scanning', 'PT', 'Reported-Ext'];
-
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (autocompleteRef.current && !autocompleteRef.current.contains(event.target as Node)) {
@@ -52,18 +47,15 @@ const VulnerabilityModal: React.FC<VulnerabilityModalProps> = ({ isOpen, onClose
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
-
     useEffect(() => {
         if (isOpen) {
             SupabaseService.getAssets().then(setAllAssets);
         }
     }, [isOpen]);
-
     useEffect(() => {
         if (vulnerabilityToEdit) {
             const { name, description, derived_from, status, asset_id } = vulnerabilityToEdit;
             setFormData({ name, description, derived_from, status, asset_id });
-
             if (vulnerabilityToEdit.asset_id && allAssets.length > 0) {
                 const linkedAsset = allAssets.find(a => a.id === vulnerabilityToEdit.asset_id);
                 if (linkedAsset) {
@@ -77,18 +69,15 @@ const VulnerabilityModal: React.FC<VulnerabilityModalProps> = ({ isOpen, onClose
             setAssetSearchText('');
         }
     }, [vulnerabilityToEdit, isOpen, allAssets]);
-
     const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
     };
-
     const handleAssetSelect = (asset: Asset) => {
         setFormData(prev => ({ ...prev, asset_id: asset.id }));
         setAssetSearchText(`${asset.name} (${asset.asset_id})`);
         setShowAssetSuggestions(false);
     };
-
     const filteredAssets = useMemo(() => {
         if (!assetSearchText) return [];
         const selectedAsset = allAssets.find(a => a.id === formData.asset_id);
@@ -100,14 +89,11 @@ const VulnerabilityModal: React.FC<VulnerabilityModalProps> = ({ isOpen, onClose
             asset.asset_id.toLowerCase().includes(assetSearchText.toLowerCase())
         );
     }, [assetSearchText, allAssets, formData.asset_id]);
-
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         onSave(formData as VulnerabilityCreate | VulnerabilityUpdate);
     };
-
     const title = mode === 'add' ? 'Add New Vulnerability' : mode === 'edit' ? 'Edit Vulnerability' : 'View Vulnerability';
-
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={title}
             headerActions={isViewMode && (
@@ -134,15 +120,17 @@ const VulnerabilityModal: React.FC<VulnerabilityModalProps> = ({ isOpen, onClose
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Source (Derived From)</label>
                         <select name="derived_from" value={formData.derived_from} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                           {vulnerabilitySources.map(source => (
-                               <option key={source} value={source}>{source}</option>
-                           ))}
+                            {vulnerabilitySources.map(source => (
+                                <option key={source} value={source}>{source}</option>
+                            ))}
                         </select>
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
                         <select name="status" value={formData.status} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                           <option>Planned</option><option>Remediated</option><option>NA</option>
+                            <option>Planned</option>
+                            <option>Remediated</option>
+                            <option>NA</option>
                         </select>
                     </div>
                     <div className="md:col-span-2" ref={autocompleteRef}>
@@ -183,7 +171,6 @@ const VulnerabilityModal: React.FC<VulnerabilityModalProps> = ({ isOpen, onClose
         </Modal>
     );
 };
-
 export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
     const [vulnerabilities, setVulnerabilities] = useState<Vulnerability[]>([]);
     const [loading, setLoading] = useState(true);
@@ -191,21 +178,20 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
     const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | null; vulnerability?: Vulnerability | null }>({ type: null });
     const [filter, setFilter] = useState('');
     const [sortConfig, setSortConfig] = useState<{ key: keyof Vulnerability; direction: 'ascending' | 'descending' } | null>(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(100);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [showAIChat, setShowAIChat] = useState(false);
-
     const {
         selectedIds, isEditing, editValues, isConfirmingDelete, isSaving, bulkProgress,
         setIsConfirmingDelete, setIsSaving, startBulkOperation, incrementBulkProgress, finishBulkOperation, resetBulkProgress,
         toggle, toggleAll, clearAll, startEdit, updateField, cancelEdit,
     } = useTableSelection<Vulnerability>();
-
     const vulnerabilityStatusStyles: Record<VulnerabilityStatus, string> = {
         'Planned': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
         'Remediated': 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
         'NA': 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
     };
-
     const fetchVulnerabilities = useCallback(async () => {
         try {
             setError(null);
@@ -217,7 +203,6 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
             setLoading(false);
         }
     }, []);
-
     const handleAIChatConfirm = async (records: Record<string, unknown>[]) => {
         try {
             for (const record of records) {
@@ -242,9 +227,7 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
             setError('Failed to save AI-generated vulnerabilities.');
         }
     };
-
     useUnifiedRefresh(isActive, fetchVulnerabilities);
-
     const filteredAndSortedVulnerabilities = useMemo(() => {
         let filteredItems = [...vulnerabilities];
         if (filter) {
@@ -256,14 +239,12 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
                 (item.assets?.asset_id && item.assets.asset_id.toLowerCase().includes(lowerCaseFilter))
             );
         }
-
         if (sortConfig !== null) {
             filteredItems.sort((a, b) => {
                 const aValue = a[sortConfig.key];
                 const bValue = b[sortConfig.key];
                 if (aValue === null || aValue === undefined) return 1;
                 if (bValue === null || bValue === undefined) return -1;
-
                 if (aValue < bValue) {
                     return sortConfig.direction === 'ascending' ? -1 : 1;
                 }
@@ -275,7 +256,10 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
         }
         return filteredItems;
     }, [vulnerabilities, filter, sortConfig]);
-
+    // Pagination: Get current page items
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const paginatedVulnerabilities = filteredAndSortedVulnerabilities.slice(startIndex, endIndex);
     const requestSort = (key: keyof Vulnerability) => {
         let direction: 'ascending' | 'descending' = 'ascending';
         if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
@@ -283,16 +267,13 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
         }
         setSortConfig({ key, direction });
     };
-
     const getSortIconFor = (key: keyof Vulnerability) => {
         if (!sortConfig || sortConfig.key !== key) {
             return <SortUpDownIcon className="h-4 w-4 ml-1 text-gray-400" />;
         }
         return sortConfig.direction === 'ascending' ? <SortUpIcon className="h-4 w-4 ml-1" /> : <SortDownIcon className="h-4 w-4 ml-1" />;
     };
-
     const closeModal = () => setModalState({ type: null });
-
     const handleSaveVulnerability = async (formData: VulnerabilityCreate | VulnerabilityUpdate) => {
         try {
             if (modalState.type === 'edit' && modalState.vulnerability) {
@@ -320,7 +301,6 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
             setError('Failed to save vulnerability.');
         }
     };
-
     const handleDeleteVulnerability = async () => {
         if (modalState.type === 'delete' && modalState.vulnerability) {
             try {
@@ -338,272 +318,37 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
             }
         }
     };
-
     const handleBulkDelete = async () => {
         setIsConfirmingDelete(false);
         startBulkOperation(selectedIds.size);
-        let hasError = false;
-        for (const id of selectedIds) {
-            try {
-                await SupabaseService.deleteVulnerability(id as string);
+        
+        try {
+            // Use bulk deletion for efficiency with 1000+ records
+            await SupabaseService.deleteVulnerabilitiesBulk(Array.from(selectedIds) as string[]);
+            
+            // Mark all as successful since bulk operation either succeeds or fails entirely
+            for (let i = 0; i < selectedIds.size; i++) {
                 incrementBulkProgress(true);
-            } catch (err) {
-                console.error('Failed to delete vulnerability', id, err);
-                hasError = true;
+            }
+            
+            finishBulkOperation(false);
+            // Refresh data after successful deletion
+            fetchVulnerabilities();
+        } catch (err) {
+            console.error('Failed to bulk delete vulnerabilities', err);
+            
+            // Mark all as failed
+            for (let i = 0; i < selectedIds.size; i++) {
                 incrementBulkProgress(false);
             }
+            
+            finishBulkOperation(true);
         }
-        finishBulkOperation(hasError);
-        fetchVulnerabilities();
     };
-
     const handleCloseBulkProgress = () => {
         resetBulkProgress();
         clearAll();
     };
-
-    const handleSaveAll = async () => {
-        try {
-            setIsSaving(true);
-            for (const [id, changes] of Object.entries(editValues)) {
-                await SupabaseService.updateVulnerability(id as string, changes);
-            }
-            cancelEdit();
-            fetchVulnerabilities();
-        } catch (err) {
-            setError('Failed to save changes.');
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
-    const handleImportCSV = (event: ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-        const reader = new FileReader();
-        
-        // Set read method based on file type
-        if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
-            reader.readAsBinaryString(file);
-        } else {
-            reader.readAsText(file);
-        }
-        
-        reader.onload = async (e) => {
-            const content = e.target?.result;
-            if (!content) return;
-            
-            let lines: string[] = [];
-            const validSources: VulnerabilitySource[] = ['KEV', 'Scanning', 'PT', 'Reported-Ext'];
-            const validStatuses: VulnerabilityStatus[] = ['Planned', 'Remediated', 'NA'];
-            
-            // Check if it's an Excel file or CSV
-            if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
-                // Parse Excel file
-                try {
-                    const workbook = XLSX.read(content, { type: 'binary' });
-                    const sheetName = workbook.SheetNames[0];
-                    const worksheet = workbook.Sheets[sheetName];
-                    const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as string[][];
-                    
-                    console.log('Excel data parsed:', data);
-                    
-                    // Skip header row and filter empty rows
-                    lines = data.slice(1).filter(row => row.some(cell => cell && cell.toString().trim()))
-                        .map(row => row.join(','));
-                    
-                    console.log('Processed lines:', lines);
-                } catch (err) {
-                    console.error('Excel parsing error:', err);
-                    alert('Failed to parse Excel file. Please check the file format.');
-                    return;
-                }
-            } else {
-                // Parse CSV file with proper quote handling
-                const text = content as string;
-                const allLines = text.split('\n').filter(line => line.trim());
-                
-                if (allLines.length === 0) {
-                    alert('CSV file is empty or contains only whitespace.');
-                    return;
-                }
-                
-                // Parse CSV with proper quote handling
-                lines = allLines.slice(1).filter(line => line.trim());
-                
-                if (lines.length === 0) {
-                    alert('No data rows found in CSV file after header.');
-                    return;
-                }
-            }
-            
-            console.log('Final lines to process:', lines);
-            
-            const importedVulns: VulnerabilityCreate[] = lines
-                .map((line): VulnerabilityCreate | null => {
-                    // Properly parse CSV fields with quote handling
-                    const fields = parseCSVLine(line);
-                    const [name, description, derived_from, status, asset_name, asset_id] = fields;
-                    
-                    console.log('Processing line:', line, 'Fields:', fields);
-                    
-                    // Validate required fields
-                    if (!name || !name.trim()) {
-                        console.log('Skipping - missing name');
-                        return null;
-                    }
-                    
-                    if (!derived_from || !derived_from.trim()) {
-                        console.log('Skipping - missing derived_from');
-                        return null;
-                    }
-                    
-                    if (!status || !status.trim()) {
-                        console.log('Skipping - missing status');
-                        return null;
-                    }
-                    
-                    // Sanitize input
-                    const cleanName = sanitizeInput(name.trim());
-                    const cleanDescription = description ? sanitizeInput(description.trim()) : null;
-                    const cleanDerivedFrom = sanitizeInput(derived_from.trim());
-                    const cleanStatus = sanitizeInput(status.trim());
-                    const cleanAssetId = asset_id ? sanitizeInput(asset_id.trim()) : null;
-                    
-                    if (!validSources.includes(cleanDerivedFrom as VulnerabilitySource)) {
-                        console.log('Skipping - invalid source:', cleanDerivedFrom);
-                        return null;
-                    }
-                    if (!validStatuses.includes(cleanStatus as VulnerabilityStatus)) {
-                        console.log('Skipping - invalid status:', cleanStatus);
-                        return null;
-                    }
-                    
-                    return { 
-                        name: cleanName, 
-                        description: cleanDescription, 
-                        derived_from: cleanDerivedFrom as VulnerabilitySource, 
-                        status: cleanStatus as VulnerabilityStatus, 
-                        asset_id: cleanAssetId 
-                    };
-                })
-                .filter((v): v is VulnerabilityCreate => v !== null);
-            
-            console.log('Final imported vulnerabilities:', importedVulns);
-
-            if (importedVulns.length > 0) {
-                try {
-                    // Get existing vulnerabilities and assets for lookups
-                    const existingVulns = await SupabaseService.getVulnerabilities();
-                    const allAssets = await SupabaseService.getAssets();
-                    const vulnsToUpdate: { id: string; updates: VulnerabilityUpdate }[] = [];
-                    const vulnsToAdd: VulnerabilityCreate[] = [];
-
-                    for (const importedVuln of importedVulns) {
-                        // Handle asset_id lookup - if CSV provides asset_id, find the corresponding UUID
-                        let assetUuid: string | null = null;
-                        if (importedVuln.asset_id) {
-                            console.log(`Looking up asset with asset_id: "${importedVuln.asset_id}"`);
-                            console.log('Available assets:', allAssets.map(a => ({ id: a.id, asset_id: a.asset_id, name: a.name })));
-                            
-                            const matchingAsset = allAssets.find(asset => {
-                                const assetIdMatch = asset.asset_id === importedVuln.asset_id;
-                                const uuidMatch = asset.id === importedVuln.asset_id;
-                                const nameMatch = asset.name === importedVuln.asset_id;
-                                return assetIdMatch || uuidMatch || nameMatch;
-                            });
-                            
-                            if (matchingAsset) {
-                                assetUuid = matchingAsset.id;
-                                console.log(`Found matching asset: ${matchingAsset.name} (${matchingAsset.asset_id}) -> UUID: ${assetUuid}`);
-                            } else {
-                                console.log(`Asset not found for asset_id: "${importedVuln.asset_id}", setting to null`);
-                                console.log('Tried matching against asset_id, UUID, and name fields');
-                                assetUuid = null;
-                            }
-                        }
-
-                        // Update the vulnerability with the correct UUID
-                        const vulnWithCorrectAssetId = {
-                            ...importedVuln,
-                            asset_id: assetUuid
-                        };
-
-                        // Find existing vulnerability by name
-                        const existingVuln = existingVulns.find(
-                            v => v.name === importedVuln.name
-                        );
-
-                        if (existingVuln) {
-                            // Check if anything actually changed
-                            const hasChanges =
-                                existingVuln.description !== importedVuln.description ||
-                                existingVuln.derived_from !== importedVuln.derived_from ||
-                                existingVuln.status !== importedVuln.status ||
-                                existingVuln.asset_id !== assetUuid;
-
-                            if (hasChanges) {
-                                vulnsToUpdate.push({
-                                    id: existingVuln.id,
-                                    updates: {
-                                        description: importedVuln.description,
-                                        derived_from: importedVuln.derived_from,
-                                        status: importedVuln.status,
-                                        asset_id: assetUuid
-                                    }
-                                });
-                            }
-                        } else {
-                            vulnsToAdd.push(vulnWithCorrectAssetId);
-                        }
-                    }
-
-                    let totalProcessed = 0;
-
-                    // Update existing vulnerabilities
-                    if (vulnsToUpdate.length > 0) {
-                        for (const { id, updates } of vulnsToUpdate) {
-                            await SupabaseService.updateVulnerability(id, updates);
-                            totalProcessed++;
-                        }
-                    }
-
-                    // Add new vulnerabilities
-                    if (vulnsToAdd.length > 0) {
-                        for (const vuln of vulnsToAdd) {
-                            await SupabaseService.addVulnerability(vuln);
-                            totalProcessed++;
-                        }
-                    }
-
-                    if (totalProcessed > 0) {
-                        await SupabaseService.logAllActivity({
-                            action: 'Imported Vulnerabilities',
-                            module: 'Governance',
-                            event_data: {
-                                total: importedVulns.length,
-                                added: vulnsToAdd.length,
-                                updated: vulnsToUpdate.length
-                            }
-                        });
-
-                        alert(`${totalProcessed} vulnerabilities processed (${vulnsToAdd.length} added, ${vulnsToUpdate.length} updated) successfully!`);
-                        fetchVulnerabilities();
-                    } else {
-                        alert('No changes detected in imported data.');
-                    }
-                } catch (err) {
-                    console.error('Import error:', err);
-                    alert('Failed to import vulnerabilities. Please check the file format.');
-                }
-            } else {
-                alert('No valid data found in the CSV file.');
-            }
-        };
-        reader.readAsText(file);
-        if (fileInputRef.current) fileInputRef.current.value = '';
-    };
-
     const handleExportCSV = () => {
         const headers = ['name', 'description', 'derived_from', 'status', 'asset_name', 'asset_id'];
         const csvContent = [
@@ -629,10 +374,240 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
     };
-
     const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
     const editSelectCls = "border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
-
+    const handleSaveAll = async () => {
+        try {
+            setIsSaving(true);
+            for (const [id, changes] of Object.entries(editValues)) {
+                await SupabaseService.updateVulnerability(id as string, changes);
+            }
+            cancelEdit();
+            fetchVulnerabilities();
+        } catch (err) {
+            setError('Failed to save changes.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+    const handleImportCSV = (event: ChangeEvent<HTMLInputElement>) => {
+        console.log('[import] Import function called');
+        const file = event.target.files?.[0];
+        console.log('[import] Selected file:', file?.name, 'size:', file?.size, 'type:', file?.type);
+        if (!file) {
+            console.log('[import] No file selected');
+            return;
+        }
+        
+        const reader = new FileReader();
+        console.log('[import] FileReader created');
+        
+        // Set read method based on file type
+        if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+            console.log('[import] Reading Excel file as binary string');
+            reader.readAsBinaryString(file);
+        } else {
+            console.log('[import] Reading CSV file as text');
+            reader.readAsText(file);
+        }
+        
+        reader.onload = async (e) => {
+            console.log('[import] FileReader onload triggered');
+            const content = e.target?.result;
+            if (!content) {
+                console.log('[import] No content loaded');
+                return;
+            }
+            
+            const contentLength = typeof content === 'string' ? content.length : (content as ArrayBuffer).byteLength;
+            console.log('[import] Content loaded, length:', contentLength);
+            
+            let lines: string[] = [];
+            const validSources: VulnerabilitySource[] = ['KEV', 'Scanning', 'PT', 'Reported-Ext'];
+            const validStatuses: VulnerabilityStatus[] = ['Planned', 'Remediated', 'NA'];
+            const data: any[] = [];
+            
+            try {
+                // Check if it's an Excel file or CSV
+                if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+                    // Parse Excel file
+                    console.log('[import] Parsing Excel file');
+                    const workbook = XLSX.read(content, { type: 'binary' });
+                    const sheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[sheetName];
+                    const excelData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[];
+                    
+                    console.log('[import] Excel data parsed:', excelData);
+                    
+                    // Convert Excel data to the same format as CSV
+                    lines = excelData.map(row => {
+                        const values = [
+                            row.name || '',
+                            row.description || '',
+                            row.derived_from || '',
+                            row.status || '',
+                            row.asset_name || '',
+                            row.asset_id || ''
+                        ];
+                        return values.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
+                    });
+                    
+                    console.log('[import] Processed Excel lines:', lines);
+                } else {
+                    // Parse CSV file with proper quote handling
+                    console.log('[import] Parsing CSV file');
+                    const text = content as string;
+                    const allLines = text.split('\n').filter(line => line.trim());
+                    
+                    if (allLines.length === 0) {
+                        alert('CSV file is empty or contains only whitespace.');
+                        return;
+                    }
+                    
+                    // Parse CSV with proper quote handling
+                    lines = allLines.slice(1).filter(line => line.trim());
+                    console.log('[import] Processed CSV lines:', lines);
+                }
+                
+                console.log('[import] Final lines to process:', lines);
+                
+                const importedVulns: VulnerabilityCreate[] = lines
+                    .map((line): VulnerabilityCreate | null => {
+                        // Properly parse CSV fields with quote handling
+                        const fields = parseCSVLine(line);
+                        const [name, description, derived_from, status, asset_name, asset_id] = fields;
+                        
+                        console.log('[import] Processing line:', line, 'Fields:', fields);
+                        
+                        // Validate required fields
+                        if (!name || !name.trim()) {
+                            console.log('[import] Skipping - missing name');
+                            return null;
+                        }
+                        
+                        if (!derived_from || !derived_from.trim()) {
+                            console.log('[import] Skipping - missing derived_from');
+                            return null;
+                        }
+                        
+                        if (!status || !status.trim()) {
+                            console.log('[import] Skipping - missing status');
+                            return null;
+                        }
+                        
+                        // Sanitize input
+                        const cleanName = sanitizeInput(name.trim());
+                        const cleanDescription = description ? sanitizeInput(description.trim()) : null;
+                        const cleanDerivedFrom = sanitizeInput(derived_from.trim());
+                        const cleanStatus = sanitizeInput(status.trim());
+                        const cleanAssetId = asset_id ? sanitizeInput(asset_id.trim()) : null;
+                        
+                        if (!validSources.includes(cleanDerivedFrom as VulnerabilitySource)) {
+                            console.log('[import] Skipping - invalid source:', cleanDerivedFrom);
+                            return null;
+                        }
+                        if (!validStatuses.includes(cleanStatus as VulnerabilityStatus)) {
+                            console.log('[import] Skipping - invalid status:', cleanStatus);
+                            return null;
+                        }
+                        
+                        return { 
+                            name: cleanName, 
+                            description: cleanDescription, 
+                            derived_from: cleanDerivedFrom as VulnerabilitySource, 
+                            status: cleanStatus as VulnerabilityStatus, 
+                            asset_id: cleanAssetId 
+                        };
+                    })
+                    .filter((v): v is VulnerabilityCreate => v !== null);
+                
+                console.log('[import] Final imported vulnerabilities:', importedVulns);
+                
+                if (importedVulns.length > 0) {
+                    try {
+                        // Get existing vulnerabilities and assets for lookups
+                        const existingVulns = await SupabaseService.getVulnerabilities();
+                        const allAssets = await SupabaseService.getAssets();
+                        
+                        // Process imported vulnerabilities
+                        startBulkOperation(importedVulns.length);
+                        let processedCount = 0;
+                        for (const importedVuln of importedVulns) {
+                            try {
+                                // Handle asset_id lookup - if CSV provides asset_id, find the corresponding UUID
+                                let assetUuid: string | null = null;
+                                if (importedVuln.asset_id) {
+                                    console.log(`[import] Looking up asset with asset_id: "${importedVuln.asset_id}"`);
+                                    console.log('[import] Available assets:', allAssets.map(a => ({ id: a.id, asset_id: a.asset_id, name: a.name })));
+                                    
+                                    const matchingAsset = allAssets.find(asset => {
+                                        const assetIdMatch = asset.asset_id === importedVuln.asset_id;
+                                        const uuidMatch = asset.id === importedVuln.asset_id;
+                                        const nameMatch = asset.name === importedVuln.asset_id;
+                                        return assetIdMatch || uuidMatch || nameMatch;
+                                    });
+                                    
+                                    if (matchingAsset) {
+                                        assetUuid = matchingAsset.id;
+                                        console.log(`[import] Found matching asset: ${matchingAsset.name} (${matchingAsset.asset_id}) -> UUID: ${assetUuid}`);
+                                    } else {
+                                        console.log(`[import] Asset not found for asset_id: "${importedVuln.asset_id}", setting to null`);
+                                        console.log('[import] Tried matching against asset_id, UUID, and name fields');
+                                    }
+                                }
+                                
+                                const vulnerabilityData: VulnerabilityCreate = {
+                                    name: importedVuln.name,
+                                    description: importedVuln.description,
+                                    derived_from: importedVuln.derived_from,
+                                    status: importedVuln.status,
+                                    asset_id: assetUuid
+                                };
+                                
+                                await SupabaseService.addVulnerability(vulnerabilityData);
+                                incrementBulkProgress(true);
+                                processedCount++;
+                            } catch (err) {
+                                console.error('[import] Error processing vulnerability:', importedVuln, err);
+                                incrementBulkProgress(false);
+                            }
+                        }
+                        finishBulkOperation(false);
+                        
+                        // Log activity
+                        await SupabaseService.logAllActivity({
+                            action: 'Bulk Import Vulnerabilities',
+                            module: 'Governance',
+                            entity_id: null,
+                            entity_name: `${processedCount} vulnerabilities imported`,
+                            event_data: { total: importedVulns.length, processed: processedCount, filename: file.name }
+                        });
+                        
+                        fetchVulnerabilities();
+                        
+                        // Reset file input
+                        if (fileInputRef.current) {
+                            fileInputRef.current.value = '';
+                        }
+                    } catch (err) {
+                        console.error('[import] Error parsing CSV/Excel file:', err);
+                        setError('Failed to parse file. Please check the format.');
+                        finishBulkOperation(true);
+                    }
+                }
+            } catch (err) {
+                console.error('[import] Error in file processing:', err);
+                setError('Failed to parse file. Please check the format.');
+                finishBulkOperation(true);
+            }
+        };
+        
+        reader.onerror = (error) => {
+            console.error('[import] FileReader error:', error);
+            setError('Failed to read file. Please try again.');
+        };
+    };
+    
     return (
         <div>
             <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
@@ -663,9 +638,7 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
                     
                 </div>
             </div>
-
             {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">{error}</div>}
-
             <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg dark:border-gray-700">
                 <div className="overflow-auto max-h-[calc(100vh-280px)]">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
@@ -689,15 +662,14 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <button onClick={() => requestSort('status')} className="flex items-center w-full text-left focus:outline-none">Status {getSortIconFor('status')}</button>
                                 </th>
-
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
                             {loading ? (
                                 <tr><td colSpan={5} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading vulnerabilities...</td></tr>
-                            ) : filteredAndSortedVulnerabilities.length === 0 ? (
+                            ) : paginatedVulnerabilities.length === 0 ? (
                                 <tr><td colSpan={5} className="text-center py-4 text-gray-500 dark:text-gray-400">No vulnerabilities found.</td></tr>
-                            ) : filteredAndSortedVulnerabilities.map(vuln => (
+                            ) : paginatedVulnerabilities.map(vuln => (
                                 <tr
                                     key={vuln.id}
                                     onClick={() => !isEditing && setModalState({ type: 'view', vulnerability: vuln })}
@@ -780,6 +752,44 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
                 progress={bulkProgress}
                 onClose={handleCloseBulkProgress}
             />
+            
+            {/* Pagination Controls */}
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex items-center space-x-2">
+                    <button
+                        onClick={() => setCurrentPage(currentPage - 1)}
+                        disabled={currentPage === 1}
+                        className="px-3 py-1 text-sm bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                    >
+                        Previous
+                    </button>
+                    <div className="px-4 py-1 text-sm text-gray-700 dark:text-gray-300 bg-white border border-gray-300 rounded-md shadow-sm dark:bg-gray-800 dark:border-gray-600">
+                        {currentPage} of {Math.ceil(filteredAndSortedVulnerabilities.length / itemsPerPage)}
+                    </div>
+                    <button
+                        onClick={() => setCurrentPage(currentPage + 1)}
+                        disabled={currentPage === Math.ceil(filteredAndSortedVulnerabilities.length / itemsPerPage)}
+                        className="px-3 py-1 text-sm bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                    >
+                        Next
+                    </button>
+                </div>
+                <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-700 dark:text-gray-300">
+                        Items per page:
+                    </span>
+                    <select
+                        value={itemsPerPage}
+                        onChange={e => setItemsPerPage(Number(e.target.value))}
+                        className="rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                    >
+                        <option value={50}>50</option>
+                        <option value={100}>100</option>
+                        <option value={200}>200</option>
+                        <option value={500}>500</option>
+                    </select>
+                </div>
+            </div>
         </div>
     );
 };

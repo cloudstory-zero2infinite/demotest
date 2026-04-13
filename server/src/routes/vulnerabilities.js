@@ -82,6 +82,50 @@ router.put('/:id', requireAuth, async (req, res) => {
   }
 });
 
+router.get('/bulk', requireAuth, async (req, res) => {
+  res.json({ message: 'Bulk endpoint is accessible' });
+});
+
+router.post('/bulk', requireAuth, async (req, res) => {
+  try {
+    console.log('[bulk-delete] Request body:', req.body);
+    console.log('[bulk-delete] orgId:', req.orgId);
+    console.log('[bulk-delete] userId:', req.userId);
+    
+    const { ids } = req.body;
+    
+    if (!Array.isArray(ids) || ids.length === 0) {
+      console.log('[bulk-delete] Invalid or empty IDs array:', ids);
+      return res.status(400).json({ message: 'Invalid or empty IDs array' });
+    }
+
+    console.log('[bulk-delete] Deleting vulnerabilities with IDs:', ids);
+
+    let query = supabaseAdmin
+      .from('vulnerability_management')
+      .delete()
+      .in('vuln_id', ids);
+
+    // Only add org_id filter if it exists
+    if (req.orgId) {
+      query = query.eq('org_id', req.orgId);
+    }
+
+    const { error } = await query;
+    
+    if (error) {
+      console.log('[bulk-delete] Supabase error:', error);
+      throw error;
+    }
+    
+    console.log('[bulk-delete] Successfully deleted vulnerabilities');
+    res.status(204).send();
+  } catch (err) {
+    console.log('[bulk-delete] Error:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { error } = await supabaseAdmin
