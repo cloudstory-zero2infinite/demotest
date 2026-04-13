@@ -18,6 +18,8 @@ import { capabilitiesRouter } from "./routes/capabilities.js";
 import { controlRegistryRouter } from "./routes/control-registry.js";
 import { orgSettingsRouter } from "./routes/org-settings.js";
 import { orgContactsRouter } from "./routes/org-contacts.js";
+import assetCustomFieldsRouter from "./routes/asset-custom-fields.js";
+import { customFieldsRouter } from "./routes/custom-fields.js";
 import { checkAllExpiredPolicies } from "./jobs/policy-expiry.js";
 
 dotenv.config();
@@ -43,6 +45,8 @@ app.use("/api/feedback", feedbackRouter);
 app.use("/api/program", programRouter);
 app.use("/api/controls", controlsRouter);
 app.use("/api/assets", assetsRouter);
+app.use("/api/asset-custom-fields", assetCustomFieldsRouter);
+app.use("/api/custom-fields", customFieldsRouter);
 app.use("/api/policies", policiesRouter);
 app.use("/api/vulnerabilities", vulnerabilitiesRouter);
 app.use("/api/compliance", complianceRouter);

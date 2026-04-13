@@ -58,6 +58,50 @@ export type AssetExposure = 'Internal' | 'External' | 'DMZ';
 export type AssetCategory = 'Physical/Hardware' | 'Software' | 'Services/Infra' | 'Information';
 export type AssetSource = 'Manual' | 'AI' | 'File Upload' | 'API';
 
+// Custom Field Types
+export type CustomFieldType = 'text' | 'number' | 'date' | 'select' | 'boolean';
+
+export interface AssetCustomField {
+    id: string;
+    org_id: string;
+    field_name: string;
+    field_label: string;
+    field_type: CustomFieldType;
+    field_options?: string[] | null;
+    is_required: boolean;
+    display_order: number;
+    is_active: boolean;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface AssetCustomFieldValue {
+    id: string;
+    asset_id: string;
+    field_id: string;
+    field_value: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface AssetCustomFieldCreate {
+    field_name: string;
+    field_label: string;
+    field_type: 'text' | 'number' | 'date' | 'select' | 'boolean';
+    field_options?: string[] | null;
+    is_required?: boolean;
+    display_order?: number;
+}
+
+export interface AssetCustomFieldUpdate {
+    field_label?: string;
+    field_type?: 'text' | 'number' | 'date' | 'select' | 'boolean';
+    field_options?: string[] | null;
+    is_required?: boolean;
+    display_order?: number;
+    is_active?: boolean;
+}
+
 export interface Asset {
     id: string;
     asset_id: string;
@@ -78,6 +122,8 @@ export interface Asset {
     org_id?: string | null;
     user_id?: string | null;
     created_at: string;
+    // Custom fields as JSONB
+    custom_fields?: Record<string, any> | null;
 }
 export type AssetCreate = Omit<Asset, 'id' | 'created_at'>;
 export type AssetUpdate = Partial<AssetCreate>;
@@ -395,38 +441,6 @@ export interface WorkflowTemplate {
 
 // --- Policy V2 Types (Markdown-first workflow) ---
 
-export type PolicyWorkflowStatus = 'draft' | 'to_review' | 'in_approval' | 'approved';
-
-export interface PolicyV2 {
-  policy_id: string;
-  name: string;
-  markdown: string | null;
-  policy_ref: string | null;
-  policy_status: PolicyWorkflowStatus;
-  refresh_date: string | null;
-  version: string | null;
-  document_type: string | null;
-  owner_name: string | null;
-  org_id: string;
-  user_id: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface PolicyApproval {
-  id: string;
-  policy_id: string;
-  requested_by: string;
-  approver_id: string | null;
-  approver_name: string;
-  approver_email: string;
-  status: 'pending' | 'approved' | 'rejected';
-  comment: string | null;
-  org_id: string;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface PolicyHistoryEntry {
   id: string;
   policy_id: string;
@@ -436,18 +450,6 @@ export interface PolicyHistoryEntry {
   from_status: string | null;
   to_status: string | null;
   comment: string | null;
-  org_id: string;
-  created_at: string;
-}
-
-export interface PolicyNotification {
-  id: string;
-  recipient_id: string;
-  policy_id: string;
-  policy_name: string;
-  type: 'approval_requested' | 'approved' | 'rejected';
-  message: string;
-  read: boolean;
   org_id: string;
   created_at: string;
 }

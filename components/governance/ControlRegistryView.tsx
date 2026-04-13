@@ -813,6 +813,8 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [filter, setFilter] = useState('');
     const [sortConfig, setSortConfig] = useState<{ key: keyof ControlRegistry; direction: 'ascending' | 'descending' } | null>(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(100);
     const [importData, setImportData] = useState<{ newControls: ControlRegistryCreate[]; duplicates: string[] }>({ newControls: [], duplicates: [] });
     const [showAIChat, setShowAIChat] = useState(false);
     const [enforcementModal, setEnforcementModal] = useState<{ isOpen: boolean; control: ControlRegistry | null; requestedStatus: 'Enforced' | 'NotEnforced' }>({ isOpen: false, control: null, requestedStatus: 'Enforced' });
@@ -902,6 +904,16 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
         }
         return items;
     }, [controls, filter, sortConfig]);
+
+    // Pagination: Get current page items
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const paginatedControls = filteredAndSorted.slice(startIndex, endIndex);
+
+    // Reset to page 1 when filter changes to prevent empty pages
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [filter]);
 
     const requestSort = (key: keyof ControlRegistry) => {
         let direction: 'ascending' | 'descending' = 'ascending';
@@ -1121,7 +1133,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 w-10 px-4 py-3">
                                     <input
                                         type="checkbox"
-                                        checked={selectedIds.size === filteredAndSorted.length && filteredAndSorted.length > 0}
+                                        checked={filteredAndSorted.length > 0 && filteredAndSorted.every(i => selectedIds.has(i.id))}
                                         onChange={() => toggleAll(filteredAndSorted.map(i => i.id))}
                                         className="rounded border-gray-300 dark:border-gray-600 cursor-pointer"
                                     />
@@ -1148,9 +1160,9 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                         <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
                             {loading ? (
                                 <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading controls...</td></tr>
-                            ) : filteredAndSorted.length === 0 ? (
+                            ) : paginatedControls.length === 0 ? (
                                 <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">No controls found.</td></tr>
-                            ) : filteredAndSorted.map(ctl => (
+                            ) : paginatedControls.map(ctl => (
                                 <tr
                                     key={ctl.id}
                                     onClick={() => !isEditing && setModalState({ type: 'view', item: ctl })}
@@ -1230,7 +1242,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 max-w-[150px] truncate" title={ctl.ctl_ref_fw ?? ''}>
                                         {isEditing && selectedIds.has(ctl.id) ? (
                                             <input type="text" value={editValues[ctl.id]?.ctl_ref_fw ?? ctl.ctl_ref_fw ?? ''} onChange={e => updateField(ctl.id, 'ctl_ref_fw', e.target.value)} className={editInputCls} />
-                                        ) : (ctl.ctl_ref_fw || '—')}
+                                        ) : (ctl.ctl_ref_fw || '---')}
                                     </td>
                                 </tr>
                             ))}
@@ -1238,6 +1250,51 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                     </table>
                 </div>
             </div>
+
+            {/* Pagination Controls */}
+            {controls.length > 0 && (
+                <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700 mt-6">
+                    <div className="flex items-center space-x-2">
+                        <button
+                            onClick={() => setCurrentPage(currentPage - 1)}
+                            disabled={currentPage === 1}
+                            className="px-3 py-1 text-sm bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                        >
+                            Previous
+                        </button>
+                        <div className="px-4 py-1 text-sm text-gray-700 dark:text-gray-300 bg-white border border-gray-300 rounded-md shadow-sm dark:bg-gray-800 dark:border-gray-600">
+                            {currentPage} of {Math.ceil(filteredAndSorted.length / itemsPerPage)}
+                        </div>
+                        <button
+                            onClick={() => setCurrentPage(currentPage + 1)}
+                            disabled={currentPage === Math.ceil(filteredAndSorted.length / itemsPerPage)}
+                            className="px-3 py-1 text-sm bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                        >
+                            Next
+                        </button>
+                    </div>
+                    <div className="flex items-center space-x-4">
+                        <div className="text-sm text-gray-700 dark:text-gray-300">
+                            Showing {startIndex + 1} to {Math.min(endIndex, filteredAndSorted.length)} of {filteredAndSorted.length} results
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <span className="text-sm text-gray-700 dark:text-gray-300">
+                                Items per page:
+                            </span>
+                            <select
+                                value={itemsPerPage}
+                                onChange={e => setItemsPerPage(Number(e.target.value))}
+                                className="rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                            >
+                                <option value={50}>50</option>
+                                <option value={100}>100</option>
+                                <option value={200}>200</option>
+                                <option value={500}>500</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Add / Edit / View Modal */}
             <ControlModal

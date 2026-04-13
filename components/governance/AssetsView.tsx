@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, ChangeEvent, useMemo } from 'react';
 
 import { Asset, AssetCreate, AssetUpdate, AssetCriticality, AssetGovernedStatus, AssetExposure, AssetCategory, AssetSource } from '../../types';
+import { CustomField } from '../../services/supabase';
 
 import * as SupabaseService from '../../services/supabase';
 import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
@@ -14,6 +15,9 @@ import { AIChatModal } from '../common/AIChatModal';
 
 import { BulkProgressModal } from '../common/BulkProgressModal';
 
+import CustomFieldsManager from '../common/CustomFieldsManager';
+import CustomFieldsForm from '../common/CustomFieldsForm';
+
 import { useTableSelection } from '../../hooks/useTableSelection';
 
 import { SelectionActionBar } from '../common/SelectionActionBar';
@@ -26,7 +30,7 @@ interface AssetModalProps {
 
     onClose: () => void;
 
-    onSave: (asset: AssetCreate | AssetUpdate) => Promise<void> | void;
+    onSave: (asset: AssetCreate | AssetUpdate) => void;
 
     assetToEdit: Asset | null;
 
@@ -36,13 +40,17 @@ interface AssetModalProps {
 
     onDelete?: () => void;
 
+    customFields?: CustomField[];
+
+    onShowColumnManagement?: () => void;
+
 }
 
 
 
 const MANDATORY_LABEL = <span className="text-red-500 ml-0.5">*</span>;
 
-const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetToEdit, mode, onEdit, onDelete }) => {
+const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetToEdit, mode, onEdit, onDelete, customFields = [], onShowColumnManagement }) => {
 
     const [formData, setFormData] = useState<Partial<AssetCreate>>({});
     const [isSaving, setIsSaving] = useState(false);
@@ -76,7 +84,19 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
         const isNumeric = ['vulnerability_count'].includes(name);
 
-        setFormData(prev => ({ ...prev, [name]: isNumeric ? Number(value) : value }));
+        // Handle custom fields
+        if (name.startsWith('custom_field_')) {
+            const fieldName = name.replace('custom_field_', '');
+            setFormData(prev => ({
+                ...prev,
+                custom_fields: {
+                    ...(prev.custom_fields || {}),
+                    [fieldName]: value
+                }
+            }));
+        } else {
+            setFormData(prev => ({ ...prev, [name]: isNumeric ? Number(value) : value }));
+        }
 
     };
 
@@ -241,6 +261,51 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
                         </div>
                     )}
 
+                    {/* Custom Fields Section */}
+                    {!isViewMode && (
+                        <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-lg font-medium text-gray-900 dark:text-white">Custom Fields</h3>
+                                <button
+                                    type="button"
+                                    onClick={() => onShowColumnManagement?.()}
+                                    className="px-3 py-1 text-sm text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 border border-purple-300 dark:border-purple-600 rounded-md hover:bg-purple-50 dark:hover:bg-purple-900/20 transition-colors"
+                                >
+                                    Manage Columns
+                                </button>
+                            </div>
+                            
+                            {/* Display existing custom fields for this asset */}
+                            {customFields.length > 0 ? (
+                                <CustomFieldsForm
+                                    customFields={customFields}
+                                    values={formData.custom_fields || {}}
+                                    onChange={(fieldName, value) => {
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            custom_fields: {
+                                                ...(prev.custom_fields || {}),
+                                                [fieldName]: value
+                                            }
+                                        }));
+                                    }}
+                                    readonly={isViewMode}
+                                />
+                            ) : (
+                                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                                    <p className="mb-2">No custom fields defined yet.</p>
+                                    <button
+                                        type="button"
+                                        onClick={() => onShowColumnManagement?.()}
+                                        className="text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 underline"
+                                    >
+                                        Add your first custom column
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                 </div>
 
                  {!isViewMode && (
@@ -311,10 +376,17 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
     const [filter, setFilter] = useState('');
 
     const [sortConfig, setSortConfig] = useState<{ key: keyof Asset; direction: 'ascending' | 'descending' } | null>(null);
+    
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(100);
 
     const [importData, setImportData] = useState<{ newAssets: AssetCreate[]; updatedAssets: { id: string; updates: AssetUpdate }[]; unchangedAssets: Asset[]; duplicates: string[] }>({ newAssets: [], updatedAssets: [], unchangedAssets: [], duplicates: [] });
 
     const [showAIChat, setShowAIChat] = useState(false);
+
+    // Custom fields state - simplified for JSONB approach
+    const [customFields, setCustomFields] = useState<CustomField[]>([]);
+    const [showColumnManagement, setShowColumnManagement] = useState(false);
 
     // Import progress states
     const [isImporting, setIsImporting] = useState(false);
@@ -324,51 +396,60 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
     const [importErrors, setImportErrors] = useState(0);
 
     const {
+        selectedIds, 
+        isEditing, 
+        editValues, 
+        isConfirmingDelete, 
+        isSaving, 
+        bulkProgress,
 
-        selectedIds, isEditing, editValues, isConfirmingDelete, isSaving, bulkProgress,
+        setIsConfirmingDelete, 
+        setIsSaving, 
+        startBulkOperation, 
+        incrementBulkProgress, 
+        finishBulkOperation, 
+        resetBulkProgress,
 
-        setIsConfirmingDelete, setIsSaving, startBulkOperation, incrementBulkProgress, finishBulkOperation, resetBulkProgress,
-
-        toggle, toggleAll, clearAll, startEdit, updateField, cancelEdit,
-
+        toggle, 
+        toggleAll, 
+        clearAll, 
+        startEdit, 
+        updateField, 
+        cancelEdit,
     } = useTableSelection<Asset>();
 
-
+    const fetchCustomFields = useCallback(async () => {
+        try {
+            const fields = await SupabaseService.getCustomFields('assets');
+            setCustomFields(fields);
+        } catch (e) {
+            console.error('Failed to load custom fields:', e);
+        }
+    }, []);
 
     const fetchAssets = useCallback(async () => {
-
         try {
             setError(null);
 
             const [assetsData, relationshipsData] = await Promise.all([
-
                 SupabaseService.getAssets(),
-
                 SupabaseService.getAssetRelationships(),
-
             ]);
 
             setAssets(assetsData);
-
             setRelationships(relationshipsData);
+            
+            // Also fetch custom fields
+            await fetchCustomFields();
 
         } catch (e) {
-
             setError("Failed to load assets.");
-
         } finally {
-
             setLoading(false);
-
         }
-
-    }, []);
-
-
+    }, [fetchCustomFields]);
 
     useUnifiedRefresh(isActive, fetchAssets);
-
-
 
     const filteredAndSortedAssets = useMemo(() => {
 
@@ -440,7 +521,15 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
     }, [assets, filter, sortConfig]);
 
+    // Pagination: Get current page items
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const paginatedAssets = filteredAndSortedAssets.slice(startIndex, endIndex);
 
+    // Reset to page 1 when filter changes to prevent empty pages
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [filter]);
 
     const requestSort = (key: keyof Asset) => {
 
@@ -592,36 +681,45 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
         setIsConfirmingDelete(false);
 
-        startBulkOperation(selectedIds.size);
+        const totalToDelete = selectedIds.size;
+        
+        startBulkOperation(totalToDelete);
 
         let hasError = false;
 
-        for (const id of selectedIds) {
+        try {
 
-            try {
-
-                await SupabaseService.deleteAsset(id as string);
-
+            // Convert selectedIds Set to array for bulk deletion
+            const idsToDelete = Array.from(selectedIds) as string[];
+            
+            // Use the optimized bulk delete method
+            await SupabaseService.deleteAssetsBulk(idsToDelete);
+            
+            // Update progress for all items at once since bulk delete is atomic
+            for (let i = 0; i < totalToDelete; i++) {
                 incrementBulkProgress(true);
-
-            } catch (err) {
-
-                console.error('Failed to delete asset', id, err);
-
-                hasError = true;
-
-                incrementBulkProgress(false);
-
             }
-
+            
+            await SupabaseService.logAllActivity({ 
+                action: 'Bulk Deleted Assets', 
+                module: 'Governance', 
+                event_data: { count: totalToDelete } 
+            });
+            
+        } catch (err) {
+            console.error('Bulk delete failed:', err);
+            hasError = true;
+            
+            // Mark all as failed if bulk operation fails
+            for (let i = 0; i < totalToDelete; i++) {
+                incrementBulkProgress(false);
+            }
         }
 
         finishBulkOperation(hasError);
-
         fetchAssets();
 
     };
-
 
 
     const handleCloseBulkProgress = () => {
@@ -1141,7 +1239,11 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
                     </button>
 
-                   
+                    <button onClick={() => setShowColumnManagement(true)} title="Manage Columns" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+
+                        <PlusIcon className="h-5 w-5" />
+
+                    </button>
 
                 </div>
 
@@ -1169,8 +1271,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
                                         type="checkbox"
 
-                                        checked={selectedIds.size === filteredAndSortedAssets.length && filteredAndSortedAssets.length > 0}
-
+                                        checked={filteredAndSortedAssets.length > 0 && filteredAndSortedAssets.every(i => selectedIds.has(i.id))}
                                         onChange={() => toggleAll(filteredAndSortedAssets.map(i => i.id))}
 
                                         className="rounded border-gray-300 dark:border-gray-600 cursor-pointer"
@@ -1245,6 +1346,16 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
                                 </th>
 
+                                {/* Custom Fields Columns */}
+                                {customFields.map((field) => (
+                                    <th key={field.id} scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                        <div className="flex items-center">
+                                            {field.field_label}
+                                            {field.is_required && <span className="text-red-500 ml-1">*</span>}
+                                        </div>
+                                    </th>
+                                ))}
+
                             </tr>
 
                         </thead>
@@ -1252,14 +1363,10 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                          <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
 
                             {loading ? (
-
                                 <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading assets...</td></tr>
-
-                            ) : filteredAndSortedAssets.length === 0 ? (
-
+                            ) : paginatedAssets.length === 0 ? (
                                 <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">No assets found.</td></tr>
-
-                            ) : filteredAndSortedAssets.map(asset => (
+                            ) : paginatedAssets.map(asset => (
 
                                 <tr
 
@@ -1355,10 +1462,19 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                                     </td>
 
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-
                                         {displaySource(asset.source)}
 
                                     </td>
+
+                                    {/* Custom Fields Data Cells */}
+                                    {customFields.map((field) => {
+                                        const customFieldValue = asset.custom_fields?.[field.field_name];
+                                        return (
+                                            <td key={field.id} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                                {customFieldValue || '-'}
+                                            </td>
+                                        );
+                                    })}
 
                                 </tr>
 
@@ -1370,6 +1486,49 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
                 </div>
 
+            </div>
+
+            {/* Pagination Controls */}
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex items-center space-x-2">
+                    <button
+                        onClick={() => setCurrentPage(currentPage - 1)}
+                        disabled={currentPage === 1}
+                        className="px-3 py-1 text-sm bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                    >
+                        Previous
+                    </button>
+                    <div className="px-4 py-1 text-sm text-gray-700 dark:text-gray-300 bg-white border border-gray-300 rounded-md shadow-sm dark:bg-gray-800 dark:border-gray-600">
+                        {currentPage} of {Math.ceil(filteredAndSortedAssets.length / itemsPerPage)}
+                    </div>
+                    <button
+                        onClick={() => setCurrentPage(currentPage + 1)}
+                        disabled={currentPage === Math.ceil(filteredAndSortedAssets.length / itemsPerPage)}
+                        className="px-3 py-1 text-sm bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                    >
+                        Next
+                    </button>
+                </div>
+                <div className="flex items-center space-x-4">
+                    <div className="text-sm text-gray-700 dark:text-gray-300">
+                        Showing {startIndex + 1} to {Math.min(endIndex, filteredAndSortedAssets.length)} of {filteredAndSortedAssets.length} results
+                    </div>
+                    <div className="flex items-center space-x-2">
+                        <span className="text-sm text-gray-700 dark:text-gray-300">
+                            Items per page:
+                        </span>
+                        <select
+                            value={itemsPerPage}
+                            onChange={e => setItemsPerPage(Number(e.target.value))}
+                            className="rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                        >
+                            <option value={50}>50</option>
+                            <option value={100}>100</option>
+                            <option value={200}>200</option>
+                            <option value={500}>500</option>
+                        </select>
+                    </div>
+                </div>
             </div>
 
             <AssetModal
@@ -1387,6 +1546,10 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                 onEdit={() => modalState.asset && setModalState({ type: 'edit', asset: modalState.asset })}
 
                 onDelete={() => modalState.asset && setModalState({ type: 'delete', asset: modalState.asset })}
+
+                customFields={customFields}
+
+                onShowColumnManagement={() => setShowColumnManagement(true)}
 
             />
 
@@ -1647,12 +1810,22 @@ progress={{
 total: totalToImport,
 completed: importedCount - importErrors,
 failed: importErrors,
-status: isImporting ? 'processing' : 'idle',
+status: isImporting ? 'processing' : 'idle'
 }}
 onClose={() => {}} // Import can't be cancelled, so empty function
 />
 
-</div>
+            <CustomFieldsManager
+                isOpen={showColumnManagement}
+                onClose={() => setShowColumnManagement(false)}
+                onFieldChange={() => {
+                    fetchCustomFields();
+                    fetchAssets();
+                }}
+                moduleName="assets"
+                title="Manage Asset Custom Columns"
+            />
 
-);
+        </div>
+    );
 };
