@@ -66,11 +66,24 @@ export const NameEntryModal: React.FC<NameEntryModalProps> = ({ isOpen }) => {
         }
         try {
             setEmailLoading(true);
+            // Check if user exists and has an email identity by attempting sign-in
+            // Supabase returns 'Invalid login credentials' for email users with wrong password
+            // and 'Invalid login credentials' for non-existent users too,
+            // but for OAuth-only users, signUp returns identities=[]
+            const { data: signUpCheck } = await SupabaseService.supabase.auth.signUp({
+                email,
+                password: crypto.randomUUID(), // dummy password just to check identity
+            });
+            // If identities is empty, user exists but only via OAuth (Google/GitHub)
+            if (signUpCheck.user && signUpCheck.user.identities && signUpCheck.user.identities.length === 0) {
+                setEmailMessage({ type: 'error', text: 'This account uses Google or GitHub sign-in. Please sign in with your social account, then use "Set Password" from the profile menu to enable email login.' });
+                return;
+            }
             const { error } = await SupabaseService.supabase.auth.resetPasswordForEmail(email, {
                 redirectTo: `${window.location.origin}/`,
             });
             if (error) throw error;
-            setEmailMessage({ type: 'success', text: 'If an account exists for this email, a password reset link has been sent.' });
+            setEmailMessage({ type: 'success', text: 'Password reset link sent to your email.' });
         } catch (err: any) {
             setEmailMessage({ type: 'error', text: err?.message || 'Failed to send reset email.' });
         } finally {
