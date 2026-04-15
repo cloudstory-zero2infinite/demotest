@@ -1318,15 +1318,10 @@ export const deleteVulnerability = async (id: string): Promise<void> => {
 
 
 export const bulkImportVulnerabilities = async (rows: VulnerabilityCreate[]): Promise<Vulnerability[]> => {
-
-  return apiRequest<Vulnerability[]>('/api/vulnerabilities/bulk-import', {
-
+  return apiRequest<Vulnerability[]>('/api/vulnerabilities/bulk', {
     method: 'POST',
-
     body: JSON.stringify(rows),
-
   });
-
 };
 
 
@@ -1353,18 +1348,12 @@ export const deleteVulnerabilitiesBulk = async (ids: string[]): Promise<void> =>
     const requestBody = JSON.stringify({ ids: batch });
     console.log(`[frontend] Batch ${i + 1} body length:`, requestBody.length);
 
-    await apiRequest<void>(`/api/vulnerabilities/bulk`, { 
-
+    await apiRequest<void>(`/api/vulnerabilities/bulk-delete`, { 
       method: 'POST', 
-
       headers: { 
-
         'Content-Type': 'application/json' 
-
       }, 
-
       body: requestBody 
-
     });
     
     console.log(`[frontend] Completed batch ${i + 1}/${batches.length}`);
@@ -1810,23 +1799,14 @@ export const updateAssetRelationship = async (id: string, relationship: any): Pr
 
 
 export const deleteAssetRelationship = async (id: string): Promise<boolean> => {
-
   try {
-
     await apiRequest(`/api/assets/relationships/${id}`, {
-
       method: 'DELETE',
-
     });
-
     return true;
-
   } catch {
-
     return false;
-
   }
-
 };
 
 
