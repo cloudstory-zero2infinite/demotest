@@ -135,6 +135,7 @@ export interface AssetRelationship {
     target_asset_id: string;
     relationship_type: string | null;
     created_at: string;
+    custom_fields?: Record<string, any>;
 }
 
 export type AssetRelationshipCreate = Omit<AssetRelationship, 'id' | 'created_at'>;
@@ -188,6 +189,7 @@ export interface Capability {
     user_id: string | null;
     created_at: string;
     updated_at: string;
+    custom_fields?: Record<string, any>;
 }
 
 export type CapabilityCreate = Omit<Capability, 'id' | 'created_at' | 'updated_at'>;
@@ -216,6 +218,7 @@ export interface ControlRegistry {
     user_id: string | null;
     created_at: string;
     updated_at: string;
+    custom_fields?: Record<string, any>;
 }
 
 export interface EvidenceFileMetadata {
@@ -285,6 +288,7 @@ export interface Vulnerability {
     asset_id: string | null; // FK to assets.id
     // For joining with assets table
     assets?: { asset_id: string; name: string } | null;
+    custom_fields?: Record<string, any>;
 }
 
 export type VulnerabilityCreate = Omit<Vulnerability, 'id' | 'created_at' | 'updated_at' | 'assets'>;

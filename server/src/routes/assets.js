@@ -2,11 +2,27 @@ import { Router } from 'express';
 
 
 
+
+
+
+
 import { supabaseAdmin } from '../supabase.js';
 
 
 
+
+
+
+
 import { requireAuth } from '../middleware/auth.js';
+
+
+
+
+
+
+
+
 
 
 
@@ -22,58 +38,121 @@ const router = Router();
 
 
 
+
+
+
+
+
+
+
+
 router.get('/', requireAuth, async (req, res) => {
+
   try {
+
     console.log(`=== FETCHING ALL ASSETS ===`);
+
     let allAssets = [];
+
     let hasMore = true;
+
     let offset = 0;
+
     const pageSize = 1000; // Use Supabase's max page size efficiently
+
     
+
     while (hasMore) {
+
       console.log(`Fetching batch: offset ${offset}, limit ${pageSize}`);
+
       
+
       const { data, error } = await supabaseAdmin
+
         .from('assets')
+
         .select('*')
+
         .eq('org_id', req.orgId)
+
         .order('created_at', { ascending: false })
+
         .range(offset, offset + pageSize - 1); // Use range instead of limit for better control
+
         
+
       if (error) {
+
         console.error('Error fetching batch:', error);
+
         throw error;
+
       }
+
       
+
       if (data && data.length > 0) {
+
         allAssets.push(...data);
+
         console.log(`Fetched ${data.length} assets, total so far: ${allAssets.length}`);
+
         
+
         // If we got less than pageSize, we're done
+
         if (data.length < pageSize) {
+
           hasMore = false;
+
         } else {
+
           offset += pageSize;
+
         }
+
       } else {
+
         hasMore = false;
+
       }
+
     }
+
     
+
     console.log(`=== FETCH COMPLETE ===`);
+
     console.log(`Total assets fetched: ${allAssets.length}`);
+
     
+
     res.json(allAssets);
+
   } catch (err) {
+
     console.error('Error in assets endpoint:', err);
+
     res.status(500).json({ message: err.message });
+
   }
+
 });
 
+
+
 // POST endpoint to create a new asset
+
 router.post('/', requireAuth, async (req, res) => {
 
+
+
   try {
+
+
+
+
 
 
 
@@ -81,7 +160,15 @@ router.post('/', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     const { governed_status, nn_controls, ...body } = req.body;
+
+
+
+
 
 
 
@@ -89,7 +176,15 @@ router.post('/', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     
+
+
+
+
 
 
 
@@ -97,7 +192,15 @@ router.post('/', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     console.log('Creating asset with payload:', {
+
+
+
+
 
 
 
@@ -105,7 +208,15 @@ router.post('/', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       physical_location: payload.physical_location || 'NOT_PROVIDED'
+
+
+
+
 
 
 
@@ -113,7 +224,15 @@ router.post('/', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     
+
+
+
+
 
 
 
@@ -121,7 +240,15 @@ router.post('/', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     if (error) {
+
+
+
+
 
 
 
@@ -129,7 +256,15 @@ router.post('/', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       throw error;
+
+
+
+
 
 
 
@@ -137,7 +272,15 @@ router.post('/', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     console.log('Asset created successfully:', data);
+
+
+
+
 
 
 
@@ -145,7 +288,15 @@ router.post('/', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
   } catch (err) {
+
+
+
+
 
 
 
@@ -153,7 +304,15 @@ router.post('/', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     res.status(500).json({ message: err.message });
+
+
+
+
 
 
 
@@ -161,7 +320,19 @@ router.post('/', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
 });
+
+
+
+
+
+
+
+
 
 
 
@@ -173,7 +344,15 @@ router.post('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
   try {
+
+
+
+
 
 
 
@@ -181,7 +360,15 @@ router.post('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     
+
+
+
+
 
 
 
@@ -189,7 +376,15 @@ router.post('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     if (assets.length <= 200) {
+
+
+
+
 
 
 
@@ -197,7 +392,15 @@ router.post('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       const { data, error } = await supabaseAdmin.from('assets').insert(payloads).select();
+
+
+
+
 
 
 
@@ -205,7 +408,15 @@ router.post('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       res.status(201).json(data || []);
+
+
+
+
 
 
 
@@ -213,90 +424,181 @@ router.post('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     }
 
 
 
+
+
+
+
     
+
+
+
+
 
 
 
     // For large payloads, process in optimized chunks with parallel processing
+
     const CHUNK_SIZE = 500; // Increased chunk size for better performance
+
     const MAX_PARALLEL_CHUNKS = 3; // Process up to 3 chunks in parallel
+
     const results = [];
+
     const errors = [];
+
     
+
     console.log(`=== OPTIMIZED BULK INSERT ===`);
+
     console.log(`Processing ${assets.length} assets in chunks of ${CHUNK_SIZE}`);
+
     console.log(`Max parallel chunks: ${MAX_PARALLEL_CHUNKS}`);
+
     
+
     // Process chunks in parallel batches for better performance
+
     for (let i = 0; i < assets.length; i += CHUNK_SIZE * MAX_PARALLEL_CHUNKS) {
+
       const parallelChunks = [];
+
       
+
       // Prepare parallel chunks
+
       for (let j = 0; j < MAX_PARALLEL_CHUNKS && (i + j * CHUNK_SIZE) < assets.length; j++) {
+
         const chunkStart = i + j * CHUNK_SIZE;
+
         const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, assets.length);
+
         const chunk = assets.slice(chunkStart, chunkEnd);
+
         
+
         parallelChunks.push({
+
           chunkIndex: Math.floor(chunkStart / CHUNK_SIZE) + 1,
+
           startIndex: chunkStart,
+
           endIndex: chunkEnd - 1,
+
           data: chunk.map(({ governed_status, nn_controls, ...a }) => ({ 
+
             ...a, 
+
             user_id: req.userId, 
+
             org_id: req.orgId 
+
           }))
+
         });
+
       }
+
       
+
       // Process chunks in parallel
+
       const chunkPromises = parallelChunks.map(async ({ chunkIndex, startIndex, endIndex, data }) => {
+
         try {
+
           console.log(`Processing chunk ${chunkIndex}: items ${startIndex}-${endIndex}`);
+
           const { data: insertData, error } = await supabaseAdmin.from('assets').insert(data).select();
+
           if (error) throw error;
+
           console.log(`Chunk ${chunkIndex} completed: ${insertData?.length || 0} items inserted`);
+
           return { success: true, chunkIndex, data: insertData || [], count: insertData?.length || 0 };
+
         } catch (chunkError) {
+
           console.error(`Error processing chunk ${chunkIndex}:`, chunkError);
+
           return { 
+
             success: false, 
+
             chunkIndex, 
+
             error: chunkError.message,
+
             startIndex, 
+
             endIndex 
+
           };
+
         }
+
       });
+
       
+
       // Wait for all parallel chunks to complete
+
       const chunkResults = await Promise.all(chunkPromises);
+
       
+
       // Process results
+
       chunkResults.forEach(result => {
+
         if (result.success) {
+
           results.push(...result.data);
+
         } else {
+
           errors.push({
+
             chunk: result.chunkIndex,
+
             error: result.error,
+
             startIndex: result.startIndex,
+
             endIndex: result.endIndex
+
           });
+
         }
+
       });
+
       
+
       console.log(`Parallel batch completed: ${chunkResults.filter(r => r.success).length}/${chunkResults.length} chunks successful`);
+
     } 
 
 
 
+
+
+
+
     res.status(201).json({
+
       success: true,
+
+
+
+
 
 
 
@@ -304,7 +606,15 @@ router.post('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       total: assets.length,
+
+
+
+
 
 
 
@@ -312,7 +622,15 @@ router.post('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       errorDetails: errors,
+
+
+
+
 
 
 
@@ -320,7 +638,15 @@ router.post('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     });
+
+
+
+
 
 
 
@@ -328,7 +654,15 @@ router.post('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     console.error('Bulk upload error:', err);
+
+
+
+
 
 
 
@@ -336,11 +670,27 @@ router.post('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
   }
 
 
 
+
+
+
+
 });
+
+
+
+
+
+
+
+
 
 
 
@@ -352,7 +702,15 @@ router.put('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
   try {
+
+
+
+
 
 
 
@@ -360,7 +718,15 @@ router.put('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     const { governed_status, nn_controls, ...body } = req.body;
+
+
+
+
 
 
 
@@ -372,7 +738,19 @@ router.put('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
     const { data, error } = await supabaseAdmin
+
+
+
+
 
 
 
@@ -380,7 +758,15 @@ router.put('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       .update(body)
+
+
+
+
 
 
 
@@ -388,7 +774,15 @@ router.put('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       .select()
+
+
+
+
 
 
 
@@ -396,7 +790,15 @@ router.put('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     
+
+
+
+
 
 
 
@@ -404,7 +806,15 @@ router.put('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       console.error('Error updating asset:', error);
+
+
+
+
 
 
 
@@ -412,7 +822,15 @@ router.put('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     }
+
+
+
+
 
 
 
@@ -420,7 +838,15 @@ router.put('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     console.log('Asset updated successfully:', data);
+
+
+
+
 
 
 
@@ -428,7 +854,15 @@ router.put('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
   } catch (err) {
+
+
+
+
 
 
 
@@ -436,11 +870,23 @@ router.put('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     res.status(500).json({ message: err.message });
 
 
 
+
+
+
+
   }
+
+
+
+
 
 
 
@@ -452,7 +898,19 @@ router.put('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
 // Bulk delete assets
+
+
+
+
 
 
 
@@ -460,7 +918,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
   try {
+
+
+
+
 
 
 
@@ -468,7 +934,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     
+
+
+
+
 
 
 
@@ -476,11 +950,27 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       return res.status(400).json({ message: 'Invalid asset IDs provided' });
 
 
 
+
+
+
+
     }
+
+
+
+
+
+
+
+
 
 
 
@@ -496,7 +986,19 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
     // Process in chunks to avoid HTTP header overflow
+
+
+
+
 
 
 
@@ -504,11 +1006,27 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     let totalDeleted = 0;
 
 
 
+
+
+
+
     let errors = [];
+
+
+
+
+
+
+
+
 
 
 
@@ -520,7 +1038,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       const chunkIds = ids.slice(i, i + CHUNK_SIZE);
+
+
+
+
 
 
 
@@ -528,11 +1054,23 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       
 
 
 
+
+
+
+
       try {
+
+
+
+
 
 
 
@@ -544,7 +1082,19 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
         // First, get assets in this chunk to collect their asset_ids
+
+
+
+
 
 
 
@@ -552,7 +1102,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
           .from('assets')
+
+
+
+
 
 
 
@@ -560,7 +1118,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
           .in('id', chunkIds)
+
+
+
+
 
 
 
@@ -572,7 +1138,19 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
         if (fetchError) throw fetchError;
+
+
+
+
 
 
 
@@ -580,7 +1158,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
         if (!assets || assets.length === 0) {
+
+
+
+
 
 
 
@@ -588,11 +1174,27 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
           continue;
 
 
 
+
+
+
+
         }
+
+
+
+
+
+
+
+
 
 
 
@@ -604,7 +1206,19 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
         console.log(`Found ${assets.length} assets to delete in chunk ${chunkIndex}`);
+
+
+
+
+
+
+
+
 
 
 
@@ -616,7 +1230,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
         if (assetIds.length > 0) {
+
+
+
+
 
 
 
@@ -624,7 +1246,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
           const { error: relationshipError } = await supabaseAdmin
+
+
+
+
 
 
 
@@ -632,7 +1262,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
             .delete()
+
+
+
+
 
 
 
@@ -644,7 +1282,19 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
           if (relationshipError) {
+
+
+
+
 
 
 
@@ -652,7 +1302,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
             throw new Error(`Failed to delete asset relationships: ${relationshipError.message}`);
+
+
+
+
 
 
 
@@ -660,7 +1318,19 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
         }
+
+
+
+
+
+
+
+
 
 
 
@@ -672,7 +1342,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
         if (assetIds.length > 0) {
+
+
+
+
 
 
 
@@ -680,11 +1358,23 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
             .from('vulnerability_management')
 
 
 
+
+
+
+
             .delete()
+
+
+
+
 
 
 
@@ -696,7 +1386,19 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
           if (vulnerabilityError) {
+
+
+
+
 
 
 
@@ -704,7 +1406,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
             console.log(`Warning: Could not delete vulnerabilities in chunk ${chunkIndex}, continuing with asset deletion`);
+
+
+
+
 
 
 
@@ -712,7 +1422,19 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
         }
+
+
+
+
+
+
+
+
 
 
 
@@ -724,7 +1446,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
         const { error: deleteError } = await supabaseAdmin
+
+
+
+
 
 
 
@@ -732,7 +1462,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
           .delete()
+
+
+
+
 
 
 
@@ -744,7 +1482,19 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
         if (deleteError) {
+
+
+
+
 
 
 
@@ -752,11 +1502,27 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
           throw new Error(`Failed to delete assets: ${deleteError.message}`);
 
 
 
+
+
+
+
         }
+
+
+
+
+
+
+
+
 
 
 
@@ -768,7 +1534,19 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
         console.log(`Successfully deleted ${assets.length} assets in chunk ${chunkIndex}`);
+
+
+
+
+
+
+
+
 
 
 
@@ -780,7 +1558,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
         console.error(`Error processing chunk ${chunkIndex}:`, chunkError);
+
+
+
+
 
 
 
@@ -788,7 +1574,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
           chunk: chunkIndex,
+
+
+
+
 
 
 
@@ -796,7 +1590,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
           startIndex: i,
+
+
+
+
 
 
 
@@ -804,7 +1606,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
         });
+
+
+
+
 
 
 
@@ -812,7 +1622,19 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     }
+
+
+
+
+
+
+
+
 
 
 
@@ -824,7 +1646,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       console.error(`Bulk delete completed with ${errors.length} chunk errors. ${totalDeleted}/${ids.length} assets deleted.`);
+
+
+
+
 
 
 
@@ -832,7 +1662,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
         message: `Partial success: ${totalDeleted}/${ids.length} assets deleted. ${errors.length} chunks failed.`,
+
+
+
+
 
 
 
@@ -840,7 +1678,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
         total: ids.length,
+
+
+
+
 
 
 
@@ -848,11 +1694,27 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       });
 
 
 
+
+
+
+
     }
+
+
+
+
+
+
+
+
 
 
 
@@ -864,7 +1726,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     res.status(204).send();
+
+
+
+
 
 
 
@@ -872,7 +1742,15 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     console.error('Error in bulk delete assets:', err);
+
+
+
+
 
 
 
@@ -880,11 +1758,27 @@ router.delete('/bulk', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
   }
 
 
 
+
+
+
+
 });
+
+
+
+
+
+
+
+
 
 
 
@@ -896,7 +1790,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
   try {
+
+
+
+
 
 
 
@@ -904,11 +1806,23 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     console.log('Attempting to delete asset with ID:', assetId);
 
 
 
+
+
+
+
     
+
+
+
+
 
 
 
@@ -916,11 +1830,23 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     const { data: asset, error: fetchError } = await supabaseAdmin
 
 
 
+
+
+
+
       .from('assets')
+
+
+
+
 
 
 
@@ -928,7 +1854,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       .eq('id', assetId)
+
+
+
+
 
 
 
@@ -936,7 +1870,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     
+
+
+
+
 
 
 
@@ -944,7 +1886,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       console.error('Error fetching asset:', fetchError);
+
+
+
+
 
 
 
@@ -952,11 +1902,23 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     }
 
 
 
+
+
+
+
     
+
+
+
+
 
 
 
@@ -964,7 +1926,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       return res.status(404).json({ message: 'Asset not found' });
+
+
+
+
 
 
 
@@ -972,7 +1942,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     
+
+
+
+
 
 
 
@@ -980,7 +1958,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     
+
+
+
+
 
 
 
@@ -988,7 +1974,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     const { data: deletedRelationships, error: relationshipError } = await supabaseAdmin
+
+
+
+
 
 
 
@@ -996,7 +1990,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       .delete()
+
+
+
+
 
 
 
@@ -1004,11 +2006,23 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       .select();
 
 
 
+
+
+
+
     
+
+
+
+
 
 
 
@@ -1016,7 +2030,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       console.error('Error deleting asset relationships:', relationshipError);
+
+
+
+
 
 
 
@@ -1024,7 +2046,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     } else {
+
+
+
+
 
 
 
@@ -1032,11 +2062,23 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     }
 
 
 
+
+
+
+
     
+
+
+
+
 
 
 
@@ -1044,7 +2086,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     const { data: deletedVulnerabilities, error: vulnerabilityError } = await supabaseAdmin
+
+
+
+
 
 
 
@@ -1052,7 +2102,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       .delete()
+
+
+
+
 
 
 
@@ -1060,11 +2118,23 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       .select();
 
 
 
+
+
+
+
     
+
+
+
+
 
 
 
@@ -1072,7 +2142,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       console.error('Error deleting associated vulnerabilities:', vulnerabilityError);
+
+
+
+
 
 
 
@@ -1080,7 +2158,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       console.log('Warning: Could not delete vulnerabilities, continuing with asset deletion');
+
+
+
+
 
 
 
@@ -1088,7 +2174,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       console.log('Successfully deleted associated vulnerabilities:', deletedVulnerabilities?.length || 0, 'vulnerabilities');
+
+
+
+
 
 
 
@@ -1096,7 +2190,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     
+
+
+
+
 
 
 
@@ -1104,7 +2206,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     const { error } = await supabaseAdmin
+
+
+
+
 
 
 
@@ -1112,7 +2222,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       .delete()
+
+
+
+
 
 
 
@@ -1120,7 +2238,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     
+
+
+
+
 
 
 
@@ -1128,7 +2254,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       console.error('Error deleting asset:', error);
+
+
+
+
 
 
 
@@ -1136,7 +2270,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     }
+
+
+
+
 
 
 
@@ -1144,7 +2286,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     console.log('Successfully deleted asset');
+
+
+
+
 
 
 
@@ -1152,7 +2302,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
   } catch (err) {
+
+
+
+
 
 
 
@@ -1160,7 +2318,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     res.status(500).json({ message: err.message });
+
+
+
+
 
 
 
@@ -1168,7 +2334,19 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
 });
+
+
+
+
+
+
+
+
 
 
 
@@ -1180,7 +2358,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
 router.get('/relationships', requireAuth, async (req, res) => {
+
+
+
+
 
 
 
@@ -1188,7 +2374,15 @@ router.get('/relationships', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     const { data, error } = await supabaseAdmin
+
+
+
+
 
 
 
@@ -1196,7 +2390,15 @@ router.get('/relationships', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       .select('*')
+
+
+
+
 
 
 
@@ -1204,7 +2406,15 @@ router.get('/relationships', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       .order('created_at', { ascending: false });
+
+
+
+
 
 
 
@@ -1212,7 +2422,15 @@ router.get('/relationships', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     res.json(data || []);
+
+
+
+
 
 
 
@@ -1220,7 +2438,15 @@ router.get('/relationships', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     console.error('Error fetching relationships:', err);
+
+
+
+
 
 
 
@@ -1228,11 +2454,27 @@ router.get('/relationships', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
   }
 
 
 
+
+
+
+
 });
+
+
+
+
+
+
+
+
 
 
 
@@ -1244,7 +2486,15 @@ router.get('/relationships', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
 router.post('/relationships', requireAuth, async (req, res) => {
+
+
+
+
 
 
 
@@ -1252,7 +2502,15 @@ router.post('/relationships', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     const payload = {
+
+
+
+
 
 
 
@@ -1260,7 +2518,15 @@ router.post('/relationships', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       org_id: req.orgId,
+
+
+
+
 
 
 
@@ -1268,7 +2534,15 @@ router.post('/relationships', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       created_at: new Date().toISOString(),
+
+
+
+
 
 
 
@@ -1276,7 +2550,15 @@ router.post('/relationships', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     const { data, error } = await supabaseAdmin
+
+
+
+
 
 
 
@@ -1284,7 +2566,15 @@ router.post('/relationships', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       .insert(payload)
+
+
+
+
 
 
 
@@ -1292,7 +2582,15 @@ router.post('/relationships', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       .single();
+
+
+
+
 
 
 
@@ -1300,7 +2598,15 @@ router.post('/relationships', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     res.status(201).json(data);
+
+
+
+
 
 
 
@@ -1308,7 +2614,15 @@ router.post('/relationships', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
     res.status(500).json({ message: err.message });
+
+
+
+
 
 
 
@@ -1316,7 +2630,19 @@ router.post('/relationships', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
 });
+
+
+
+
+
+
+
+
 
 
 
@@ -1328,11 +2654,23 @@ router.post('/relationships', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
 router.put('/relationships/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
   try {
+
+
+
+
 
 
 
@@ -1340,7 +2678,15 @@ router.put('/relationships/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       .from('asset_relationships')
+
+
+
+
 
 
 
@@ -1348,7 +2694,15 @@ router.put('/relationships/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       .eq('id', req.params.id)
+
+
+
+
 
 
 
@@ -1356,11 +2710,23 @@ router.put('/relationships/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
       .single();
 
 
 
+
+
+
+
     if (error) throw error;
+
+
+
+
 
 
 
@@ -1368,7 +2734,15 @@ router.put('/relationships/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
   } catch (err) {
+
+
+
+
 
 
 
@@ -1376,11 +2750,27 @@ router.put('/relationships/:id', requireAuth, async (req, res) => {
 
 
 
+
+
+
+
   }
 
 
 
+
+
+
+
 });
+
+
+
+
+
+
+
+
 
 
 
@@ -1389,400 +2779,798 @@ router.put('/relationships/:id', requireAuth, async (req, res) => {
 
 
 // Bulk delete asset relationships - optimized for performance with parallel processing and progress tracking
+
 router.delete('/relationships/bulk', requireAuth, async (req, res) => {
+
   try {
+
     const { ids } = req.body;
+
     
+
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
+
       return res.status(400).json({ message: 'Invalid relationship IDs provided' });
+
     }
+
+
 
     console.log(`=== OPTIMIZED BULK RELATIONSHIP DELETE ===`);
+
     console.log(`Starting bulk delete of ${ids.length} asset relationships`);
 
+
+
     // For small payloads, use direct deletion
+
     if (ids.length <= 50) {
+
       console.log(`Small payload (${ids.length} items), using direct deletion`);
+
       const { error } = await supabaseAdmin
+
         .from('asset_relationships')
+
         .delete()
+
         .in('id', ids)
+
         .eq('org_id', req.orgId);
 
+
+
       if (error) throw error;
+
       console.log(`Successfully deleted all ${ids.length} relationships`);
+
       return res.status(204).send();
+
     }
+
+
 
     // For large payloads, process in optimized chunks with parallel processing
+
     const CHUNK_SIZE = 200; // Increased chunk size for better performance
+
     const MAX_PARALLEL_CHUNKS = 5; // Process up to 5 chunks in parallel
+
     let totalDeleted = 0;
+
     let errors = [];
+
     
+
     console.log(`Processing ${ids.length} relationships in chunks of ${CHUNK_SIZE}`);
+
     console.log(`Max parallel chunks: ${MAX_PARALLEL_CHUNKS}`);
+
     
+
     // Process chunks in parallel batches for better performance
+
     for (let i = 0; i < ids.length; i += CHUNK_SIZE * MAX_PARALLEL_CHUNKS) {
+
       const parallelChunks = [];
+
       
+
       // Prepare parallel chunks
+
       for (let j = 0; j < MAX_PARALLEL_CHUNKS && (i + j * CHUNK_SIZE) < ids.length; j++) {
+
         const chunkStart = i + j * CHUNK_SIZE;
+
         const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, ids.length);
+
         const chunkIds = ids.slice(chunkStart, chunkEnd);
+
         
+
         parallelChunks.push({
+
           chunkIndex: Math.floor(chunkStart / CHUNK_SIZE) + 1,
+
           startIndex: chunkStart,
+
           endIndex: chunkEnd - 1,
+
           ids: chunkIds
+
         });
+
       }
+
       
+
       // Process chunks in parallel
+
       const chunkPromises = parallelChunks.map(async ({ chunkIndex, startIndex, endIndex, ids: chunkIds }) => {
+
         try {
+
           console.log(`Processing relationship chunk ${chunkIndex}: items ${startIndex}-${endIndex} (${chunkIds.length} relationships)`);
+
           
+
           const { error } = await supabaseAdmin
+
             .from('asset_relationships')
+
             .delete()
+
             .in('id', chunkIds)
+
             .eq('org_id', req.orgId);
 
+
+
           if (error) throw error;
+
           
+
           console.log(`Relationship chunk ${chunkIndex} completed: ${chunkIds.length} items deleted`);
+
           return { 
+
             success: true, 
+
             chunkIndex, 
+
             deleted: chunkIds.length,
+
             progress: Math.round((totalDeleted + chunkIds.length) / ids.length * 100)
+
           };
+
         } catch (chunkError) {
+
           console.error(`Error processing relationship chunk ${chunkIndex}:`, chunkError);
+
           return { 
+
             success: false, 
+
             chunkIndex, 
+
             error: chunkError.message,
+
             startIndex, 
+
             endIndex 
+
           };
+
         }
+
       });
+
       
+
       // Wait for all parallel chunks to complete
+
       const chunkResults = await Promise.all(chunkPromises);
+
       
+
       // Process results and update progress
+
       chunkResults.forEach(result => {
+
         if (result.success) {
+
           totalDeleted += result.deleted;
+
         } else {
+
           errors.push({
+
             chunk: result.chunkIndex,
+
             error: result.error,
+
             startIndex: result.startIndex,
+
             endIndex: result.endIndex
+
           });
+
         }
+
       });
+
       
+
       // Calculate and log progress percentage
+
       const progressPercent = Math.round((totalDeleted / ids.length) * 100);
+
       console.log(`Progress: ${totalDeleted}/${ids.length} (${progressPercent}%) - ${chunkResults.filter(r => r.success).length}/${chunkResults.length} chunks successful`);
+
     }
+
+
 
     if (errors.length > 0) {
+
       console.error(`Bulk relationship delete completed with ${errors.length} chunk errors. ${totalDeleted}/${ids.length} relationships deleted.`);
+
       return res.status(207).json({ 
+
         message: `Partial success: ${totalDeleted}/${ids.length} relationships deleted. ${errors.length} chunks failed.`,
+
         deleted: totalDeleted,
+
         total: ids.length,
+
         errors: errors
+
       });
+
     }
 
+
+
     console.log(`Successfully deleted all ${totalDeleted} relationships`);
+
     res.status(204).send();
 
+
+
   } catch (err) {
+
     console.error('Error in bulk delete relationships:', err);
+
     res.status(500).json({ message: err.message });
+
   }
+
 });
 
+
+
 // Delete asset relationship
+
 router.delete('/relationships/:id', requireAuth, async (req, res) => {
+
   try {
+
     const { error } = await supabaseAdmin
+
       .from('asset_relationships')
+
       .delete()
+
       .eq('id', req.params.id)
+
       .eq('org_id', req.orgId);
+
+
 
     if (error) throw error;
 
+
+
     res.status(204).send();
 
+
+
   } catch (err) {
+
     console.error('Error deleting asset relationship:', err);
+
     res.status(500).json({ message: err.message });
+
   }
+
 });
+
+
 
 // Bulk create asset relationships - optimized for 1000+ records with progress tracking
+
 router.post('/relationships/bulk', requireAuth, async (req, res) => {
+
   try {
+
     const relationships = req.body;
+
     
+
     if (!Array.isArray(relationships) || relationships.length === 0) {
+
       return res.status(400).json({ message: 'Invalid relationships data provided' });
+
     }
+
+
 
     console.log(`=== BULK RELATIONSHIP UPLOAD ===`);
+
     console.log(`Processing ${relationships.length} relationships`);
 
+
+
     // If payload is small, use direct insertion
+
     if (relationships.length <= 100) {
+
       const payloads = relationships.map(rel => ({
+
         ...rel,
+
         org_id: req.orgId,
+
         user_id: req.userId,
+
         created_at: new Date().toISOString()
+
       }));
 
+
+
       const { data, error } = await supabaseAdmin.from('asset_relationships').insert(payloads).select();
+
       if (error) throw error;
+
       
+
       res.status(201).json({
+
         success: true,
+
         inserted: data?.length || 0,
+
         total: relationships.length,
+
         data: data || []
+
       });
+
       return;
+
     }
 
+
+
     // For large payloads, process in optimized chunks with parallel processing
+
     const CHUNK_SIZE = 300; // Optimized for relationships (smaller than assets)
+
     const MAX_PARALLEL_CHUNKS = 4; // Can process more chunks in parallel for relationships
+
     const results = [];
+
     const errors = [];
+
     let processedCount = 0;
+
     
+
     console.log(`Processing ${relationships.length} relationships in chunks of ${CHUNK_SIZE}`);
+
     console.log(`Max parallel chunks: ${MAX_PARALLEL_CHUNKS}`);
+
     
+
     // Process chunks in parallel batches for better performance
+
     for (let i = 0; i < relationships.length; i += CHUNK_SIZE * MAX_PARALLEL_CHUNKS) {
+
       const parallelChunks = [];
+
       
+
       // Prepare parallel chunks
+
       for (let j = 0; j < MAX_PARALLEL_CHUNKS && (i + j * CHUNK_SIZE) < relationships.length; j++) {
+
         const chunkStart = i + j * CHUNK_SIZE;
+
         const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, relationships.length);
+
         const chunk = relationships.slice(chunkStart, chunkEnd);
+
         
+
         parallelChunks.push({
+
           chunkIndex: Math.floor(chunkStart / CHUNK_SIZE) + 1,
+
           startIndex: chunkStart,
+
           endIndex: chunkEnd - 1,
+
           data: chunk.map(rel => ({
+
             ...rel,
+
             org_id: req.orgId,
+
             user_id: req.userId,
+
             created_at: new Date().toISOString()
+
           }))
+
         });
+
       }
+
       
+
       // Process chunks in parallel
+
       const chunkPromises = parallelChunks.map(async ({ chunkIndex, startIndex, endIndex, data }) => {
+
         try {
+
           console.log(`Processing relationship chunk ${chunkIndex}: items ${startIndex}-${endIndex}`);
+
           const { data: insertData, error } = await supabaseAdmin.from('asset_relationships').insert(data).select();
+
           if (error) throw error;
+
           console.log(`Relationship chunk ${chunkIndex} completed: ${insertData?.length || 0} items inserted`);
+
           return { success: true, chunkIndex, data: insertData || [], count: insertData?.length || 0 };
+
         } catch (chunkError) {
+
           console.error(`Error processing relationship chunk ${chunkIndex}:`, chunkError);
+
           return { 
+
             success: false, 
+
             chunkIndex, 
+
             error: chunkError.message,
+
             startIndex, 
+
             endIndex 
+
           };
+
         }
+
       });
+
       
+
       // Wait for all parallel chunks to complete
+
       const chunkResults = await Promise.all(chunkPromises);
+
       
+
       // Process results and update progress
+
       chunkResults.forEach(result => {
+
         if (result.success) {
+
           results.push(...result.data);
+
           processedCount += result.count;
+
         } else {
+
           errors.push({
+
             chunk: result.chunkIndex,
+
             error: result.error,
+
             startIndex: result.startIndex,
+
             endIndex: result.endIndex
+
           });
+
         }
+
       });
+
       
+
       // Calculate and log progress percentage
+
       const progressPercent = Math.round((processedCount / relationships.length) * 100);
+
       console.log(`Progress: ${processedCount}/${relationships.length} (${progressPercent}%) - ${chunkResults.filter(r => r.success).length}/${chunkResults.length} chunks successful`);
+
       
+
       console.log(`Parallel batch completed: ${chunkResults.filter(r => r.success).length}/${chunkResults.length} chunks successful`);
+
     }
+
+
 
     res.status(201).json({
+
       success: true,
+
       inserted: results.length,
+
       total: relationships.length,
+
       errors: errors.length,
+
       errorDetails: errors,
+
       data: results
+
     });
 
+
+
   } catch (err) {
+
     console.error('Bulk relationship upload error:', err);
+
     res.status(500).json({ message: err.message });
+
   }
+
 });
+
+
 
 // Bulk delete asset relationships - optimized for performance with parallel processing and progress tracking
+
 router.delete('/relationships/bulk', requireAuth, async (req, res) => {
+
   try {
+
     const { ids } = req.body;
+
     
+
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
+
       return res.status(400).json({ message: 'Invalid relationship IDs provided' });
+
     }
+
+
 
     console.log(`=== OPTIMIZED BULK RELATIONSHIP DELETE ===`);
+
     console.log(`Starting bulk delete of ${ids.length} asset relationships`);
 
+
+
     // For small payloads, use direct deletion
+
     if (ids.length <= 50) {
+
       console.log(`Small payload (${ids.length} items), using direct deletion`);
+
       const { error } = await supabaseAdmin
+
         .from('asset_relationships')
+
         .delete()
+
         .in('id', ids)
+
         .eq('org_id', req.orgId);
 
+
+
       if (error) throw error;
+
       console.log(`Successfully deleted all ${ids.length} relationships`);
+
       return res.status(204).send();
+
     }
+
+
 
     // For large payloads, process in optimized chunks with parallel processing
+
     const CHUNK_SIZE = 200; // Increased chunk size for better performance
+
     const MAX_PARALLEL_CHUNKS = 5; // Process up to 5 chunks in parallel
+
     let totalDeleted = 0;
+
     let errors = [];
+
     
+
     console.log(`Processing ${ids.length} relationships in chunks of ${CHUNK_SIZE}`);
+
     console.log(`Max parallel chunks: ${MAX_PARALLEL_CHUNKS}`);
+
     
+
     // Process chunks in parallel batches for better performance
+
     for (let i = 0; i < ids.length; i += CHUNK_SIZE * MAX_PARALLEL_CHUNKS) {
+
       const parallelChunks = [];
+
       
+
       // Prepare parallel chunks
+
       for (let j = 0; j < MAX_PARALLEL_CHUNKS && (i + j * CHUNK_SIZE) < ids.length; j++) {
+
         const chunkStart = i + j * CHUNK_SIZE;
+
         const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, ids.length);
+
         const chunkIds = ids.slice(chunkStart, chunkEnd);
+
         
+
         parallelChunks.push({
+
           chunkIndex: Math.floor(chunkStart / CHUNK_SIZE) + 1,
+
           startIndex: chunkStart,
+
           endIndex: chunkEnd - 1,
+
           ids: chunkIds
+
         });
+
       }
+
       
+
       // Process chunks in parallel
+
       const chunkPromises = parallelChunks.map(async ({ chunkIndex, startIndex, endIndex, ids: chunkIds }) => {
+
         try {
+
           console.log(`Processing relationship chunk ${chunkIndex}: items ${startIndex}-${endIndex} (${chunkIds.length} relationships)`);
+
           
+
           const { error } = await supabaseAdmin
+
             .from('asset_relationships')
+
             .delete()
+
             .in('id', chunkIds)
+
             .eq('org_id', req.orgId);
 
+
+
           if (error) throw error;
+
           
+
           console.log(`Relationship chunk ${chunkIndex} completed: ${chunkIds.length} items deleted`);
+
           return { 
+
             success: true, 
+
             chunkIndex, 
+
             deleted: chunkIds.length,
+
             progress: Math.round((totalDeleted + chunkIds.length) / ids.length * 100)
+
           };
+
         } catch (chunkError) {
+
           console.error(`Error processing relationship chunk ${chunkIndex}:`, chunkError);
+
           return { 
+
             success: false, 
+
             chunkIndex, 
+
             error: chunkError.message,
+
             startIndex, 
+
             endIndex 
+
           };
+
         }
+
       });
+
       
+
       // Wait for all parallel chunks to complete
+
       const chunkResults = await Promise.all(chunkPromises);
+
       
+
       // Process results and update progress
+
       chunkResults.forEach(result => {
+
         if (result.success) {
+
           totalDeleted += result.deleted;
+
         } else {
+
           errors.push({
+
             chunk: result.chunkIndex,
+
             error: result.error,
+
             startIndex: result.startIndex,
+
             endIndex: result.endIndex
+
           });
+
         }
+
       });
+
       
+
       // Calculate and log progress percentage
+
       const progressPercent = Math.round((totalDeleted / ids.length) * 100);
+
       console.log(`Progress: ${totalDeleted}/${ids.length} (${progressPercent}%) - ${chunkResults.filter(r => r.success).length}/${chunkResults.length} chunks successful`);
+
     }
+
+
 
     if (errors.length > 0) {
+
       console.error(`Bulk relationship delete completed with ${errors.length} chunk errors. ${totalDeleted}/${ids.length} relationships deleted.`);
+
       return res.status(207).json({ 
+
         message: `Partial success: ${totalDeleted}/${ids.length} relationships deleted. ${errors.length} chunks failed.`,
+
         deleted: totalDeleted,
+
         total: ids.length,
+
         errors: errors
+
       });
+
     }
 
+
+
     console.log(`Successfully deleted all ${totalDeleted} relationships`);
+
     res.status(204).send();
 
+
+
   } catch (err) {
+
     console.error('Error in bulk delete relationships:', err);
+
     res.status(500).json({ message: err.message });
+
   }
+
 });
 
+
+
 export const assetsRouter = router;
+
