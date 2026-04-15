@@ -20,6 +20,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Policy Creation Agent — RAG over policy templates with org-memory grounding.
+from policy_agent.router import router as policy_router
+app.include_router(policy_router, prefix="/policy")
+
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
