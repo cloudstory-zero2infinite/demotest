@@ -7,6 +7,7 @@ import JSZip from 'jszip';
 import { PolicyV2, PolicyWorkflowStatus, PolicyApproval, AllActivityLog } from '../../types';
 import * as SupabaseService from '../../services/supabase';
 import { EyeIcon, PencilIcon, PlusIcon, UploadIcon, DownloadIcon, BotIcon, HistoryIcon, TrashIcon } from '../Icons';
+import { PolicyAIDraftModal } from './PolicyAIDraftModal';
 
 // ─── Markdown config ─────────────────────────────────────────────────────────
 marked.setOptions({ gfm: true, breaks: true });
@@ -359,11 +360,12 @@ const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUse
 // ─── EditorModal ──────────────────────────────────────────────────────────────
 interface EditorModalProps {
     policy?: PolicyV2 | null;
+    initialMarkdown?: string;
     onClose: () => void;
     onSaved: () => void;
 }
-const EditorModal: React.FC<EditorModalProps> = ({ policy, onClose, onSaved }) => {
-    const [markdown, setMarkdown] = useState(policy?.markdown || '');
+const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onClose, onSaved }) => {
+    const [markdown, setMarkdown] = useState(policy?.markdown || initialMarkdown || '');
     const [status, setStatus] = useState<PolicyWorkflowStatus>(policy?.policy_status || 'draft');
     const [saving, setSaving] = useState(false);
     const [showApprover, setShowApprover] = useState(false);
@@ -571,7 +573,8 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
     const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
 
     // Modal targets
-    const [editorTarget, setEditorTarget] = useState<{ policy?: PolicyV2 } | null>(null);
+    const [editorTarget, setEditorTarget] = useState<{ policy?: PolicyV2; initialMarkdown?: string } | null>(null);
+    const [aiDraftOpen, setAiDraftOpen] = useState(false);
     const [viewTarget, setViewTarget] = useState<PolicyV2 | null>(null);
     const [historyTarget, setHistoryTarget] = useState<PolicyV2 | null>(null);
 
@@ -790,7 +793,11 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
                     />
                 </div>
                 <div className="flex items-center space-x-2">
-                    <button disabled title="AI Assistant (coming soon)" className="p-2 text-gray-300 dark:text-gray-600 rounded-md cursor-not-allowed">
+                    <button
+                        onClick={() => setAiDraftOpen(true)}
+                        title="AI Policy Drafter"
+                        className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+                    >
                         <BotIcon className="h-5 w-5" />
                     </button>
                     <button disabled title="Upload (coming soon)" className="p-2 text-gray-300 dark:text-gray-600 rounded-md cursor-not-allowed">
@@ -879,10 +886,17 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
             {editorTarget !== null && (
                 <EditorModal
                     policy={editorTarget.policy}
+                    initialMarkdown={editorTarget.initialMarkdown}
                     onClose={() => setEditorTarget(null)}
                     onSaved={fetchPolicies}
                 />
             )}
+            <PolicyAIDraftModal
+                isOpen={aiDraftOpen}
+                onClose={() => setAiDraftOpen(false)}
+                onUseDraft={(md) => setEditorTarget({ initialMarkdown: md })}
+            />
+
             {viewTarget && (
                 <ViewModal
                     policy={viewTarget}
