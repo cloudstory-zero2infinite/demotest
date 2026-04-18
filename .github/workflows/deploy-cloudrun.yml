@@ -1,16 +1,14 @@
-name: Deploy to Cloud Run (on merge to main)
+name: Deploy to Cloud Run
 
 on:
   push:
     branches:
       - main
+      - prod
 
 env:
   PROJECT_ID: gen-lang-client-0099829502
-  REGION: asia-south1
-  SERVICE: pre-prod
   REPOSITORY: my-repo
-  IMAGE_NAME: shankar/pre-prod
 
 jobs:
   deploy:
@@ -24,6 +22,20 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set deployment target
+        run: |
+          if [ "${{ github.ref_name }}" = "prod" ]; then
+            echo "SERVICE=zti-prod" >> $GITHUB_ENV
+            echo "REGION=asia-southeast1" >> $GITHUB_ENV
+            echo "IMAGE_NAME=shankar/zti-prod" >> $GITHUB_ENV
+            echo "DEPLOY_API_BASE_URL=${{ secrets.VITE_API_BASE_URL_PROD }}" >> $GITHUB_ENV
+          else
+            echo "SERVICE=pre-prod" >> $GITHUB_ENV
+            echo "REGION=asia-south1" >> $GITHUB_ENV
+            echo "IMAGE_NAME=shankar/pre-prod" >> $GITHUB_ENV
+            echo "DEPLOY_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }}" >> $GITHUB_ENV
+          fi
 
       ###########################################
       # Authenticate to Google Cloud
@@ -64,7 +76,7 @@ jobs:
             --build-arg VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }} \
             --build-arg VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }} \
             --build-arg VITE_AI_AGENT_URL=${{ secrets.VITE_AI_AGENT_URL }} \
-            --build-arg VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }} \
+            --build-arg VITE_API_BASE_URL=${{ env.DEPLOY_API_BASE_URL }} \
             --build-arg VITE_APP_VERSION=V$(date +%m-%d)-$(echo ${{ github.sha }} | cut -c1-7) \
             -t $IMAGE_URI \
             --push .
@@ -84,3 +96,4 @@ jobs:
             --allow-unauthenticated \
             --set-env-vars \
               SUPABASE_URL=${{ secrets.SUPABASE_URL }},SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+

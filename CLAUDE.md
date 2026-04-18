@@ -123,6 +123,10 @@ Copy `.env.example` to `.env`. Required:
 - `useDataRefresh` — wraps data-fetching with loading/error state
 - `useTableSelection` — manages multi-row checkbox selection for bulk actions
 
+## Branches
+- **`prod` is the production branch** — all production deployments come from this branch. Always verify you have the latest `prod` pulled (`git fetch && git status` against `origin/prod`) before starting work or cutting a release.
+- **`main` is for testing only** — do NOT treat `main` as the source of truth for production. PRs intended for production must target `prod`.
+
 ## Deployment
 - **CI/CD**: `.github/workflows/deploy-cloudrun.yml` — triggers on push to `main`, builds Docker image, pushes to Google Artifact Registry (`asia-southeast1`), deploys to Cloud Run (`asia-south1`, service name: `pre-prod`)
 - Build args inject `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_BASE_URL`, `VITE_AI_AGENT_URL` at image build time

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, ChangeEvent, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 
 
 
@@ -14,7 +15,7 @@ import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
 
 
 
-import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon } from '../Icons';
+import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon, FilterIcon } from '../Icons';
 
 import { parseCSVLine } from '../../utils/csvParser';
 
@@ -43,9 +44,6 @@ import { useTableSelection } from '../../hooks/useTableSelection';
 
 
 import { SelectionActionBar } from '../common/SelectionActionBar';
-import { processImportData } from '../../utils/importUtils';
-import { ImportConfirmationModal } from '../common/ImportConfirmationModal';
-import { parseCSVText } from '../../utils/csvParser';
 
 
 
@@ -719,6 +717,97 @@ const displaySource = (source: string | null | undefined): string => {
 
 
 
+const FilterDropdown = ({ columnKey, items, columnFilters, setColumnFilters, onClose, triggerRect }: any) => {
+    // get unique values for columnKey
+    const uniqueValues = useMemo(() => {
+        const values = new Set<string>();
+        items.forEach((item: any) => {
+             let val;
+             if (columnKey.startsWith('custom_field_')) {
+                 val = item.custom_fields?.[columnKey.replace('custom_field_', '')];
+             } else {
+                 val = item[columnKey];
+             }
+             values.add(val !== undefined && val !== null && val !== "" ? String(val) : '-');
+        });
+        return Array.from(values).sort((a, b) => a.localeCompare(b));
+    }, [items, columnKey]);
+
+    const [localSelectedValues, setLocalSelectedValues] = useState<string[]>(columnFilters[columnKey] || []);
+
+    const handleToggle = (val: string) => {
+        if (localSelectedValues.includes(val)) {
+            setLocalSelectedValues(prev => prev.filter(v => v !== val));
+        } else {
+            setLocalSelectedValues(prev => [...prev, val]);
+        }
+    };
+
+    const handleClear = () => {
+        setColumnFilters((prev: any) => {
+            const next = { ...prev };
+            delete next[columnKey];
+            return next;
+        });
+        onClose();
+    };
+
+    const handleSave = () => {
+        setColumnFilters((prev: any) => {
+            if (localSelectedValues.length === 0) {
+                const next = { ...prev };
+                delete next[columnKey];
+                return next;
+            }
+            return { ...prev, [columnKey]: localSelectedValues };
+        });
+        onClose();
+    };
+
+    const style: React.CSSProperties = {
+        position: 'fixed',
+        zIndex: 9999,
+        top: triggerRect ? triggerRect.bottom + 4 : 0,
+        left: triggerRect ? triggerRect.left : 0,
+    };
+
+    return createPortal(
+        <div style={style} className="FilterDropdownCore w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg p-3" onClick={e => e.stopPropagation()}>
+            <div className="mb-3 max-h-48 overflow-y-auto space-y-2">
+                {uniqueValues.map(val => (
+                    <label key={val} className="flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer p-1 hover:bg-gray-50 dark:hover:bg-gray-700 rounded">
+                        <input
+                            type="checkbox"
+                            checked={localSelectedValues.includes(val)}
+                            onChange={() => handleToggle(val)}
+                            className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 bg-white dark:bg-gray-700"
+                        />
+                        <span className="truncate">{val}</span>
+                    </label>
+                ))}
+            </div>
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-3 flex items-center justify-between">
+                <button
+                    onClick={handleClear}
+                    disabled={!columnFilters[columnKey]?.length && localSelectedValues.length === 0}
+                    className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 disabled:text-gray-400 disabled:cursor-not-allowed"
+                >
+                    Clear Filter
+                </button>
+                <div className="flex space-x-2">
+                    <button onClick={onClose} className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300">
+                        Cancel
+                    </button>
+                    <button onClick={handleSave} className="text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded">
+                        Save
+                    </button>
+                </div>
+            </div>
+        </div>,
+        document.body
+    );
+};
+
 export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
 
 
@@ -757,12 +846,6 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
     const [sortConfig, setSortConfig] = useState<{ key: keyof Asset; direction: 'ascending' | 'descending' } | null>(null);
 
-    
-
-    const [currentPage, setCurrentPage] = useState(1);
-
-    const [itemsPerPage, setItemsPerPage] = useState(100);
-
 
 
     const [importData, setImportData] = useState<{ newAssets: AssetCreate[]; updatedAssets: { id: string; updates: AssetUpdate }[]; unchangedAssets: Asset[]; duplicates: string[] }>({ newAssets: [], updatedAssets: [], unchangedAssets: [], duplicates: [] });
@@ -778,8 +861,32 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
     const [customFields, setCustomFields] = useState<CustomField[]>([]);
 
     const [showColumnManagement, setShowColumnManagement] = useState(false);
-    const [newFieldsToCreate, setNewFieldsToCreate] = useState<any[]>([]);
-    const [pendingImportData, setPendingImportData] = useState<any[]>([]);
+
+    const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+    const [openFilterDropdown, setOpenFilterDropdown] = useState<{key: string, rect: DOMRect} | null>(null);
+
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (openFilterDropdown) {
+                 const target = event.target as HTMLElement;
+                 if (!target.closest('.FilterDropdownCore') && !target.closest('.FilterTriggerBtn')) {
+                     setOpenFilterDropdown(null);
+                 }
+            }
+        }
+        function handleScroll(event: Event) {
+             const target = event.target as HTMLElement;
+             if (!target.closest('.FilterDropdownCore')) {
+                  setOpenFilterDropdown(null);
+             }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        document.addEventListener("scroll", handleScroll, true);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+            document.removeEventListener("scroll", handleScroll, true);
+        };
+    }, [openFilterDropdown]);
 
 
 
@@ -915,7 +1022,20 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
         let filteredItems = [...assets];
 
-
+        Object.entries(columnFilters).forEach(([key, selectedValues]) => {
+            if (selectedValues && selectedValues.length > 0) {
+                filteredItems = filteredItems.filter(item => {
+                    let val;
+                    if (key.startsWith('custom_field_')) {
+                        val = item.custom_fields?.[key.replace('custom_field_', '')];
+                    } else {
+                        val = item[key as keyof Asset];
+                    }
+                    val = val !== undefined && val !== null && val !== "" ? String(val) : '-';
+                    return selectedValues.includes(val);
+                });
+            }
+        });
 
         if (filter) {
 
@@ -1045,29 +1165,54 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
 
-    }, [assets, filter, sortConfig]);
+    }, [assets, filter, sortConfig, columnFilters]);
 
 
 
-    // Pagination: Get current page items
-
-    const startIndex = (currentPage - 1) * itemsPerPage;
-
-    const endIndex = startIndex + itemsPerPage;
-
-    const paginatedAssets = filteredAndSortedAssets.slice(startIndex, endIndex);
 
 
 
-    // Reset to page 1 when filter changes to prevent empty pages
 
-    useEffect(() => {
-
-        setCurrentPage(1);
-
-    }, [filter]);
-
-
+    const renderFilterableHeader = (columnKey: string, title: string) => {
+        return (
+            <th scope="col" key={columnKey} className="relative sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                <div className="flex items-center justify-between">
+                    {columnKey !== 'nn_controls' && !columnKey.startsWith('custom_field_') ? (
+                        <button onClick={() => requestSort(columnKey as keyof Asset)} className="flex items-center text-left focus:outline-none flex-grow">
+                            {title} {getSortIconFor(columnKey as keyof Asset)}
+                        </button>
+                    ) : (
+                        <span className="flex items-center text-left flex-grow">{title}</span>
+                    )}
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            if (openFilterDropdown?.key === columnKey) {
+                                setOpenFilterDropdown(null);
+                            } else {
+                                setOpenFilterDropdown({ key: columnKey, rect });
+                            }
+                        }}
+                        className={`FilterTriggerBtn ml-2 p-1 rounded-md transition-colors ${columnFilters[columnKey]?.length ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+                        title="Filter"
+                    >
+                        <FilterIcon className="h-3 w-3" />
+                    </button>
+                </div>
+                {openFilterDropdown?.key === columnKey && (
+                    <FilterDropdown
+                        columnKey={columnKey}
+                        items={assets}
+                        columnFilters={columnFilters}
+                        setColumnFilters={setColumnFilters}
+                        onClose={() => setOpenFilterDropdown(null)}
+                        triggerRect={openFilterDropdown.rect}
+                    />
+                )}
+            </th>
+        );
+    };
 
     const requestSort = (key: keyof Asset) => {
 
@@ -1369,11 +1514,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
 
-        const totalToDelete = selectedIds.size;
-
-        
-
-        startBulkOperation(totalToDelete);
+        startBulkOperation(selectedIds.size);
 
 
 
@@ -1381,59 +1522,41 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
 
-        try {
+        for (const id of selectedIds) {
 
 
 
-            // Convert selectedIds Set to array for bulk deletion
+            try {
 
-            const idsToDelete = Array.from(selectedIds) as string[];
 
-            
 
-            // Use the optimized bulk delete method
+                await SupabaseService.deleteAsset(id as string);
 
-            await SupabaseService.deleteAssetsBulk(idsToDelete);
 
-            
-
-            // Update progress for all items at once since bulk delete is atomic
-
-            for (let i = 0; i < totalToDelete; i++) {
 
                 incrementBulkProgress(true);
 
-            }
 
-            
 
-            await SupabaseService.logAllActivity({ 
+            } catch (err) {
 
-                action: 'Bulk Deleted Assets', 
 
-                module: 'Governance', 
 
-                event_data: { count: totalToDelete } 
+                console.error('Failed to delete asset', id, err);
 
-            });
 
-            
 
-        } catch (err) {
+                hasError = true;
 
-            console.error('Bulk delete failed:', err);
 
-            hasError = true;
-
-            
-
-            // Mark all as failed if bulk operation fails
-
-            for (let i = 0; i < totalToDelete; i++) {
 
                 incrementBulkProgress(false);
 
+
+
             }
+
+
 
         }
 
@@ -1441,11 +1564,15 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
         finishBulkOperation(hasError);
 
+
+
         fetchAssets();
 
 
 
     };
+
+
 
 
 
@@ -1740,6 +1867,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
 
+
         return relatedAssets;
 
 
@@ -1754,41 +1882,327 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
     const handleImportCSV = (event: ChangeEvent<HTMLInputElement>) => {
 
+
+
         const file = event.target.files?.[0];
+
+
 
         if (!file) return;
 
 
 
+
+
+
+
         const reader = new FileReader();
+
+
 
         reader.onload = async (e) => {
 
+
+
             const text = e.target?.result as string;
 
-            if (!text) return;
+
+
+            if(!text) return;
 
 
 
-            const { headers, rows } = parseCSVText(text);
-
-            const { newFields, records } = processImportData('assets', headers, rows, customFields);
 
 
 
-            if (newFields.length > 0) {
 
-                setNewFieldsToCreate(newFields);
-
-                setPendingImportData(records);
-
-                return;
-
-            }
+            const lines = text.split('\n').slice(1);
 
 
 
-            prepareImportData(records);
+            const parsedAssets: AssetCreate[] = lines
+
+
+
+                .map(line => {
+
+
+
+                    const fields = parseCSVLine(line);
+
+                    const [asset_id, name, criticality, details, governed_status, vulnerability_count, exposure, category, asset_owner, business_unit, physical_location, ip_address, mac_id] = fields;
+
+
+
+                    // asset_id is optional — DB trigger auto-generates if blank
+
+                    if (!name || !criticality || !governed_status || !exposure || !category) return null;
+
+
+
+
+
+
+
+                    // Basic validation for enum types
+
+
+
+                    const validCriticality: AssetCriticality[] = ['High', 'Medium', 'Low'];
+
+
+
+                    const validGovernedStatus: AssetGovernedStatus[] = ['Governed', 'Non-Governed'];
+
+
+
+                    const validExposure: AssetExposure[] = ['Internal', 'External', 'DMZ'];
+
+
+
+                    const validCategory: AssetCategory[] = ['Physical/Hardware', 'Software', 'Services/Infra', 'Information'];
+
+
+
+
+
+
+
+                    if (!validCriticality.includes(criticality as AssetCriticality) ||
+
+
+
+                        !validGovernedStatus.includes(governed_status as AssetGovernedStatus) ||
+
+
+
+                        !validExposure.includes(exposure as AssetExposure) ||
+
+
+
+                        !validCategory.includes(category as AssetCategory)) {
+
+
+
+                        return null;
+
+
+
+                    }
+
+
+
+
+
+
+
+                    return {
+
+
+
+                        // Pass asset_id only when present; omit so DB trigger generates it
+
+                        ...(asset_id ? { asset_id } : {}),
+
+
+
+                        name,
+
+
+
+                        criticality: criticality as AssetCriticality,
+
+
+
+                        details: details || '',
+
+
+
+                        governed_status: governed_status as AssetGovernedStatus,
+
+
+
+                        vulnerability_count: Number(vulnerability_count) || 0,
+
+
+
+                        exposure: exposure as AssetExposure,
+
+
+
+                        category: category as AssetCategory,
+
+
+
+                        asset_owner: asset_owner || '',
+
+
+
+                        business_unit: business_unit || '',
+
+
+
+                        physical_location: physical_location || '',
+
+
+
+                        ip_address: ip_address || '',
+
+
+
+                        mac_id: mac_id || '',
+
+
+
+                        source: 'File Upload'
+
+
+
+                    };
+
+
+
+                })
+
+
+
+                .filter((asset) => 
+
+    asset !== null &&
+
+    asset.name &&
+
+    asset.criticality &&
+
+    asset.details !== undefined &&
+
+    asset.governed_status &&
+
+    asset.exposure &&
+
+    asset.category &&
+
+    asset.source
+
+) as AssetCreate[];
+
+
+
+
+
+
+
+            // Separate new assets from existing assets that need updates
+
+            const existingAssetMap = new Map(assets.map(a => [a.asset_id, a]));
+
+            const newAssets: AssetCreate[] = [];
+
+            const updatedAssets: { id: string; updates: AssetUpdate }[] = [];
+
+            const unchangedAssets: Asset[] = [];
+
+
+
+            parsedAssets.forEach(parsedAsset => {
+
+                const existingAsset = existingAssetMap.get(parsedAsset.asset_id) as Asset | undefined;
+
+                if (existingAsset) {
+
+                    // Check if asset actually changed
+
+                    const hasChanges = (
+
+                        existingAsset.name !== parsedAsset.name ||
+
+                        existingAsset.asset_owner !== parsedAsset.asset_owner ||
+
+                        existingAsset.business_unit !== parsedAsset.business_unit ||
+
+                        existingAsset.physical_location !== parsedAsset.physical_location ||
+
+                        existingAsset.ip_address !== parsedAsset.ip_address ||
+
+                        existingAsset.mac_id !== parsedAsset.mac_id ||
+
+                        existingAsset.criticality !== parsedAsset.criticality ||
+
+                        existingAsset.details !== parsedAsset.details ||
+
+                        existingAsset.governed_status !== parsedAsset.governed_status ||
+
+                        existingAsset.vulnerability_count !== parsedAsset.vulnerability_count ||
+
+                        existingAsset.exposure !== parsedAsset.exposure ||
+
+                        existingAsset.category !== parsedAsset.category
+
+                    );
+
+
+
+                    if (hasChanges) {
+
+                        // Asset exists and has changes, prepare update
+
+                        const updates: AssetUpdate = {
+
+                            name: parsedAsset.name,
+
+                            asset_owner: parsedAsset.asset_owner,
+
+                            business_unit: parsedAsset.business_unit,
+
+                            physical_location: parsedAsset.physical_location,
+
+                            ip_address: parsedAsset.ip_address,
+
+                            mac_id: parsedAsset.mac_id,
+
+                            criticality: parsedAsset.criticality,
+
+                            details: parsedAsset.details,
+
+                            governed_status: parsedAsset.governed_status,
+
+                            vulnerability_count: parsedAsset.vulnerability_count,
+
+                            exposure: parsedAsset.exposure,
+
+                            category: parsedAsset.category,
+
+                            source: 'File Upload'
+
+                        };
+
+                        updatedAssets.push({ id: existingAsset.id, updates });
+
+                    } else {
+
+                        // No changes, add to unchanged list
+
+                        unchangedAssets.push(existingAsset);
+
+                    }
+
+                } else {
+
+                    // New asset, add to list
+
+                    newAssets.push(parsedAsset);
+
+                }
+
+            });
+
+
+
+            setImportData({ newAssets, updatedAssets, unchangedAssets, duplicates: [] });
+
+            setModalState({ type: 'import' });
+
+
 
         };
 
@@ -1796,241 +2210,291 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
         reader.readAsText(file);
 
-        if (fileInputRef.current) fileInputRef.current.value = '';
-
-    };
 
 
-
-    const prepareImportData = (records: any[]) => {
-
-        const existingAssetMap = new Map(assets.map(a => [a.asset_id, a]));
-
-        const newAssets: AssetCreate[] = [];
-
-        const updatedAssets: { id: string; updates: AssetUpdate }[] = [];
-
-        const unchangedAssets: Asset[] = [];
-
-
-
-        records.forEach(record => {
-
-            const existingAsset = existingAssetMap.get(record.asset_id) as Asset | undefined;
-
-            if (existingAsset) {
-
-                const hasChanges = JSON.stringify(existingAsset.custom_fields) !== JSON.stringify(record.custom_fields) ||
-
-                    existingAsset.name !== record.name ||
-
-                    existingAsset.asset_owner !== record.asset_owner ||
-
-                    existingAsset.business_unit !== record.business_unit ||
-
-                    existingAsset.physical_location !== record.physical_location ||
-
-                    existingAsset.ip_address !== record.ip_address ||
-
-                    existingAsset.mac_id !== record.mac_id ||
-
-                    existingAsset.criticality !== record.criticality ||
-
-                    existingAsset.details !== record.details ||
-
-                    existingAsset.governed_status !== record.governed_status ||
-
-                    existingAsset.vulnerability_count !== record.vulnerability_count ||
-
-                    existingAsset.exposure !== record.exposure ||
-
-                    existingAsset.category !== record.category;
-
-
-
-                if (hasChanges) {
-
-                    updatedAssets.push({ id: existingAsset.id, updates: { ...record, source: 'File Upload' } as AssetUpdate });
-
-                } else {
-
-                    unchangedAssets.push(existingAsset);
-
-                }
-
-            } else {
-
-                newAssets.push(record as AssetCreate);
-
-            }
-
-        });
-
-
-
-        setImportData({ newAssets, updatedAssets, unchangedAssets, duplicates: [] });
-
-        setModalState({ type: 'import' });
-
-    };
-
-
-
-    const handleConfirmNewFields = async () => {
-
-        try {
-
-            await Promise.all(newFieldsToCreate.map(field => 
-
-                SupabaseService.createCustomField('assets', field)
-
-            ));
-
-            
-
-            const fields = await SupabaseService.getCustomFields('assets');
-
-            setCustomFields(fields);
-
-            
-
-            const data = [...pendingImportData];
-
-            setNewFieldsToCreate([]);
-
-            setPendingImportData([]);
-
-            prepareImportData(data);
-
-        } catch (err) {
-
-            setError('Failed to create new custom fields.');
-
-        }
+        if(fileInputRef.current) fileInputRef.current.value = '';
 
     };
 
 
 
     const handleConfirmImport = async () => {
+
         if (importData.newAssets.length > 0 || importData.updatedAssets.length > 0) {
+
             try {
+
                 setIsImporting(true);
+
                 const totalItems = importData.newAssets.length + importData.updatedAssets.length;
+
                 setTotalToImport(totalItems);
+
                 setImportedCount(0);
+
                 setImportErrors(0);
+
                 setImportProgress(0);
 
+
+
                 let processed = 0;
+
                 let errors = 0;
 
+
+
+                // Helper function to safely calculate progress
+
                 const updateProgress = (processedCount: number) => {
+
                     const progress = totalItems > 0 ? Math.round((processedCount / totalItems) * 100) : 0;
+
                     setImportProgress(progress);
+
                     setImportedCount(processedCount);
+
                 };
 
+
+
+                // Add new assets using single API (server handles chunking automatically)
+
                 if (importData.newAssets.length > 0) {
+
                     try {
+
                         const result = await SupabaseService.bulkAddAssets(importData.newAssets);
+
                         processed += importData.newAssets.length;
+
                         updateProgress(processed);
+
+                        
+
+                        // Handle chunked response format for large imports
+
                         if (result && typeof result === 'object' && 'errors' in result) {
+
                             errors += (result as { errors?: number }).errors || 0;
+
                             setImportErrors(errors);
+
                         }
+
                     } catch (err) {
+
                         errors += importData.newAssets.length;
+
                         setImportErrors(errors);
+
                         console.error('Failed to import new assets:', err);
+
                     }
+
                 }
+
                 
+
+                // Update existing assets
+
                 if (importData.updatedAssets.length > 0) {
+
                     for (const { id, updates } of importData.updatedAssets) {
+
                         try {
+
                             await SupabaseService.updateAsset(id, updates);
+
                             processed++;
+
                             updateProgress(processed);
+
                         } catch (err) {
+
                             errors++;
+
                             setImportErrors(errors);
+
                             console.error(`Failed to update asset ${id}:`, err);
+
                         }
+
                     }
+
                 }
+
+
 
                 await SupabaseService.logAllActivity({
+
                     action: 'CSV Import - Added and Updated Assets',
+
                     module: 'Governance',
+
                     event_data: { 
+
                         newCount: importData.newAssets.length, 
+
                         updatedCount: importData.updatedAssets.length,
+
                         totalProcessed: processed,
+
                         errors: errors
+
                     }
+
                 });
 
+
+
                 setModalState({ type: null });
+
                 fetchAssets();
+
             } catch (err) {
+
                 setError('Failed to import assets.');
+
                 console.error(err);
+
             } finally {
+
                 setIsImporting(false);
+
             }
+
         }
+
     };
 
 
 
-const handleExportCSV = () => {
-    // Start with standard headers (Using labels that match importUtils mapping)
-    let headers = ['Asset ID', 'Name', 'Criticality', 'Details', 'Governed Status', 'Vulnerability Count', 'Exposure', 'Category', 'Owner', 'Business Unit', 'Physical Location', 'IP Address', 'MAC ID', 'Source'];
-    
-    // Add custom field labels
-    const customFieldLabels = customFields.map(field => field.field_label);
-    headers = [...headers, ...customFieldLabels];
+    const handleExportCSV = () => {
+
+
+
+        const headers = ['asset_id', 'name', 'criticality', 'details', 'governed_status', 'vulnerability_count', 'exposure', 'category', 'asset_owner', 'business_unit', 'physical_location', 'ip_address', 'mac_id', 'source'];
+
+
 
     const csvContent = [
+
+
+
         headers.join(','),
-        ...filteredAndSortedAssets.map(asset => {
-            // Start with standard fields
-            let row = [
+
+
+
+        ...filteredAndSortedAssets.map(asset =>
+
+
+
+            [
+
+
+
                 asset.asset_id,
+
+
+
                 `"${(asset.name || '').replace(/"/g, '""')}"`,
+
+
+
                 asset.criticality || '',
+
+
+
                 `"${(asset.details || '').replace(/"/g, '""')}"`,
+
+
+
                 asset.governed_status || '',
+
+
+
                 asset.vulnerability_count || 0,
+
+
+
                 asset.exposure || '',
+
+
+
                 asset.category || '',
-                `"${(asset.asset_owner || '').replace(/"/g, '""')}"`,
-                `"${(asset.business_unit || '').replace(/"/g, '""')}"`,
-                `"${(asset.physical_location || '').replace(/"/g, '""')}"`,
+
+
+
+                asset.asset_owner || '',
+
+
+
+                asset.business_unit || '',
+
+
+
+                asset.physical_location || '',
+
+
+
                 asset.ip_address || '',
+
+
+
                 asset.mac_id || '',
+
+
+
                 asset.source || ''
-            ];
 
-            // Add custom field values
-            const customFieldValues = customFields.map(field => {
-                const value = asset.custom_fields?.[field.field_name] ?? '';
-                return `"${String(value).replace(/"/g, '""')}"`;
-            });
 
-            row = [...row, ...customFieldValues];
-            return row.join(',');
-        })
+
+            ].join(',')
+
+
+
+        )
+
+
+
     ].join('\n');
 
+
+
+
+
+
+
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+
+
+
     const link = document.createElement('a');
+
+
+
     link.href = URL.createObjectURL(blob);
+
+
+
     link.download = `assets-${new Date().toISOString().split('T')[0]}.csv`;
+
+
+
     link.click();
+
+
+
 };
+
+
+
+
+
+
+
+    const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
 
 
 
@@ -2148,6 +2612,10 @@ const handleExportCSV = () => {
 
 
 
+
+
+
+
                 </div>
 
 
@@ -2188,214 +2656,34 @@ const handleExportCSV = () => {
 
 
 
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 w-16 px-2 py-3">
-
-
-
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 w-16 px-4 py-3">
                                     <div className="flex items-center space-x-2">
-
-
-
                                         <input
-
-
-
                                             type="checkbox"
-
-
-
-                                            checked={filteredAndSortedAssets.length > 0 && filteredAndSortedAssets.every(i => selectedIds.has(i.id))}
-
-
-
+                                            checked={selectedIds.size === filteredAndSortedAssets.length && filteredAndSortedAssets.length > 0}
                                             onChange={() => toggleAll(filteredAndSortedAssets.map(i => i.id))}
-
-
-
                                             className="rounded border-gray-300 dark:border-gray-600 cursor-pointer"
-
-
-
+                                            title="Select All"
                                         />
-
-
-
-                                        <button onClick={() => setShowColumnManagement(true)} title="Manage Columns" className="p-1 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
-
-
-
-                                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-
-
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-
-
-
-                                            </svg>
-
-
-
+                                        <button onClick={() => setShowColumnManagement(true)} title="Manage Columns" className="p-1 text-gray-400 hover:text-purple-500 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors">
+                                            <PlusIcon className="h-4 w-4" />
                                         </button>
-
-
-
                                     </div>
-
-
-
                                 </th>
 
 
 
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-
-
-                                    <button onClick={() => requestSort('asset_id')} className="flex items-center w-full text-left focus:outline-none">
-
-
-
-                                        Asset ID {getSortIconFor('asset_id')}
-
-
-
-                                    </button>
-
-
-
-                                </th>
-
-
-
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-
-
-                                    <button onClick={() => requestSort('name')} className="flex items-center w-full text-left focus:outline-none">
-
-
-
-                                        Name {getSortIconFor('name')}
-
-
-
-                                    </button>
-
-
-
-                                </th>
-
-
-
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-
-
-                                    <button onClick={() => requestSort('criticality')} className="flex items-center w-full text-left focus:outline-none">
-
-
-
-                                        Criticality {getSortIconFor('criticality')}
-
-
-
-                                    </button>
-
-
-
-                                </th>
-
-
-
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-
-
-                                    <button onClick={() => requestSort('business_unit')} className="flex items-center w-full text-left focus:outline-none">
-
-
-
-                                        Business Unit {getSortIconFor('business_unit')}
-
-
-
-                                    </button>
-
-
-
-                                </th>
-
-
-
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-
-
-                                    <button onClick={() => requestSort('governed_status')} className="flex items-center w-full text-left focus:outline-none">
-
-
-
-                                        Governed {getSortIconFor('governed_status')}
-
-
-
-                                    </button>
-
-
-
-                                </th>
-
-
-
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-
-
-                                    NN Controls
-
-
-
-                                </th>
-
-
-
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-
-
-                                    <button onClick={() => requestSort('source')} className="flex items-center w-full text-left focus:outline-none">
-
-
-
-                                        Source {getSortIconFor('source')}
-
-
-
-                                    </button>
-
-
-
-                                </th>
-
-
+                                {renderFilterableHeader('asset_id', 'Asset ID')}
+                                {renderFilterableHeader('name', 'Name')}
+                                {renderFilterableHeader('criticality', 'Criticality')}
+                                {renderFilterableHeader('business_unit', 'Business Unit')}
+                                {renderFilterableHeader('governed_status', 'Governed')}
+                                {renderFilterableHeader('nn_controls', 'NN Controls')}
+                                {renderFilterableHeader('source', 'Source')}
 
                                 {/* Custom Fields Columns */}
-
                                 {customFields.map((field) => (
-
-                                    <th key={field.id} scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-                                        <div className="flex items-center">
-
-                                            {field.field_label}
-
-                                            {field.is_required && <span className="text-red-500 ml-1">*</span>}
-
-                                        </div>
-
-                                    </th>
-
+                                    renderFilterableHeader(`custom_field_${field.field_name}`, field.field_label + (field.is_required ? " *" : ""))
                                 ))}
 
 
@@ -2414,13 +2702,21 @@ const handleExportCSV = () => {
 
                             {loading ? (
 
+
+
                                 <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading assets...</td></tr>
 
-                            ) : paginatedAssets.length === 0 ? (
+
+
+                            ) : filteredAndSortedAssets.length === 0 ? (
+
+
 
                                 <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">No assets found.</td></tr>
 
-                            ) : paginatedAssets.map(asset => (
+
+
+                            ) : filteredAndSortedAssets.map(asset => (
 
 
 
@@ -2659,92 +2955,6 @@ const handleExportCSV = () => {
                 </div>
 
 
-
-            </div>
-
-
-
-            {/* Pagination Controls */}
-
-            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700">
-
-                <div className="flex items-center space-x-2">
-
-                    <button
-
-                        onClick={() => setCurrentPage(currentPage - 1)}
-
-                        disabled={currentPage === 1}
-
-                        className="px-3 py-1 text-sm bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:border-gray-600 dark:text-white"
-
-                    >
-
-                        Previous
-
-                    </button>
-
-                    <div className="px-4 py-1 text-sm text-gray-700 dark:text-gray-300 bg-white border border-gray-300 rounded-md shadow-sm dark:bg-gray-800 dark:border-gray-600">
-
-                        {currentPage} of {Math.ceil(filteredAndSortedAssets.length / itemsPerPage)}
-
-                    </div>
-
-                    <button
-
-                        onClick={() => setCurrentPage(currentPage + 1)}
-
-                        disabled={currentPage === Math.ceil(filteredAndSortedAssets.length / itemsPerPage)}
-
-                        className="px-3 py-1 text-sm bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:border-gray-600 dark:text-white"
-
-                    >
-
-                        Next
-
-                    </button>
-
-                </div>
-
-                <div className="flex items-center space-x-4">
-
-                    <div className="text-sm text-gray-700 dark:text-gray-300">
-
-                        Showing {startIndex + 1} to {Math.min(endIndex, filteredAndSortedAssets.length)} of {filteredAndSortedAssets.length} results
-
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-
-                        <span className="text-sm text-gray-700 dark:text-gray-300">
-
-                            Items per page:
-
-                        </span>
-
-                        <select
-
-                            value={itemsPerPage}
-
-                            onChange={e => setItemsPerPage(Number(e.target.value))}
-
-                            className="rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-white"
-
-                        >
-
-                            <option value={50}>50</option>
-
-                            <option value={100}>100</option>
-
-                            <option value={200}>200</option>
-
-                            <option value={500}>500</option>
-
-                        </select>
-
-                    </div>
-
-                </div>
 
             </div>
 
@@ -3339,20 +3549,6 @@ onClose={() => {}} // Import can't be cancelled, so empty function
             />
 
 
-
-            <ImportConfirmationModal
-
-                isOpen={newFieldsToCreate.length > 0}
-
-                onClose={() => { setNewFieldsToCreate([]); setPendingImportData([]); }}
-
-                onConfirm={handleConfirmNewFields}
-
-                newFields={newFieldsToCreate}
-
-                moduleName="Assets"
-
-            />
 
         </div>
 
