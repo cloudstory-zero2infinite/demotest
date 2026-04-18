@@ -130,27 +130,90 @@ MODULE_SYSTEM_PROMPTS = {
 
 
 def get_db_connection():
-    """Get database connection with retry logic and better error handling."""
+    """Get database connection with retry logic and DNS resolution fallback."""
     if not DATABASE_URL:
         raise HTTPException(status_code=500, detail="DATABASE_URL not configured")
     
+    import socket
+    import time
+    
+    # Parse the DATABASE_URL to extract hostname
     try:
-        # Add connection timeout - remove unsupported statement_timeout option
-        conn = psycopg2.connect(
-            DATABASE_URL,
-            connect_timeout=10
-        )
-        return conn
-    except psycopg2.OperationalError as e:
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Database connection failed: {str(e)}. Check DATABASE_URL and network connectivity."
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Unexpected database error: {str(e)}"
-        )
+        import urllib.parse
+        parsed = urllib.parse.urlparse(DATABASE_URL)
+        hostname = parsed.hostname
+        original_url = DATABASE_URL
+    except Exception:
+        raise HTTPException(status_code=500, detail="Invalid DATABASE_URL format")
+    
+    # Try different connection strategies
+    connection_attempts = [
+        # 1. Original URL
+        original_url,
+        # 2. Try with IPv4 only (disable IPv6)
+        None,  # Will be constructed if needed
+        # 3. Try with different timeout settings
+        None,  # Will be constructed if needed
+    ]
+    
+    for attempt, url in enumerate(connection_attempts):
+        if url is None and attempt == 1:
+            # Try with IPv4 only by setting socket preference
+            original_socket = socket.socket
+            socket.socket = lambda *args, **kwargs: original_socket(socket.AF_INET, *args[1:], **kwargs)
+            url = original_url
+        elif url is None and attempt == 2:
+            # Try with longer timeout
+            url = original_url
+            continue  # Will be handled with different timeout below
+        elif url is None:
+            continue
+            
+        try:
+            if attempt == 2:
+                # Try with longer timeout
+                conn = psycopg2.connect(url, connect_timeout=30)
+            else:
+                conn = psycopg2.connect(url, connect_timeout=10)
+            
+            # Reset socket if we modified it
+            if attempt == 1 and 'original_socket' in locals():
+                socket.socket = original_socket
+                
+            return conn
+            
+        except psycopg2.OperationalError as e:
+            # Reset socket if we modified it
+            if attempt == 1 and 'original_socket' in locals():
+                socket.socket = original_socket
+                
+            print(f"Connection attempt {attempt + 1} failed: {str(e)}")
+            if attempt == len(connection_attempts) - 1:
+                # Last attempt failed, raise detailed error
+                error_msg = f"Database connection failed after {len(connection_attempts)} attempts.\n"
+                error_msg += f"Original error: {str(e)}\n"
+                error_msg += f"Hostname: {hostname}\n"
+                error_msg += "Possible solutions:\n"
+                error_msg += "1. Check network connectivity and DNS resolution\n"
+                error_msg += "2. Verify Supabase project is active\n"
+                error_msg += "3. Check if firewall is blocking the connection\n"
+                error_msg += "4. Try using direct IP address instead of hostname"
+                
+                raise HTTPException(status_code=500, detail=error_msg)
+            
+            # Wait before retry
+            time.sleep(1)
+            
+        except Exception as e:
+            # Reset socket if we modified it
+            if attempt == 1 and 'original_socket' in locals():
+                socket.socket = original_socket
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unexpected database error: {str(e)}"
+            )
+    
+    raise HTTPException(status_code=500, detail="All connection attempts failed")
 
 
 def get_schema(table_name: str) -> list[dict]:
