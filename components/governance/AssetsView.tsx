@@ -15,7 +15,7 @@ import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
 
 
 
-import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon, FilterIcon } from '../Icons';
+import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon, FilterIcon, FunnelIcon } from '../Icons';
 
 import { parseCSVLine } from '../../utils/csvParser';
 
@@ -1174,33 +1174,47 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
     const renderFilterableHeader = (columnKey: string, title: string) => {
+        // Check if field has dropdown filter
+        const hasDropdownFilter = ['criticality', 'category', 'exposure'].includes(columnKey);
+        
+        // Check if custom field has select or boolean type
+        const isCustomField = columnKey.startsWith('custom_field_');
+        const customFieldName = columnKey.replace('custom_field_', '');
+        const customField = customFields.find(f => f.field_name === customFieldName);
+        const hasCustomDropdown = customField && (customField.field_type === 'select' || customField.field_type === 'boolean');
+        
+        const shouldShowFilter = hasDropdownFilter || hasCustomDropdown;
+        
         return (
             <th scope="col" key={columnKey} className="relative sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-                <div className="flex items-center justify-between">
-                    {columnKey !== 'nn_controls' && !columnKey.startsWith('custom_field_') ? (
+                <div className="flex items-center">
+                    {columnKey !== 'nn_controls' ? (
                         <button onClick={() => requestSort(columnKey as keyof Asset)} className="flex items-center text-left focus:outline-none flex-grow">
-                            {title} {getSortIconFor(columnKey as keyof Asset)}
+                            {title}
+                            {getSortIconFor(columnKey as keyof Asset)}
                         </button>
                     ) : (
                         <span className="flex items-center text-left flex-grow">{title}</span>
                     )}
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            if (openFilterDropdown?.key === columnKey) {
-                                setOpenFilterDropdown(null);
-                            } else {
-                                setOpenFilterDropdown({ key: columnKey, rect });
-                            }
-                        }}
-                        className={`FilterTriggerBtn ml-2 p-1 rounded-md transition-colors ${columnFilters[columnKey]?.length ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
-                        title="Filter"
-                    >
-                        <FilterIcon className="h-3 w-3" />
-                    </button>
+                    {shouldShowFilter && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                if (openFilterDropdown?.key === columnKey) {
+                                    setOpenFilterDropdown(null);
+                                } else {
+                                    setOpenFilterDropdown({ key: columnKey, rect });
+                                }
+                            }}
+                            className={`ml-1 p-0.5 rounded transition-colors ${columnFilters[columnKey]?.length ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+                            title="Filter"
+                        >
+                            <FunnelIcon className="h-3 w-3" />
+                        </button>
+                    )}
                 </div>
-                {openFilterDropdown?.key === columnKey && (
+                {openFilterDropdown?.key === columnKey && shouldShowFilter && (
                     <FilterDropdown
                         columnKey={columnKey}
                         items={assets}
