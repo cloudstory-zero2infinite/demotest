@@ -455,14 +455,61 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
 
     const [importData, setImportData] = useState<any[]>([]);
     const [isImporting, setIsImporting] = useState(false);
+
     const [importProgress, setImportProgress] = useState(0);
+
     const [totalToImport, setTotalToImport] = useState(0);
+
     const [importedCount, setImportedCount] = useState(0);
+
     const [importErrors, setImportErrors] = useState(0);
 
     const [filter, setFilter] = useState('');
 
     const [sortConfig, setSortConfig] = useState<{ key: keyof Vulnerability; direction: 'ascending' | 'descending' } | null>(null);
+
+    // Draggable columns state
+    const [columnOrder, setColumnOrder] = useState(['name', 'asset_id', 'derived_from', 'status']);
+
+    const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
+
+    const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+
+    const [isDragging, setIsDragging] = useState(false);
+
+    // Load column order from localStorage
+    useEffect(() => {
+
+        const savedOrder = localStorage.getItem('vulnerabilities-column-order');
+
+        if (savedOrder) {
+
+            try {
+
+                const parsed = JSON.parse(savedOrder);
+
+                if (Array.isArray(parsed) && parsed.length === 4) {
+
+                    setColumnOrder(parsed);
+
+                }
+
+            } catch (e) {
+
+                console.error('Failed to load column order:', e);
+
+            }
+
+        }
+
+    }, []);
+
+    // Save column order to localStorage
+    useEffect(() => {
+
+        localStorage.setItem('vulnerabilities-column-order', JSON.stringify(columnOrder));
+
+    }, [columnOrder]);
 
     const [currentPage, setCurrentPage] = useState(1);
 
@@ -775,6 +822,86 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
 
         }
 
+    };
+
+    // Drag and drop handlers
+    const handleDragStart = (e: React.DragEvent, columnKey: string) => {
+        setDraggedColumn(columnKey);
+        setIsDragging(true);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', columnKey);
+    };
+    
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    };
+    
+    const handleDragEnter = (columnKey: string) => {
+        if (draggedColumn && draggedColumn !== columnKey) {
+            setDragOverColumn(columnKey);
+        }
+    };
+    
+    const handleDragLeave = () => {
+        setDragOverColumn(null);
+    };
+    
+    const handleDrop = (e: React.DragEvent, targetColumn: string) => {
+        e.preventDefault();
+        if (draggedColumn && draggedColumn !== targetColumn) {
+            const newOrder = [...columnOrder];
+            const draggedIndex = newOrder.indexOf(draggedColumn);
+            const targetIndex = newOrder.indexOf(targetColumn);
+            
+            // Remove dragged column and insert at new position
+            newOrder.splice(draggedIndex, 1);
+            newOrder.splice(targetIndex, 0, draggedColumn);
+            
+            setColumnOrder(newOrder);
+        }
+        setDraggedColumn(null);
+        setDragOverColumn(null);
+        setIsDragging(false);
+    };
+    
+    const handleDragEnd = () => {
+        setDraggedColumn(null);
+        setDragOverColumn(null);
+        setIsDragging(false);
+    };
+
+    const renderFilterableHeader = (columnKey: string, title: string) => {
+        const isDragged = draggedColumn === columnKey;
+        const isDragOver = dragOverColumn === columnKey;
+        
+        return (
+            <th 
+                scope="col" 
+                key={columnKey} 
+                draggable
+                onDragStart={(e) => handleDragStart(e, columnKey)}
+                onDragOver={handleDragOver}
+                onDragEnter={() => handleDragEnter(columnKey)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, columnKey)}
+                onDragEnd={handleDragEnd}
+                className={`relative sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300 cursor-move transition-all ${
+                    isDragged ? 'opacity-50' : ''
+                } ${
+                    isDragOver ? 'border-l-4 border-l-blue-500 bg-blue-50 dark:bg-blue-900/20' : ''
+                } ${
+                    isDragging && !isDragged && !isDragOver ? 'opacity-75' : ''
+                }`}
+            >
+                <div className="flex items-center">
+                    <button onClick={() => requestSort(columnKey as keyof Vulnerability)} className="flex items-center text-left focus:outline-none flex-grow">
+                        {title}
+                        {getSortIconFor(columnKey as keyof Vulnerability)}
+                    </button>
+                </div>
+            </th>
+        );
     };
 
     const handleBulkDelete = async () => {
@@ -1168,25 +1295,15 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
 
                                 </th>
 
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-                                    <button onClick={() => requestSort('name')} className="flex items-center w-full text-left focus:outline-none">Name {getSortIconFor('name')}</button>
-
-                                </th>
-
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Associated Asset</th>
-
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-                                    <button onClick={() => requestSort('derived_from')} className="flex items-center w-full text-left focus:outline-none">Source {getSortIconFor('derived_from')}</button>
-
-                                </th>
-
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-                                    <button onClick={() => requestSort('status')} className="flex items-center w-full text-left focus:outline-none">Status {getSortIconFor('status')}</button>
-
-                                </th>
+                                {columnOrder.map(columnKey => {
+                                    const columnTitles = {
+                                        'name': 'Name',
+                                        'asset_id': 'Associated Asset',
+                                        'derived_from': 'Source',
+                                        'status': 'Status'
+                                    };
+                                    return renderFilterableHeader(columnKey, columnTitles[columnKey as keyof typeof columnTitles]);
+                                })}
 
                                 {/* Custom Fields Columns */}
 
@@ -1254,31 +1371,24 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
 
                                     </td>
 
-                                    <td className="px-6 py-4 whitespace-nowrap">
+                                    {columnOrder.includes('name') && (
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            {isEditing && selectedIds.has(vuln.id) ? (
+                                                <input type="text" value={editValues[vuln.id]?.name ?? vuln.name} onChange={e => updateField(vuln.id, 'name', e.target.value)} className="w-full border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                                            ) : (
+                                                <>
+                                                    <div className="text-sm font-medium text-gray-900 dark:text-white">{vuln.name}</div>
+                                                    <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{vuln.description}</div>
+                                                </>
+                                            )}
+                                        </td>
+                                    )}
 
-                                        {isEditing && selectedIds.has(vuln.id) ? (
-
-                                            <input type="text" value={editValues[vuln.id]?.name ?? vuln.name} onChange={e => updateField(vuln.id, 'name', e.target.value)} className="w-full border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
-
-                                        ) : (
-
-                                            <>
-
-                                                <div className="text-sm font-medium text-gray-900 dark:text-white">{vuln.name}</div>
-
-                                                <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{vuln.description}</div>
-
-                                            </>
-
-                                        )}
-
-                                    </td>
-
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-
-                                        {vuln.assets ? `${vuln.assets.name} (${vuln.assets.asset_id})` : 'N/A'}
-
-                                    </td>
+                                    {columnOrder.includes('asset_id') && (
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                            {vuln.assets ? `${vuln.assets.name} (${vuln.assets.asset_id})` : 'N/A'}
+                                        </td>
+                                    )}
 
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
 

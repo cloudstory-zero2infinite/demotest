@@ -112,13 +112,19 @@ const apiRequest = async <T>(path: string, options: RequestInit = {}): Promise<T
 
     const err = await response.json().catch(() => ({ message: response.statusText }));
 
+    console.error('API Request Error:', {
+      status: response.status,
+      statusText: response.statusText,
+      error: err
+    });
+
     let msg = err.message || `Request failed with status ${response.status}`;
 
     if (Array.isArray(err.details) && err.details.length > 0) {
 
       const extra = err.details.map((d: { name?: string; message?: string }) => d.name || d.message).filter(Boolean).join('; ');
 
-      if (extra) msg = `${msg} — ${extra}`;
+      if (extra) msg = `${msg} - ${extra}`;
 
     }
 

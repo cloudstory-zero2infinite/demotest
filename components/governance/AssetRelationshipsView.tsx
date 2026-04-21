@@ -337,6 +337,32 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
     const [sortConfig, setSortConfig] = useState<{ key: keyof AssetRelationship; direction: 'ascending' | 'descending' } | null>(null);
 
+    // Draggable columns state
+    const [columnOrder, setColumnOrder] = useState(['source_asset_id', 'relationship_type', 'target_asset_id']);
+    const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
+    const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
+
+    // Load column order from localStorage
+    useEffect(() => {
+        const savedOrder = localStorage.getItem('asset-relationships-column-order');
+        if (savedOrder) {
+            try {
+                const parsed = JSON.parse(savedOrder);
+                if (Array.isArray(parsed) && parsed.length === 3) {
+                    setColumnOrder(parsed);
+                }
+            } catch (e) {
+                console.error('Failed to load column order:', e);
+            }
+        }
+    }, []);
+
+    // Save column order to localStorage
+    useEffect(() => {
+        localStorage.setItem('asset-relationships-column-order', JSON.stringify(columnOrder));
+    }, [columnOrder]);
+
     const [currentPage, setCurrentPage] = useState(1);
 
     const [itemsPerPage, setItemsPerPage] = useState(100);
@@ -540,7 +566,85 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
     };
 
+    // Drag and drop handlers
+    const handleDragStart = (e: React.DragEvent, columnKey: string) => {
+        setDraggedColumn(columnKey);
+        setIsDragging(true);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', columnKey);
+    };
+    
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    };
+    
+    const handleDragEnter = (columnKey: string) => {
+        if (draggedColumn && draggedColumn !== columnKey) {
+            setDragOverColumn(columnKey);
+        }
+    };
+    
+    const handleDragLeave = () => {
+        setDragOverColumn(null);
+    };
+    
+    const handleDrop = (e: React.DragEvent, targetColumn: string) => {
+        e.preventDefault();
+        if (draggedColumn && draggedColumn !== targetColumn) {
+            const newOrder = [...columnOrder];
+            const draggedIndex = newOrder.indexOf(draggedColumn);
+            const targetIndex = newOrder.indexOf(targetColumn);
+            
+            // Remove dragged column and insert at new position
+            newOrder.splice(draggedIndex, 1);
+            newOrder.splice(targetIndex, 0, draggedColumn);
+            
+            setColumnOrder(newOrder);
+        }
+        setDraggedColumn(null);
+        setDragOverColumn(null);
+        setIsDragging(false);
+    };
+    
+    const handleDragEnd = () => {
+        setDraggedColumn(null);
+        setDragOverColumn(null);
+        setIsDragging(false);
+    };
 
+    const renderFilterableHeader = (columnKey: string, title: string) => {
+        const isDragged = draggedColumn === columnKey;
+        const isDragOver = dragOverColumn === columnKey;
+        
+        return (
+            <th 
+                scope="col" 
+                key={columnKey} 
+                draggable
+                onDragStart={(e) => handleDragStart(e, columnKey)}
+                onDragOver={handleDragOver}
+                onDragEnter={() => handleDragEnter(columnKey)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, columnKey)}
+                onDragEnd={handleDragEnd}
+                className={`relative sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300 cursor-move transition-all ${
+                    isDragged ? 'opacity-50' : ''
+                } ${
+                    isDragOver ? 'border-l-4 border-l-blue-500 bg-blue-50 dark:bg-blue-900/20' : ''
+                } ${
+                    isDragging && !isDragged && !isDragOver ? 'opacity-75' : ''
+                }`}
+            >
+                <div className="flex items-center">
+                    <button onClick={() => requestSort(columnKey as keyof AssetRelationship)} className="flex items-center text-left focus:outline-none flex-grow">
+                        {title}
+                        {getSortIconFor(columnKey as keyof AssetRelationship)}
+                    </button>
+                </div>
+            </th>
+        );
+    };
 
     const closeModal = () => setModalState({ type: null });
 
@@ -1224,23 +1328,14 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
                                 </th>
 
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-                                    <button onClick={() => requestSort('source_asset_id')} className="flex items-center w-full text-left focus:outline-none">Source Asset {getSortIconFor('source_asset_id')}</button>
-
-                                </th>
-
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-                                    <button onClick={() => requestSort('relationship_type')} className="flex items-center w-full text-left focus:outline-none">Relationship {getSortIconFor('relationship_type')}</button>
-
-                                </th>
-
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-                                    <button onClick={() => requestSort('target_asset_id')} className="flex items-center w-full text-left focus:outline-none">Target Asset {getSortIconFor('target_asset_id')}</button>
-
-                                </th>
+                                {columnOrder.map(columnKey => {
+                                    const columnTitles = {
+                                        'source_asset_id': 'Source Asset',
+                                        'relationship_type': 'Relationship',
+                                        'target_asset_id': 'Target Asset'
+                                    };
+                                    return renderFilterableHeader(columnKey, columnTitles[columnKey as keyof typeof columnTitles]);
+                                })}
 
                                 {/* Custom Fields Columns */}
 
@@ -1308,47 +1403,40 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
                                     </td>
 
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-
-                                        {isEditing && selectedIds.has(rel.id) ? (
-
-                                            <select value={editValues[rel.id]?.source_asset_id ?? rel.source_asset_id} onChange={e => updateField(rel.id, 'source_asset_id', e.target.value)} className={editSelectCls}>
-
-                                                {assetIds.map(id => <option key={id} value={id}>{id}</option>)}
-
-                                            </select>
-
-                                        ) : rel.source_asset_id}
-
-                                    </td>
-
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 dark:text-blue-400 font-medium">
-
-                                        {isEditing && selectedIds.has(rel.id) ? (
-
-                                            <select value={editValues[rel.id]?.relationship_type ?? rel.relationship_type} onChange={e => updateField(rel.id, 'relationship_type', e.target.value)} className={editSelectCls}>
-
-                                                {RELATIONSHIP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-
-                                            </select>
-
-                                        ) : rel.relationship_type}
-
-                                    </td>
-
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-
-                                        {isEditing && selectedIds.has(rel.id) ? (
-
-                                            <select value={editValues[rel.id]?.target_asset_id ?? rel.target_asset_id} onChange={e => updateField(rel.id, 'target_asset_id', e.target.value)} className={editSelectCls}>
-
-                                                {assetIds.map(id => <option key={id} value={id}>{id}</option>)}
-
-                                            </select>
-
-                                        ) : rel.target_asset_id}
-
-                                    </td>
+                                    {columnOrder.map(columnKey => {
+                                        if (columnKey === 'source_asset_id') {
+                                            return (
+                                                <td key={columnKey} className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                                                    {isEditing && selectedIds.has(rel.id) ? (
+                                                        <select value={editValues[rel.id]?.source_asset_id ?? rel.source_asset_id} onChange={e => updateField(rel.id, 'source_asset_id', e.target.value)} className={editSelectCls}>
+                                                            {assetIds.map(id => <option key={id} value={id}>{id}</option>)}
+                                                        </select>
+                                                    ) : rel.source_asset_id}
+                                                </td>
+                                            );
+                                        } else if (columnKey === 'relationship_type') {
+                                            return (
+                                                <td key={columnKey} className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 dark:text-blue-400 font-medium">
+                                                    {isEditing && selectedIds.has(rel.id) ? (
+                                                        <select value={editValues[rel.id]?.relationship_type ?? rel.relationship_type} onChange={e => updateField(rel.id, 'relationship_type', e.target.value)} className={editSelectCls}>
+                                                            {RELATIONSHIP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                                        </select>
+                                                    ) : rel.relationship_type}
+                                                </td>
+                                            );
+                                        } else if (columnKey === 'target_asset_id') {
+                                            return (
+                                                <td key={columnKey} className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                                                    {isEditing && selectedIds.has(rel.id) ? (
+                                                        <select value={editValues[rel.id]?.target_asset_id ?? rel.target_asset_id} onChange={e => updateField(rel.id, 'target_asset_id', e.target.value)} className={editSelectCls}>
+                                                            {assetIds.map(id => <option key={id} value={id}>{id}</option>)}
+                                                        </select>
+                                                    ) : rel.target_asset_id}
+                                                </td>
+                                            );
+                                        }
+                                        return null;
+                                    })}
 
                                     {/* Custom Fields Data Cells */}
 
