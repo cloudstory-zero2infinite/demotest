@@ -44,6 +44,10 @@ router.get('/', requireAuth, async (req, res) => {
 
     if (error) throw error;
 
+    // For now, all controls are stored as Standard in the database
+    // We could add logic here to determine which should be Custom based on other criteria
+    // For the immediate fix, we'll return the data as-is
+
     res.json(data || []);
 
   } catch (err) {
@@ -60,7 +64,15 @@ router.post('/', requireAuth, async (req, res) => {
 
   try {
 
-    const payload = { ...req.body, user_id: req.userId, org_id: req.orgId };
+    console.log('POST /api/control-registry - Request body:', req.body);
+
+    let payload = { ...req.body, user_id: req.userId, org_id: req.orgId };
+
+    // Store control type as-is (Custom should be allowed in database)
+    console.log('DATABASE STORAGE INFO: Storing control type as-is');
+    console.log('Type being stored in database:', payload.ctl_type);
+
+    console.log('POST /api/control-registry - Final payload:', payload);
 
     const { data, error } = await supabaseAdmin
 
@@ -72,11 +84,19 @@ router.post('/', requireAuth, async (req, res) => {
 
       .single();
 
+    console.log('POST /api/control-registry - Supabase response:', { data, error });
+
     if (error) throw error;
+
+    // Return database data as-is (Custom should be stored directly)
+    console.log('RESPONSE INFO: Returning database type as-is');
+    console.log('Type returned to frontend:', data.ctl_type);
 
     res.status(201).json(data);
 
   } catch (err) {
+
+    console.error('POST /api/control-registry - Error:', err);
 
     res.status(500).json({ message: err.message });
 

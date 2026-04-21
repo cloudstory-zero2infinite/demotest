@@ -864,21 +864,36 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
     const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
     const [openFilterDropdown, setOpenFilterDropdown] = useState<{key: string, rect: DOMRect} | null>(null);
+    
+    // Draggable columns state
+    const [columnOrder, setColumnOrder] = useState<string[]>(() => {
+        // Load saved column order from localStorage or use default
+        const saved = localStorage.getItem('assets-column-order');
+        return saved ? JSON.parse(saved) : ['asset_id', 'name', 'criticality', 'business_unit', 'governed_status', 'nn_controls', 'source'];
+    });
+    const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
+    const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
+
+    // Save column order to localStorage whenever it changes
+    useEffect(() => {
+        localStorage.setItem('assets-column-order', JSON.stringify(columnOrder));
+    }, [columnOrder]);
 
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
             if (openFilterDropdown) {
-                 const target = event.target as HTMLElement;
-                 if (!target.closest('.FilterDropdownCore') && !target.closest('.FilterTriggerBtn')) {
-                     setOpenFilterDropdown(null);
-                 }
+                const target = event.target as HTMLElement;
+                if (!target.closest('.FilterDropdownCore') && !target.closest('.FilterTriggerBtn')) {
+                    setOpenFilterDropdown(null);
+                }
             }
         }
         function handleScroll(event: Event) {
-             const target = event.target as HTMLElement;
-             if (!target.closest('.FilterDropdownCore')) {
-                  setOpenFilterDropdown(null);
-             }
+            const target = event.target as HTMLElement;
+            if (!target.closest('.FilterDropdownCore')) {
+                setOpenFilterDropdown(null);
+            }
         }
         document.addEventListener("mousedown", handleClickOutside);
         document.addEventListener("scroll", handleScroll, true);
@@ -886,7 +901,55 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
             document.removeEventListener("mousedown", handleClickOutside);
             document.removeEventListener("scroll", handleScroll, true);
         };
-    }, [openFilterDropdown]);
+    }, [openFilterDropdown, setOpenFilterDropdown]); // Added setOpenFilterDropdown to the dependency array
+    
+    // Drag and drop handlers
+    const handleDragStart = (e: React.DragEvent, columnKey: string) => {
+        setDraggedColumn(columnKey);
+        // ... (rest of the code remains the same)
+        setIsDragging(true);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', columnKey);
+    };
+    
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    };
+    
+    const handleDragEnter = (columnKey: string) => {
+        if (draggedColumn && draggedColumn !== columnKey) {
+            setDragOverColumn(columnKey);
+        }
+    };
+    
+    const handleDragLeave = () => {
+        setDragOverColumn(null);
+    };
+    
+    const handleDrop = (e: React.DragEvent, targetColumn: string) => {
+        e.preventDefault();
+        if (draggedColumn && draggedColumn !== targetColumn) {
+            const newOrder = [...columnOrder];
+            const draggedIndex = newOrder.indexOf(draggedColumn);
+            const targetIndex = newOrder.indexOf(targetColumn);
+            
+            // Remove dragged column and insert at new position
+            newOrder.splice(draggedIndex, 1);
+            newOrder.splice(targetIndex, 0, draggedColumn);
+            
+            setColumnOrder(newOrder);
+        }
+        setDraggedColumn(null);
+        setDragOverColumn(null);
+        setIsDragging(false);
+    };
+    
+    const handleDragEnd = () => {
+        setDraggedColumn(null);
+        setDragOverColumn(null);
+        setIsDragging(false);
+    };
 
 
 
@@ -998,180 +1061,80 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
 
-        } catch (e) {
 
-            setError("Failed to load assets.");
+        setAssets(assetsData);
 
-        } finally {
+        setRelationships(relationshipsData);
 
-            setLoading(false);
+        
 
-        }
+        // Also fetch custom fields
+        await fetchCustomFields();
+    } catch (e) {
+        setError("Failed to load assets.");
+    } finally {
+        setLoading(false);
+    }
+}, [fetchCustomFields]);
 
-    }, [fetchCustomFields]);
+useUnifiedRefresh(isActive, fetchAssets);
 
+const filteredAndSortedAssets = useMemo(() => {
+    let filteredItems = [...assets];
 
-
-    useUnifiedRefresh(isActive, fetchAssets);
-
-
-
-    const filteredAndSortedAssets = useMemo(() => {
-
-
-
-        let filteredItems = [...assets];
-
-        Object.entries(columnFilters).forEach(([key, selectedValues]) => {
-            if (selectedValues && selectedValues.length > 0) {
-                filteredItems = filteredItems.filter(item => {
-                    let val;
-                    if (key.startsWith('custom_field_')) {
-                        val = item.custom_fields?.[key.replace('custom_field_', '')];
-                    } else {
-                        val = item[key as keyof Asset];
-                    }
+    Object.entries(columnFilters).forEach(([key, selectedValues]) => {
+        if (selectedValues && Array.isArray(selectedValues) && selectedValues.length > 0) {
+            filteredItems = filteredItems.filter(item => {
+                let val;
+                if (key.startsWith('custom_field_')) {
+                    val = item.custom_fields?.[key.replace('custom_field_', '')];
                     val = val !== undefined && val !== null && val !== "" ? String(val) : '-';
-                    return selectedValues.includes(val);
-                });
-            }
-        });
-
-        if (filter) {
-
-
-
-            const lowerCaseFilter = filter.toLowerCase();
-
-
-
-            filteredItems = filteredItems.filter(item =>
-
-
-
-                String(item.asset_id ?? '').toLowerCase().includes(lowerCaseFilter) ||
-
-
-
-                String(item.name ?? '').toLowerCase().includes(lowerCaseFilter) ||
-
-
-
-                String(item.asset_owner ?? '').toLowerCase().includes(lowerCaseFilter) ||
-
-
-
-                String(item.business_unit ?? '').toLowerCase().includes(lowerCaseFilter) ||
-
-
-
-                String(item.ip_address ?? '').toLowerCase().includes(lowerCaseFilter) ||
-
-
-
-                String(item.mac_id ?? '').toLowerCase().includes(lowerCaseFilter) ||
-
-
-
-                String(item.physical_location ?? '').toLowerCase().includes(lowerCaseFilter) ||
-
-
-
-                String(item.source ?? '').toLowerCase().includes(lowerCaseFilter) ||
-
-
-
-                String(item.details ?? '').toLowerCase().includes(lowerCaseFilter)
-
-
-
-            );
-
-
-
-        }
-
-
-
-
-
-
-
-        if (sortConfig !== null) {
-
-
-
-            filteredItems.sort((a, b) => {
-
-
-
-                const aValue = a[sortConfig.key];
-
-
-
-                const bValue = b[sortConfig.key];
-
-
-
-                if (aValue === null || aValue === undefined) return 1;
-
-
-
-                if (bValue === null || bValue === undefined) return -1;
-
-
-
-
-
-
-
-                if (aValue < bValue) {
-
-
-
-                    return sortConfig.direction === 'ascending' ? -1 : 1;
-
-
-
+                } else {
+                    val = item[key as keyof Asset];
                 }
-
-
-
-                if (aValue > bValue) {
-
-
-
-                    return sortConfig.direction === 'ascending' ? 1 : -1;
-
-
-
-                }
-
-
-
-                return 0;
-
-
-
+                return selectedValues.includes(val);
             });
-
-
-
         }
+    });
 
+    if (filter) {
+        const lowerCaseFilter = filter.toLowerCase();
 
+        filteredItems = filteredItems.filter(item =>
+            String(item.asset_id ?? '').toLowerCase().includes(lowerCaseFilter) ||
+            String(item.name ?? '').toLowerCase().includes(lowerCaseFilter) ||
+            String(item.asset_owner ?? '').toLowerCase().includes(lowerCaseFilter) ||
+            String(item.business_unit ?? '').toLowerCase().includes(lowerCaseFilter) ||
+            String(item.ip_address ?? '').toLowerCase().includes(lowerCaseFilter) ||
+            String(item.mac_id ?? '').toLowerCase().includes(lowerCaseFilter) ||
+            String(item.physical_location ?? '').toLowerCase().includes(lowerCaseFilter) ||
+            String(item.source ?? '').toLowerCase().includes(lowerCaseFilter) ||
+            String(item.details ?? '').toLowerCase().includes(lowerCaseFilter)
+        );
+    }
 
-        return filteredItems;
+    if (sortConfig !== null) {
+        filteredItems.sort((a, b) => {
+            const aValue = a[sortConfig.key];
+            const bValue = b[sortConfig.key];
 
+            if (aValue === null || aValue === undefined) return 1;
+            if (bValue === null || bValue === undefined) return -1;
 
+            if (aValue < bValue) {
+                return sortConfig.direction === 'ascending' ? -1 : 1;
+            }
 
-    }, [assets, filter, sortConfig, columnFilters]);
+            if (aValue > bValue) {
+                return sortConfig.direction === 'ascending' ? 1 : -1;
+            }
 
+            return 0;
+        });
+    }
 
-
-
-
-
+    return filteredItems;
+}, [assets, filter, sortConfig, columnFilters]);
 
     const renderFilterableHeader = (columnKey: string, title: string) => {
         // Check if field has dropdown filter
@@ -1185,8 +1148,28 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
         
         const shouldShowFilter = hasDropdownFilter || hasCustomDropdown;
         
+        const isDragged = draggedColumn === columnKey;
+        const isDragOver = dragOverColumn === columnKey;
+        
         return (
-            <th scope="col" key={columnKey} className="relative sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+            <th 
+                scope="col" 
+                key={columnKey} 
+                draggable
+                onDragStart={(e) => handleDragStart(e, columnKey)}
+                onDragOver={handleDragOver}
+                onDragEnter={() => handleDragEnter(columnKey)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, columnKey)}
+                onDragEnd={handleDragEnd}
+                className={`relative sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300 cursor-move transition-all ${
+                    isDragged ? 'opacity-50' : ''
+                } ${
+                    isDragOver ? 'border-l-4 border-l-blue-500 bg-blue-50 dark:bg-blue-900/20' : ''
+                } ${
+                    isDragging && !isDragged && !isDragOver ? 'opacity-75' : ''
+                }`}
+            >
                 <div className="flex items-center">
                     {columnKey !== 'nn_controls' ? (
                         <button onClick={() => requestSort(columnKey as keyof Asset)} className="flex items-center text-left focus:outline-none flex-grow">
@@ -1228,288 +1211,80 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
         );
     };
 
-    const requestSort = (key: keyof Asset) => {
-
-
-
+const requestSort = (key: keyof Asset) => {
         let direction: 'ascending' | 'descending' = 'ascending';
 
-
-
         if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
-
-
-
             direction = 'descending';
-
-
-
         }
-
-
 
         setSortConfig({ key, direction });
-
-
-
     };
 
-
-
-
-
-
-
-    const getSortIconFor = (key: keyof Asset) => {
-
-
-
+const getSortIconFor = (key: keyof Asset) => {
         if (!sortConfig || sortConfig.key !== key) {
-
-
-
             return <SortUpDownIcon className="h-4 w-4 ml-1 text-gray-400" />;
-
-
-
         }
-
-
 
         return sortConfig.direction === 'ascending' ? <SortUpIcon className="h-4 w-4 ml-1" /> : <SortDownIcon className="h-4 w-4 ml-1" />;
-
-
-
     };
 
-
-
-
-
-
-
-    const closeModal = () => {
-
-
-
+const closeModal = () => {
         setError(null);
-
-
-
         setModalState({ type: null });
-
-
-
     };
 
-
-
-
-
-
-
-    const handleSaveAsset = async (formData: AssetCreate | AssetUpdate) => {
-
-
-
+const handleSaveAsset = async (formData: AssetCreate | AssetUpdate) => {
         try {
-
-
-
             if (modalState.type === 'edit' && modalState.asset) {
-
-
-
                 const updatedAsset = await SupabaseService.updateAsset(modalState.asset.id, formData);
-
-
-
                 await SupabaseService.logAllActivity({
-
-
-
                     action: 'Updated Asset',
-
-
-
                     module: 'Governance',
-
-
-
                     entity_id: updatedAsset.id,
-
-
-
                     entity_name: updatedAsset.name,
-
-
-
                     event_data: { changes: formData }
-
-
-
                 });
-
-
-
             } else if (modalState.type === 'add') {
-
-
-
                 const addedAsset = await SupabaseService.addAsset(formData as AssetCreate);
-
-
-
                 await SupabaseService.logAllActivity({
-
-
-
                     action: 'Created Asset',
-
-
-
                     module: 'Governance',
-
-
-
                     entity_id: addedAsset.id,
-
-
-
                     entity_name: addedAsset.name,
-
-
-
                     event_data: { details: formData }
-
-
-
                 });
-
-
-
             }
-
-
-
             fetchAssets();
-
-
-
             closeModal();
-
-
-
         } catch (err) {
-
-
-
             setError('Failed to save asset.');
-
-
-
         }
-
-
-
     };
 
-
-
-
-
-
-
-    const handleDeleteAsset = async () => {
-
-
-
+const handleDeleteAsset = async () => {
         if (modalState.type === 'delete' && modalState.asset) {
-
-
-
             try {
-
-
-
                 setDeleting(true);
-
-
-
                 setError(null);
-
-
-
                 console.log('Deleting asset:', modalState.asset.id, modalState.asset.asset_id);
-
-
-
                 await SupabaseService.deleteAsset(modalState.asset.id);
-
-
-
                 await SupabaseService.logAllActivity({
-
-
-
                     action: 'Deleted Asset',
-
-
-
                     module: 'Governance',
-
-
-
                     entity_id: modalState.asset.id,
-
-
-
                     entity_name: modalState.asset.name
-
-
-
                 });
-
-
-
                 fetchAssets();
-
-
-
                 closeModal();
-
-
-
             } catch (err: any) {
-
-
-
                 console.error('Delete asset error:', err);
-
-
-
                 const errorMessage = err?.message || 'Failed to delete asset.';
-
-
-
                 setError(errorMessage);
-
-
-
             } finally {
-
-
-
                 setDeleting(false);
-
-
-
             }
-
-
-
         }
-
 
 
     };
@@ -2687,13 +2462,16 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
 
-                                {renderFilterableHeader('asset_id', 'Asset ID')}
-                                {renderFilterableHeader('name', 'Name')}
-                                {renderFilterableHeader('criticality', 'Criticality')}
-                                {renderFilterableHeader('business_unit', 'Business Unit')}
-                                {renderFilterableHeader('governed_status', 'Governed')}
-                                {renderFilterableHeader('nn_controls', 'NN Controls')}
-                                {renderFilterableHeader('source', 'Source')}
+                                {columnOrder.map(columnKey => {
+                                    if (columnKey === 'asset_id') return renderFilterableHeader('asset_id', 'Asset ID');
+                                    if (columnKey === 'name') return renderFilterableHeader('name', 'Name');
+                                    if (columnKey === 'criticality') return renderFilterableHeader('criticality', 'Criticality');
+                                    if (columnKey === 'business_unit') return renderFilterableHeader('business_unit', 'Business Unit');
+                                    if (columnKey === 'governed_status') return renderFilterableHeader('governed_status', 'Governed');
+                                    if (columnKey === 'nn_controls') return renderFilterableHeader('nn_controls', 'NN Controls');
+                                    if (columnKey === 'source') return renderFilterableHeader('source', 'Source');
+                                    return null;
+                                })}
 
                                 {/* Custom Fields Columns */}
                                 {customFields.map((field) => (
@@ -2798,140 +2576,85 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
 
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono font-semibold">
-
-                                        <span className={asset.governed_status === 'Governed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'}>
-
-                                            {asset.asset_id}
-
-                                        </span>
-
-                                    </td>
-
-
-
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-
-
-
-                                        {isEditing && selectedIds.has(asset.id) ? (
-
-
-
-                                            <input type="text" value={editValues[asset.id]?.name ?? asset.name} onChange={e => updateField(asset.id, 'name', e.target.value)} className={editInputCls} />
-
-
-
-                                        ) : asset.name}
-
-
-
-                                    </td>
-
-
-
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-
-
-
-                                        {isEditing && selectedIds.has(asset.id) ? (
-
-
-
-                                            <select value={editValues[asset.id]?.criticality ?? asset.criticality} onChange={e => updateField(asset.id, 'criticality', e.target.value as any)} className={editSelectCls}><option>Low</option><option>Medium</option><option>High</option></select>
-
-
-
-                                        ) : asset.criticality}
-
-
-
-                                    </td>
-
-
-
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-
-
-
-                                        {isEditing && selectedIds.has(asset.id) ? (
-
-
-
-                                            <input type="text" value={editValues[asset.id]?.business_unit ?? asset.business_unit ?? ''} onChange={e => updateField(asset.id, 'business_unit', e.target.value)} className={editInputCls} />
-
-
-
-                                        ) : (asset.business_unit || '-')}
-
-
-
-                                    </td>
-
-
-
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-
-                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-
-                                            asset.governed_status === 'Governed'
-
-                                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
-
-                                                : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
-
-                                        }`}>
-
-                                            {asset.governed_status}
-
-                                        </span>
-
-                                    </td>
-
-
-
-                                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
-
-                                        {asset.nn_controls && asset.nn_controls.length > 0 ? (
-
-                                            <div className="flex items-center gap-1.5">
-
-                                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-
-                                                    {asset.nn_controls.length}
-
-                                                </span>
-
-                                                <span className="text-xs text-gray-400 dark:text-gray-500 truncate max-w-[120px]" title={asset.nn_controls.map(c => c.ctl_id).join(', ')}>
-
-                                                    controls
-
-                                                </span>
-
-                                            </div>
-
-                                        ) : (
-
-                                            <span className="text-xs text-gray-400">—</span>
-
-                                        )}
-
-                                    </td>
-
-
-
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-
-                                        {displaySource(asset.source)}
-
-
-
-                                    </td>
-
-
+                                    {columnOrder.map(columnKey => {
+                                        if (columnKey === 'asset_id') {
+                                            return (
+                                                <td key="asset_id" className="px-6 py-4 whitespace-nowrap text-sm font-mono font-semibold">
+                                                    <span className={asset.governed_status === 'Governed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'}>
+                                                        {asset.asset_id}
+                                                    </span>
+                                                </td>
+                                            );
+                                        }
+                                        if (columnKey === 'name') {
+                                            return (
+                                                <td key="name" className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                                                    {isEditing && selectedIds.has(asset.id) ? (
+                                                        <input type="text" value={editValues[asset.id]?.name ?? asset.name} onChange={e => updateField(asset.id, 'name', e.target.value)} className={editInputCls} />
+                                                    ) : asset.name}
+                                                </td>
+                                            );
+                                        }
+                                        if (columnKey === 'criticality') {
+                                            return (
+                                                <td key="criticality" className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                                    {isEditing && selectedIds.has(asset.id) ? (
+                                                        <select value={editValues[asset.id]?.criticality ?? asset.criticality} onChange={e => updateField(asset.id, 'criticality', e.target.value as any)} className={editSelectCls}><option>Low</option><option>Medium</option><option>High</option></select>
+                                                    ) : asset.criticality}
+                                                </td>
+                                            );
+                                        }
+                                        if (columnKey === 'business_unit') {
+                                            return (
+                                                <td key="business_unit" className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                                    {isEditing && selectedIds.has(asset.id) ? (
+                                                        <input type="text" value={editValues[asset.id]?.business_unit ?? asset.business_unit ?? ''} onChange={e => updateField(asset.id, 'business_unit', e.target.value)} className={editInputCls} />
+                                                    ) : (asset.business_unit || '-')}
+                                                </td>
+                                            );
+                                        }
+                                        if (columnKey === 'governed_status') {
+                                            return (
+                                                <td key="governed_status" className="px-6 py-4 whitespace-nowrap text-sm">
+                                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                                        asset.governed_status === 'Governed'
+                                                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                                            : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                                                    }`}>
+                                                        {asset.governed_status}
+                                                    </span>
+                                                </td>
+                                            );
+                                        }
+                                        if (columnKey === 'nn_controls') {
+                                            return (
+                                                <td key="nn_controls" className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
+                                                    {asset.nn_controls && asset.nn_controls.length > 0 ? (
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                                                                {asset.nn_controls.length}
+                                                            </span>
+                                                            <span className="text-xs text-gray-400 dark:text-gray-500 truncate max-w-[120px]" title={asset.nn_controls.map(c => c.ctl_id).join(', ')}>
+                                                                controls
+                                                            </span>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-xs text-gray-400">-</span>
+                                                    )}
+                                                </td>
+                                            );
+                                        }
+                                        if (columnKey === 'source') {
+                                            return (
+                                                <td key="source" className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                                    {displaySource(asset.source)}
+                                                </td>
+                                            );
+                                        }
+                                        return null;
+                                    })}
 
                                     {/* Custom Fields Data Cells */}
-
                                     {customFields.map((field) => {
 
                                         const customFieldValue = asset.custom_fields?.[field.field_name];

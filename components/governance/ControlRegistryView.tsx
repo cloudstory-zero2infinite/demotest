@@ -2177,6 +2177,10 @@ type FormData = {
 
 
 
+    ctl_id: string;
+
+
+
     ctl_name: string;
 
 
@@ -2209,6 +2213,10 @@ type FormData = {
 
 
 
+    custom_fields?: Record<string, any>;
+
+
+
 };
 
 
@@ -2218,6 +2226,10 @@ type FormData = {
 
 
 const DEFAULT_FORM: FormData = {
+
+
+
+    ctl_id: `CTL-${Date.now()}`,
 
 
 
@@ -2250,6 +2262,10 @@ const DEFAULT_FORM: FormData = {
 
 
     ctl_other_details: '',
+
+
+
+    custom_fields: {},
 
 
 
@@ -2330,6 +2346,10 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
             });
 
             setFormData({
+
+
+
+                ctl_id: controlToEdit.ctl_id,
 
 
 
@@ -2532,6 +2552,10 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
 
         try {
+
+
+
+            console.log('Submitting control data:', formData);
 
 
 
@@ -3958,7 +3982,11 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-            setError('Failed to save control.');
+            console.error('Save control error:', err);
+
+
+
+            setError(`Failed to save control: ${err.message}`);
 
 
 
