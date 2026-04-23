@@ -331,7 +331,7 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
     const [error, setError] = useState<string | null>(null);
 
-    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | null; rel?: AssetRelationship | null }>({ type: null });
+    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | 'import' | null; rel?: AssetRelationship | null }>({ type: null });
 
     const [filter, setFilter] = useState('');
 
@@ -990,9 +990,19 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
     const handleImportCSV = (event: React.ChangeEvent<HTMLInputElement>) => {
 
+        console.log('CSV import triggered');
+
         const file = event.target.files?.[0];
 
-        if (!file) return;
+        console.log('File selected:', file);
+
+        if (!file) {
+
+            console.log('No file selected');
+
+            return;
+
+        }
 
 
 
@@ -1002,23 +1012,15 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
         reader.onload = async (e) => {
 
+            console.log('FileReader onload triggered');
+
             const text = e.target?.result as string;
 
-            if (!text) return;
+            console.log('File content length:', text?.length);
 
+            if (!text) {
 
-
-            const { headers, rows } = parseCSVText(text);
-
-            const { newFields, records } = processImportData('asset_relationships', headers, rows, customFields);
-
-
-
-            if (newFields.length > 0) {
-
-                setNewFieldsToCreate(newFields);
-
-                setPendingImportData(records);
+                console.log('No file content');
 
                 return;
 
@@ -1026,11 +1028,65 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
 
 
-            prepareImportData(records);
+            try {
+
+                console.log('Parsing CSV text...');
+
+                const { headers, rows } = parseCSVText(text);
+
+                console.log('Parsed CSV:', { headers, rowCount: rows.length });
+
+
+
+                console.log('Processing import data...');
+
+                const { newFields, records } = processImportData('asset_relationships', headers, rows, customFields);
+
+                console.log('Processed data:', { newFieldsCount: newFields.length, recordsCount: records.length });
+
+
+
+                if (newFields.length > 0) {
+
+                    console.log('New fields detected, setting up field creation');
+
+                    setNewFieldsToCreate(newFields);
+
+                    setPendingImportData(records);
+
+                    return;
+
+                }
+
+
+
+                console.log('Preparing import data...');
+
+                prepareImportData(records);
+
+            } catch (error) {
+
+                console.error('Error during CSV import:', error);
+
+                alert('Error importing CSV: ' + error.message);
+
+            }
 
         };
 
 
+
+        reader.onerror = (error) => {
+
+            console.error('FileReader error:', error);
+
+            alert('Error reading file');
+
+        };
+
+
+
+        console.log('Starting to read file...');
 
         reader.readAsText(file);
 
@@ -1040,7 +1096,11 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
     const prepareImportData = (records: any[]) => {
 
+        console.log('prepareImportData called with records:', records);
+
         setImportData({ newRels: records, skipped: 0 });
+
+        console.log('Import data set, opening import modal');
 
         setModalState({ type: 'import' });
 
@@ -1060,9 +1120,18 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
             // Use bulk import for efficiency
 
-            await SupabaseService.bulkAddAssetRelationships(importData.newRels);
+            const result = await SupabaseService.bulkAddAssetRelationships(importData.newRels);
 
             
+
+            // Handle skipped duplicates from backend response
+            const skippedCount = (result as any)?.skipped || 0;
+            const insertedCount = (result as any)?.inserted || importData.newRels.length;
+
+            let activityMessage = `${insertedCount} relationships imported`;
+            if (skippedCount > 0) {
+                activityMessage += ` (${skippedCount} duplicates skipped)`;
+            }
 
             await SupabaseService.logAllActivity({
 
@@ -1072,15 +1141,15 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
                 entity_id: null,
 
-                entity_name: `${importData.newRels.length} relationships imported`,
+                entity_name: activityMessage,
 
-                event_data: { count: importData.newRels.length }
+                event_data: { count: insertedCount, skipped: skippedCount, total: importData.newRels.length }
 
             });
 
 
 
-            fetchRelationships();
+            fetchData();
 
             setModalState({ type: null });
 
@@ -1697,6 +1766,49 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
                 moduleName="Asset Relationships"
 
             />
+
+            {/* Import Confirmation Modal */}
+            {modalState.type === 'import' && (
+                <div className="fixed inset-0 z-50 overflow-y-auto">
+                    <div className="flex items-center justify-center min-h-screen px-4">
+                        <div className="fixed inset-0 bg-black opacity-25" onClick={() => setModalState({ type: null })}></div>
+                        <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-lg font-medium text-gray-900 dark:text-white">Import Asset Relationships</h3>
+                                <button onClick={() => setModalState({ type: null })} className="text-gray-400 hover:text-gray-500">
+                                    <span className="sr-only">Close</span>
+                                    <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+                            <div className="text-sm text-gray-600 dark:text-gray-300">
+                                <p>Ready to import <span className="font-semibold">{importData.newRels.length}</span> asset relationships.</p>
+                                <p className="mt-2 text-amber-600 dark:text-amber-400">
+                                    <span className="font-medium">Note:</span> Existing relationships with the same source, target, and type will be automatically skipped to prevent duplicates.
+                                </p>
+                                <p className="mt-2">Do you want to proceed with the import?</p>
+                            </div>
+                            <div className="mt-6 flex justify-end space-x-3">
+                                <button 
+                                    onClick={() => setModalState({ type: null })} 
+                                    disabled={isSaving}
+                                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500 disabled:opacity-50"
+                                >
+                                    Cancel
+                                </button>
+                                <button 
+                                    onClick={handleConfirmImport} 
+                                    disabled={isSaving}
+                                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 disabled:opacity-50"
+                                >
+                                    {isSaving ? 'Importing...' : 'Import'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {bulkProgress.status === 'idle' && (
                 <SelectionActionBar
