@@ -3074,7 +3074,7 @@ router.post('/relationships/bulk', requireAuth, async (req, res) => {
 
   try {
 
-    const relationships = req.body;
+    let relationships = req.body;
 
     
 
@@ -3089,6 +3089,106 @@ router.post('/relationships/bulk', requireAuth, async (req, res) => {
     console.log(`=== BULK RELATIONSHIP UPLOAD ===`);
 
     console.log(`Processing ${relationships.length} relationships`);
+
+    
+
+    // Check for existing relationships to prevent duplicates
+
+    console.log('Checking for existing relationships...');
+
+    
+
+    // Create a composite key for each relationship (source_asset_id|target_asset_id|relationship_type)
+
+    const relationshipKeys = relationships.map(rel => 
+
+      `${rel.source_asset_id}|${rel.target_asset_id}|${rel.relationship_type}`.toLowerCase()
+
+    );
+
+    
+
+    // Query existing relationships with the same keys
+
+    const { data: existingRels, error: fetchError } = await supabaseAdmin
+
+      .from('asset_relationships')
+
+      .select('source_asset_id, target_asset_id, relationship_type')
+
+      .eq('org_id', req.orgId);
+
+      
+
+    if (fetchError) {
+
+      console.error('Error fetching existing relationships:', fetchError);
+
+      // Continue with import even if we can't check duplicates
+
+    } else {
+
+      const existingKeys = new Set(
+
+        existingRels.map(rel => 
+
+          `${rel.source_asset_id}|${rel.target_asset_id}|${rel.relationship_type}`.toLowerCase()
+
+        )
+
+      );
+
+      
+
+      const duplicates = relationshipKeys.filter(key => existingKeys.has(key));
+
+      if (duplicates.length > 0) {
+
+        console.log(`Found ${duplicates.length} duplicate relationships that will be skipped`);
+
+        // Filter out duplicates
+
+        relationships = relationships.filter((rel, index) => {
+
+          const key = relationshipKeys[index];
+
+          const isDuplicate = existingKeys.has(key);
+
+          if (isDuplicate) {
+
+            console.log(`Skipping duplicate: ${rel.source_asset_id} -> ${rel.target_asset_id} (${rel.relationship_type})`);
+
+          }
+
+          return !isDuplicate;
+
+        });
+
+        
+
+        if (relationships.length === 0) {
+
+          return res.status(200).json({
+
+            success: true,
+
+            message: 'All relationships were duplicates and were skipped',
+
+            inserted: 0,
+
+            total: req.body.length,
+
+            skipped: req.body.length - relationships.length,
+
+            data: []
+
+          });
+
+        }
+
+      }
+
+    }
 
 
 
@@ -3116,13 +3216,19 @@ router.post('/relationships/bulk', requireAuth, async (req, res) => {
 
       
 
+      const originalTotal = req.body.length;
+
+      const skippedCount = originalTotal - relationships.length;
+
       res.status(201).json({
 
         success: true,
 
         inserted: data?.length || 0,
 
-        total: relationships.length,
+        total: originalTotal,
+
+        skipped: skippedCount,
 
         data: data || []
 
@@ -3290,13 +3396,19 @@ router.post('/relationships/bulk', requireAuth, async (req, res) => {
 
 
 
+    const originalTotal = req.body.length;
+
+    const skippedCount = originalTotal - relationships.length;
+
     res.status(201).json({
 
       success: true,
 
       inserted: results.length,
 
-      total: relationships.length,
+      total: originalTotal,
+
+      skipped: skippedCount,
 
       errors: errors.length,
 

@@ -914,23 +914,15 @@ export const bulkAddControlRegistry = async (controls: ControlRegistryCreate[]):
 
 
 
-export const deleteControlRegistryBulk = async (ids: string[]): Promise<void> => {
+export const deleteControlRegistryBulk = async (ids: string[]): Promise<{ deleted: number; total: number; errors: number; errorDetails?: any[] }> => {
 
-  const batchSize = 500;
+  return apiRequest<{ deleted: number; total: number; errors: number; errorDetails?: any[] }>('/api/control-registry/bulk', {
 
-  for (let i = 0; i < ids.length; i += batchSize) {
+    method: 'DELETE',
 
-    const batch = ids.slice(i, i + batchSize);
+    body: JSON.stringify({ ids }),
 
-    await apiRequest<void>('/api/control-registry/bulk-delete', {
-
-      method: 'POST',
-
-      body: JSON.stringify({ ids: batch }),
-
-    });
-
-  }
+  });
 
 };
 
@@ -1817,9 +1809,9 @@ export const deleteAssetRelationship = async (id: string): Promise<boolean> => {
 
 
 
-export const bulkAddAssetRelationships = async (relationships: AssetRelationshipCreate[]): Promise<any[]> => {
+export const bulkAddAssetRelationships = async (relationships: AssetRelationshipCreate[]): Promise<{ data: any[]; inserted: number; total: number; skipped: number; errors: number; errorDetails?: any[] }> => {
 
-  const result = await apiRequest<{ data: any[]; inserted: number; total: number; errors: number; errorDetails?: any[] }>('/api/assets/relationships/bulk', {
+  const result = await apiRequest<{ data: any[]; inserted: number; total: number; skipped: number; errors: number; errorDetails?: any[] }>('/api/assets/relationships/bulk', {
 
     method: 'POST',
 
@@ -1835,11 +1827,24 @@ export const bulkAddAssetRelationships = async (relationships: AssetRelationship
         console.error('Error details:', result.errorDetails);
       }
     }
-    return result.data || [];
+    return {
+      data: result.data || [],
+      inserted: result.inserted || 0,
+      total: result.total || relationships.length,
+      skipped: result.skipped || 0,
+      errors: result.errors || 0,
+      errorDetails: result.errorDetails
+    };
   }
 
   // Fallback for simple array response (small payloads)
-  return Array.isArray(result) ? result : [];
+  return {
+    data: Array.isArray(result) ? result : [],
+    inserted: Array.isArray(result) ? result.length : 0,
+    total: relationships.length,
+    skipped: 0,
+    errors: 0
+  };
 
 };
 

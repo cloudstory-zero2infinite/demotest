@@ -252,6 +252,172 @@ router.put('/:id', requireAuth, async (req, res) => {
 
 
 
+// Bulk delete controls (must come before /:id route)
+
+router.delete('/bulk', requireAuth, async (req, res) => {
+
+  try {
+
+    const { ids } = req.body;
+
+    
+
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+
+      return res.status(400).json({ message: 'Invalid control IDs provided' });
+
+    }
+
+
+
+    console.log(`=== BULK CONTROL DELETE ===`);
+
+    console.log(`Starting bulk delete of ${ids.length} controls`);
+
+    
+
+    // For small payloads, use direct deletion
+
+    if (ids.length <= 50) {
+
+      console.log(`Small payload (${ids.length} items), using direct deletion`);
+
+      const { error } = await supabaseAdmin
+
+        .from('control_registry')
+
+        .delete()
+
+        .in('id', ids)
+
+        .eq('org_id', req.orgId);
+
+
+
+      if (error) throw error;
+
+      console.log(`Successfully deleted all ${ids.length} controls`);
+
+      return res.json({ deleted: ids.length, total: ids.length, errors: 0 });
+
+    }
+
+
+
+    // For larger payloads, process in batches
+
+    const BATCH_SIZE = 100;
+
+    const batches = [];
+
+    
+
+    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+
+      batches.push(ids.slice(i, i + BATCH_SIZE));
+
+    }
+
+
+
+    console.log(`Split into ${batches.length} batches of max ${BATCH_SIZE} items each`);
+
+    
+
+    let totalDeleted = 0;
+
+    let totalErrors = 0;
+
+    const allErrorDetails = [];
+
+
+
+    // Process each batch sequentially
+
+    for (let i = 0; i < batches.length; i++) {
+
+      const batch = batches[i];
+
+      console.log(`Processing batch ${i + 1}/${batches.length} with ${batch.length} controls`);
+
+      
+
+      try {
+
+        const { error, count } = await supabaseAdmin
+
+          .from('control_registry')
+
+          .delete()
+
+          .in('id', batch)
+
+          .eq('org_id', req.orgId);
+
+
+
+        if (error) throw error;
+
+        totalDeleted += batch.length;
+
+        console.log(`Batch ${i + 1} completed: ${batch.length} items deleted`);
+
+        
+
+      } catch (batchError) {
+
+        console.error(`Error processing batch ${i + 1}:`, batchError);
+
+        totalErrors += batch.length;
+
+        allErrorDetails.push({
+
+          batch: i + 1,
+
+          error: batchError.message,
+
+          ids: batch
+
+        });
+
+      }
+
+    }
+
+
+
+    console.log(`Bulk delete completed: ${totalDeleted} deleted, ${totalErrors} errors`);
+
+    
+
+    res.json({
+
+      deleted: totalDeleted,
+
+      total: ids.length,
+
+      errors: totalErrors,
+
+      errorDetails: allErrorDetails
+
+    });
+
+
+
+
+  } catch (err) {
+
+    console.error('Bulk control delete error:', err);
+
+    res.status(500).json({ message: err.message });
+
+  }
+
+});
+
+
+
+
 router.delete('/:id', requireAuth, async (req, res) => {
 
   try {
@@ -277,8 +443,6 @@ router.delete('/:id', requireAuth, async (req, res) => {
   }
 
 });
-
-
 
 // ── GET /:id/evidence-review ──────────────────────────────────────────────
 
