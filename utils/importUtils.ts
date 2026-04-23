@@ -183,7 +183,11 @@ export const processImportData = (
     }
 
     // It's a new field!
-    const inferredType = inferFieldType(rows.map(r => r[header]));
+    // Get all values for this header, even if they're empty
+    const headerValues = rows.map(r => r[header]);
+    const inferredType = headerValues.some(v => v && v.trim() !== '') 
+      ? inferFieldType(headerValues) 
+      : 'text'; // Default to 'text' for empty columns
     const fieldName = cleanHeader.toLowerCase().replace(/[^a-z0-9]/g, '_');
     
     // Ensure uniqueness
@@ -234,3 +238,4 @@ export const processImportData = (
     records: mappedRecords
   };
 };
+

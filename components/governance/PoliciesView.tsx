@@ -6,7 +6,8 @@ import html2canvas from 'html2canvas';
 import JSZip from 'jszip';
 import { PolicyV2, PolicyWorkflowStatus, PolicyApproval, AllActivityLog } from '../../types';
 import * as SupabaseService from '../../services/supabase';
-import { EyeIcon, PencilIcon, PlusIcon, UploadIcon, DownloadIcon, BotIcon, HistoryIcon, TrashIcon } from '../Icons';
+import { EyeIcon, PencilIcon, PlusIcon, UploadIcon, DownloadIcon, BotIcon, HistoryIcon, TrashIcon, PhotoIcon } from '../Icons';
+import { PolicyAIDraftModal } from './PolicyAIDraftModal';
 
 // ─── Markdown config ─────────────────────────────────────────────────────────
 marked.setOptions({ gfm: true, breaks: true });
@@ -28,6 +29,8 @@ const PROSE_STYLE = `
 .policy-prose blockquote{border-left:4px solid #3b82f6;padding:.5rem 1rem;background:#eff6ff;margin:.5rem 0}
 .policy-prose hr{border:none;border-top:1px solid #e5e7eb;margin:1rem 0}
 .policy-prose strong{font-weight:700}
+.policy-prose img{max-width:100%;height:auto;border-radius:.375rem;box-shadow:0 1px 3px 0 rgba(0,0,0,.1),0 1px 2px 0 rgba(0,0,0,.06);margin:.5rem 0}
+.policy-prose img[src$="#thumbnail"]{max-width:200px;max-height:200px;object-fit:cover}
 `;
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
@@ -359,15 +362,52 @@ const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUse
 // ─── EditorModal ──────────────────────────────────────────────────────────────
 interface EditorModalProps {
     policy?: PolicyV2 | null;
+    initialMarkdown?: string;
     onClose: () => void;
     onSaved: () => void;
 }
-const EditorModal: React.FC<EditorModalProps> = ({ policy, onClose, onSaved }) => {
-    const [markdown, setMarkdown] = useState(policy?.markdown || '');
+const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onClose, onSaved }) => {
+    const [markdown, setMarkdown] = useState(policy?.markdown || initialMarkdown || '');
     const [status, setStatus] = useState<PolicyWorkflowStatus>(policy?.policy_status || 'draft');
     const [saving, setSaving] = useState(false);
     const [showApprover, setShowApprover] = useState(false);
-    const previewHtml = useMemo(() => renderMarkdown(markdown), [markdown]);
+    const [uploading, setUploading] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    
+    // Internal mapping of uploaded images to Supabase URLs (hidden from users)
+    const [imageMap, setImageMap] = useState<Map<string, string>>(new Map());
+    
+    // Display markdown with hidden URLs for user view
+    const displayMarkdown = useMemo(() => {
+        let processedMarkdown = markdown;
+        // Replace Supabase URLs with placeholder text
+        processedMarkdown = processedMarkdown.replace(/!\[([^\]]*)\]\(https:\/\/[^)]*\)/g, (match, alt) => {
+            return `![${alt}](Hide from markdown...)`;
+        });
+        return processedMarkdown;
+    }, [markdown]);
+    
+    const previewHtml = useMemo(() => {
+        // Replace image references with Supabase URLs for rendering
+        let processedMarkdown = markdown;
+        imageMap.forEach((url, filename) => {
+            const patterns = [
+                new RegExp(`!\\[([^\\]]*)\\]\\(${filename.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\)`, 'g'),
+                new RegExp(`!\\[([^\\]]*)\\]\\([^)]*${filename.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}[^)]*\\)`, 'g'),
+                new RegExp(`!\\[([^\\]]*)\\]\\([^)]*${filename.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}[^)]*\\)`, 'gi')
+            ];
+            
+            for (const pattern of patterns) {
+                if (pattern.test(processedMarkdown)) {
+                    pattern.lastIndex = 0;
+                    processedMarkdown = processedMarkdown.replace(pattern, `![$1](${url})`);
+                    break;
+                }
+            }
+        });
+        return renderMarkdown(processedMarkdown);
+    }, [markdown, imageMap]);
+    
     const isEdit = !!policy;
     const isApproved = isEdit && policy?.policy_status === 'approved';
     const isPolicyExpired = isEdit && policy ? isExpired(policy) : false;
@@ -421,6 +461,207 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, onClose, onSaved }) =
         }
     };
 
+    const handleImageUpload = async (files: FileList) => {
+        if (isFrozen) return;
+        
+        setUploading(true);
+        try {
+            const imageFiles: File[] = [];
+            const zipFile = Array.from(files).find(file => file.name.toLowerCase().endsWith('.zip'));
+            
+            if (zipFile) {
+                // Handle ZIP file for bulk upload
+                console.log('Processing ZIP file:', zipFile.name);
+                const zip = new JSZip();
+                const zipContent = await zip.loadAsync(zipFile);
+                const imagePromises: Promise<{ name: string; url: string }>[] = [];
+                
+                // Extract images from ZIP
+                for (const [filename, file] of Object.entries(zipContent.files)) {
+                    if (!file.dir && /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(filename)) {
+                        console.log('Extracting image from ZIP:', filename);
+                        const blob = await file.async('blob');
+                        
+                        // Ensure proper MIME type based on file extension
+                        let mimeType = blob.type;
+                        if (!mimeType || mimeType === 'application/octet-stream') {
+                            const ext = filename.toLowerCase().split('.').pop();
+                            const mimeMap: Record<string, string> = {
+                                'jpg': 'image/jpeg',
+                                'jpeg': 'image/jpeg',
+                                'png': 'image/png',
+                                'gif': 'image/gif',
+                                'webp': 'image/webp',
+                                'svg': 'image/svg+xml'
+                            };
+                            mimeType = mimeMap[ext || ''] || 'image/jpeg';
+                        }
+                        
+                        const imageFile = new File([blob], filename, { type: mimeType });
+                        console.log('Created image file:', { name: filename, type: mimeType, size: imageFile.size });
+                        imageFiles.push(imageFile);
+                        
+                        // Upload each image to Supabase
+                        const uploadPromise = uploadImageToSupabase(imageFile);
+                        imagePromises.push(uploadPromise);
+                    }
+                }
+                
+                if (imageFiles.length === 0) {
+                    throw new Error('No valid image files found in ZIP archive');
+                }
+                
+                console.log(`Found ${imageFiles.length} images in ZIP, uploading...`);
+                const uploadedImages = await Promise.all(imagePromises);
+                
+                // Update markdown with image references
+                let updatedMarkdown = markdown;
+                console.log('Mapping uploaded images to markdown references...');
+                uploadedImages.forEach(({ name, url }) => {
+                    console.log(`Processing image: ${name} -> ${url}`);
+                    
+                    // Try different patterns to find existing references
+                    const patterns = [
+                        // Exact filename match
+                        new RegExp(`!\\[([^\\]]*)\\]\\(${name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\)`, 'g'),
+                        // Filename without path
+                        new RegExp(`!\\[([^\\]]*)\\]\\([^)]*${name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}[^)]*\\)`, 'g'),
+                        // Case-insensitive match
+                        new RegExp(`!\\[([^\\]]*)\\]\\([^)]*${name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}[^)]*\\)`, 'gi')
+                    ];
+                    
+                    let foundMatch = false;
+                    for (const pattern of patterns) {
+                        if (pattern.test(updatedMarkdown)) {
+                            console.log(`Found match for ${name} with pattern`);
+                            // Reset regex after test
+                            pattern.lastIndex = 0;
+                            updatedMarkdown = updatedMarkdown.replace(pattern, `![$1](${url})`);
+                            foundMatch = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!foundMatch) {
+                        console.log(`No existing reference found for ${name}, appending to end`);
+                        updatedMarkdown += `\n\n![${name}](${name})`;
+                        // Store mapping for this new image
+                        setImageMap(prev => new Map(prev).set(name, url));
+                    } else {
+                        // Store mapping for existing image
+                        setImageMap(prev => new Map(prev).set(name, url));
+                    }
+                });
+                
+                setMarkdown(updatedMarkdown);
+            } else {
+                // Handle single image uploads
+                const singleImageFiles = Array.from(files).filter(file => 
+                    /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(file.name)
+                );
+                
+                if (singleImageFiles.length > 0) {
+                    let updatedMarkdown = markdown;
+                    
+                    for (const file of singleImageFiles) {
+                        const uploadResult = await uploadImageToSupabase(file);
+                        console.log(`Processing single image: ${file.name} -> ${uploadResult.url}`);
+                        
+                        // Try different patterns to find existing references
+                        const patterns = [
+                            // Exact filename match
+                            new RegExp(`!\\[([^\\]]*)\\]\\(${file.name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\)`, 'g'),
+                            // Filename without path
+                            new RegExp(`!\\[([^\\]]*)\\]\\([^)]*${file.name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}[^)]*\\)`, 'g'),
+                            // Case-insensitive match
+                            new RegExp(`!\\[([^\\]]*)\\]\\([^)]*${file.name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}[^)]*\\)`, 'gi')
+                        ];
+                        
+                        let foundMatch = false;
+                        for (const pattern of patterns) {
+                            if (pattern.test(updatedMarkdown)) {
+                                console.log(`Found match for ${file.name} with pattern`);
+                                // Reset regex after test
+                                pattern.lastIndex = 0;
+                                updatedMarkdown = updatedMarkdown.replace(pattern, `![$1](${uploadResult.url})`);
+                                foundMatch = true;
+                                break;
+                            }
+                        }
+                        
+                        if (!foundMatch) {
+                            console.log(`No existing reference found for ${file.name}, appending to end`);
+                            updatedMarkdown += `\n\n![${file.name}](${uploadResult.url})`;
+                        }
+                    }
+                    
+                    setMarkdown(updatedMarkdown);
+                }
+            }
+        } catch (err: any) {
+            alert('Image upload failed: ' + err.message);
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    const uploadImageToSupabase = async (file: File): Promise<{ name: string; url: string }> => {
+        const fileName = `${Date.now()}-${file.name}`;
+        try {
+            const { data, error } = await SupabaseService.supabase.storage
+                .from('policy-images')
+                .upload(fileName, file, {
+                    cacheControl: '3600',
+                    upsert: false,
+                    contentType: file.type
+                });
+            
+            if (error) {
+                console.error('Supabase upload error:', error);
+                console.error('Error details:', {
+                    message: error?.message,
+                    statusCode: (error as any)?.statusCode,
+                    error: error,
+                    errorString: JSON.stringify(error, null, 2)
+                });
+                
+                // Try to extract meaningful error message
+                let errorMessage = 'Unknown error';
+                if (error?.message) {
+                    errorMessage = error.message;
+                } else if ((error as any)?.statusCode === 400) {
+                    errorMessage = 'Bad Request - Check bucket permissions or file size limits';
+                } else if ((error as any)?.statusCode === 413) {
+                    errorMessage = 'File too large';
+                } else {
+                    errorMessage = JSON.stringify(error);
+                }
+                
+                throw new Error(`Upload failed: ${errorMessage}`);
+            }
+            
+            const { data: { publicUrl } } = SupabaseService.supabase.storage
+                .from('policy-images')
+                .getPublicUrl(fileName);
+            
+            return { name: file.name, url: publicUrl };
+        } catch (err: any) {
+            console.error('Upload error details:', err);
+            throw new Error(`Image upload failed: ${err.message || 'Unknown error'}`);
+        }
+    };
+
+    const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const files = event.target.files;
+        if (files && files.length > 0) {
+            handleImageUpload(files);
+        }
+        // Reset file input
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+    };
+
     return (
         <>
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
@@ -465,11 +706,35 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, onClose, onSaved }) =
                     {/* Two-panel editor */}
                     <div className="flex flex-1 overflow-hidden">
                         <div className="w-1/2 flex flex-col border-r dark:border-gray-700">
-                            <div className="px-4 py-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex-shrink-0">
-                                Markdown
+                            <div className="px-4 py-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex-shrink-0 flex items-center justify-between">
+                                <span>Markdown</span>
+                                {!isFrozen && (
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            ref={fileInputRef}
+                                            type="file"
+                                            accept="image/*,.zip"
+                                            multiple
+                                            onChange={handleFileSelect}
+                                            className="hidden"
+                                        />
+                                        <button
+                                            onClick={() => fileInputRef.current?.click()}
+                                            disabled={uploading}
+                                            title="Upload images or ZIP file"
+                                            className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            {uploading ? (
+                                                <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-500" />
+                                            ) : (
+                                                <PhotoIcon className="h-4 w-4" />
+                                            )}
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                             <textarea
-                                value={markdown}
+                                value={displayMarkdown}
                                 onChange={e => { if (!isFrozen) setMarkdown(e.target.value); }}
                                 readOnly={isFrozen}
                                 className={`flex-1 p-4 text-sm font-mono text-gray-800 dark:text-gray-200 resize-none focus:outline-none ${isFrozen ? 'bg-gray-100 dark:bg-gray-950 cursor-not-allowed opacity-75' : 'bg-white dark:bg-gray-900'}`}
@@ -571,7 +836,8 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
     const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
 
     // Modal targets
-    const [editorTarget, setEditorTarget] = useState<{ policy?: PolicyV2 } | null>(null);
+    const [editorTarget, setEditorTarget] = useState<{ policy?: PolicyV2; initialMarkdown?: string } | null>(null);
+    const [aiDraftOpen, setAiDraftOpen] = useState(false);
     const [viewTarget, setViewTarget] = useState<PolicyV2 | null>(null);
     const [historyTarget, setHistoryTarget] = useState<PolicyV2 | null>(null);
 
@@ -790,7 +1056,11 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
                     />
                 </div>
                 <div className="flex items-center space-x-2">
-                    <button disabled title="AI Assistant (coming soon)" className="p-2 text-gray-300 dark:text-gray-600 rounded-md cursor-not-allowed">
+                    <button
+                        onClick={() => setAiDraftOpen(true)}
+                        title="AI Policy Drafter"
+                        className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+                    >
                         <BotIcon className="h-5 w-5" />
                     </button>
                     <button disabled title="Upload (coming soon)" className="p-2 text-gray-300 dark:text-gray-600 rounded-md cursor-not-allowed">
@@ -879,10 +1149,17 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
             {editorTarget !== null && (
                 <EditorModal
                     policy={editorTarget.policy}
+                    initialMarkdown={editorTarget.initialMarkdown}
                     onClose={() => setEditorTarget(null)}
                     onSaved={fetchPolicies}
                 />
             )}
+            <PolicyAIDraftModal
+                isOpen={aiDraftOpen}
+                onClose={() => setAiDraftOpen(false)}
+                onUseDraft={(md) => setEditorTarget({ initialMarkdown: md })}
+            />
+
             {viewTarget && (
                 <ViewModal
                     policy={viewTarget}

@@ -480,14 +480,103 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
     const [pendingImportData, setPendingImportData] = useState<any[]>([]);
 
     const {
-
         selectedIds, isEditing, editValues, isConfirmingDelete, isSaving, bulkProgress,
-
         setIsConfirmingDelete, setIsSaving, startBulkOperation, incrementBulkProgress, finishBulkOperation, resetBulkProgress,
-
         toggle, toggleAll, clearAll, startEdit, updateField, cancelEdit,
-
     } = useTableSelection<Vulnerability>();
+
+    // Column Drag and Drop state
+    const [columnOrder, setColumnOrder] = useState<string[]>([]);
+    const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
+    const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+
+    // Default column order for vulnerabilities
+    const defaultColumns = useMemo(() => [
+        'name',
+        'asset_id',
+        'derived_from',
+        'status'
+    ], []);
+
+    // Initialize column order from localStorage or defaults
+    useEffect(() => {
+        const savedOrder = localStorage.getItem('vulnerabilities_column_order');
+        const customFieldKeys = customFields.map(f => `custom_field_${f.field_name}`);
+        
+        if (savedOrder) {
+            try {
+                const parsed = JSON.parse(savedOrder);
+                const combinedOrder = [...parsed];
+                
+                defaultColumns.forEach(col => {
+                    if (!combinedOrder.includes(col)) combinedOrder.push(col);
+                });
+
+                customFieldKeys.forEach(col => {
+                    if (!combinedOrder.includes(col)) combinedOrder.push(col);
+                });
+
+                const finalOrder = combinedOrder.filter(col => 
+                    defaultColumns.includes(col) || customFieldKeys.includes(col)
+                );
+
+                setColumnOrder(finalOrder);
+            } catch (e) {
+                console.error('Failed to parse saved column order', e);
+                setColumnOrder([...defaultColumns, ...customFieldKeys]);
+            }
+        } else {
+            setColumnOrder([...defaultColumns, ...customFieldKeys]);
+        }
+    }, [customFields, defaultColumns]);
+
+    // Save column order when it changes
+    useEffect(() => {
+        if (columnOrder.length > 0) {
+            localStorage.setItem('vulnerabilities_column_order', JSON.stringify(columnOrder));
+        }
+    }, [columnOrder]);
+
+    const handleDragStart = (e: React.DragEvent, columnKey: string) => {
+        setDraggedColumn(columnKey);
+        e.dataTransfer.setData('text/plain', columnKey);
+        e.dataTransfer.effectAllowed = 'move';
+        const target = e.currentTarget as HTMLElement;
+        target.style.opacity = '0.4';
+    };
+
+    const handleDragEnd = (e: React.DragEvent) => {
+        const target = e.currentTarget as HTMLElement;
+        target.style.opacity = '1';
+        setDraggedColumn(null);
+        setDragOverColumn(null);
+    };
+
+    const handleDragOver = (e: React.DragEvent, columnKey: string) => {
+        e.preventDefault();
+        if (draggedColumn === columnKey) return;
+        setDragOverColumn(columnKey);
+    };
+
+    const handleDrop = (e: React.DragEvent, targetColumnKey: string) => {
+        e.preventDefault();
+        if (!draggedColumn || draggedColumn === targetColumnKey) return;
+
+        setColumnOrder(prev => {
+            const newOrder = [...prev];
+            const draggedIndex = newOrder.indexOf(draggedColumn);
+            const targetIndex = newOrder.indexOf(targetColumnKey);
+            
+            newOrder.splice(draggedIndex, 1);
+            newOrder.splice(targetIndex, 0, draggedColumn);
+            
+            return newOrder;
+        });
+
+        setDraggedColumn(null);
+        setDragOverColumn(null);
+    };
+
 
     const vulnerabilityStatusStyles: Record<VulnerabilityStatus, string> = {
 
@@ -675,7 +764,36 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
 
     };
 
+    const renderFilterableHeader = (columnKey: string, title: string) => {
+        const canSort = ['name', 'derived_from', 'status'].includes(columnKey);
+
+        return (
+            <th 
+                scope="col" 
+                key={columnKey} 
+                draggable={true}
+                onDragStart={(e) => handleDragStart(e, columnKey)}
+                onDragEnd={handleDragEnd}
+                onDragOver={(e) => handleDragOver(e, columnKey)}
+                onDrop={(e) => handleDrop(e, columnKey)}
+                className={`sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300 ${dragOverColumn === columnKey ? 'border-l-4 border-l-blue-500' : ''}`}
+            >
+                {canSort ? (
+                    <button onClick={() => requestSort(columnKey as keyof Vulnerability)} className="flex items-center w-full text-left focus:outline-none">
+                        {title} {getSortIconFor(columnKey as keyof Vulnerability)}
+                    </button>
+                ) : (
+                    <div className="flex items-center">
+                        {title}
+                        {columnKey.startsWith('custom_field_') && customFields.find(f => `custom_field_${f.field_name}` === columnKey)?.is_required && <span className="text-red-500 ml-1">*</span>}
+                    </div>
+                )}
+            </th>
+        );
+    };
+
     const getSortIconFor = (key: keyof Vulnerability) => {
+
 
         if (!sortConfig || sortConfig.key !== key) {
 
@@ -1168,43 +1286,17 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
 
                                 </th>
 
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-                                    <button onClick={() => requestSort('name')} className="flex items-center w-full text-left focus:outline-none">Name {getSortIconFor('name')}</button>
-
-                                </th>
-
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Associated Asset</th>
-
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-                                    <button onClick={() => requestSort('derived_from')} className="flex items-center w-full text-left focus:outline-none">Source {getSortIconFor('derived_from')}</button>
-
-                                </th>
-
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-                                    <button onClick={() => requestSort('status')} className="flex items-center w-full text-left focus:outline-none">Status {getSortIconFor('status')}</button>
-
-                                </th>
-
-                                {/* Custom Fields Columns */}
-
-                                {customFields.map((field) => (
-
-                                    <th key={field.id} scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-                                        <div className="flex items-center">
-
-                                            {field.field_label}
-
-                                            {field.is_required && <span className="text-red-500 ml-1">*</span>}
-
-                                        </div>
-
-                                    </th>
-
-                                ))}
+                                {columnOrder.map(colKey => {
+                                    const customField = customFields.find(f => `custom_field_${f.field_name}` === colKey);
+                                    const title = customField 
+                                        ? customField.field_label
+                                        : colKey === 'name' ? 'Name'
+                                        : colKey === 'asset_id' ? 'Associated Asset'
+                                        : colKey === 'derived_from' ? 'Source'
+                                        : colKey === 'status' ? 'Status'
+                                        : colKey;
+                                    return renderFilterableHeader(colKey, title);
+                                })}
 
                             </tr>
 
@@ -1254,68 +1346,58 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
 
                                     </td>
 
-                                    <td className="px-6 py-4 whitespace-nowrap">
-
-                                        {isEditing && selectedIds.has(vuln.id) ? (
-
-                                            <input type="text" value={editValues[vuln.id]?.name ?? vuln.name} onChange={e => updateField(vuln.id, 'name', e.target.value)} className="w-full border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
-
-                                        ) : (
-
-                                            <>
-
-                                                <div className="text-sm font-medium text-gray-900 dark:text-white">{vuln.name}</div>
-
-                                                <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{vuln.description}</div>
-
-                                            </>
-
-                                        )}
-
-                                    </td>
-
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-
-                                        {vuln.assets ? `${vuln.assets.name} (${vuln.assets.asset_id})` : 'N/A'}
-
-                                    </td>
-
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-
-                                        {isEditing && selectedIds.has(vuln.id) ? (
-
-                                            <select value={editValues[vuln.id]?.derived_from ?? vuln.derived_from} onChange={e => updateField(vuln.id, 'derived_from', e.target.value as any)} className="border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400"><option>KEV</option><option>Scanning</option><option>PT</option><option>Reported-Ext</option></select>
-
-                                        ) : vuln.derived_from}
-
-                                    </td>
-
-                                    <td className="px-6 py-4 whitespace-nowrap">
-
-                                        {isEditing && selectedIds.has(vuln.id) ? (
-
-                                            <select value={editValues[vuln.id]?.status ?? vuln.status} onChange={e => updateField(vuln.id, 'status', e.target.value as any)} className="border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400"><option>Planned</option><option>Remediated</option><option>NA</option></select>
-
-                                        ) : <StatusBadge status={vuln.status} colorMap={vulnerabilityStatusStyles} />}
-
-                                    </td>
-
-                                    {/* Custom Fields Data Cells */}
-
-                                    {customFields.map((field) => {
-
-                                        const customFieldValue = vuln.custom_fields?.[field.field_name];
-
-                                        return (
-
-                                            <td key={field.id} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-
-                                                {customFieldValue || '-'}
-
-                                            </td>
-
-                                        );
-
+                                    {columnOrder.map(colKey => {
+                                        if (colKey === 'name') {
+                                            return (
+                                                <td key={colKey} className="px-6 py-4 whitespace-nowrap">
+                                                    {isEditing && selectedIds.has(vuln.id) ? (
+                                                        <input type="text" value={editValues[vuln.id]?.name ?? vuln.name} onChange={e => updateField(vuln.id, 'name', e.target.value)} className="w-full border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                                                    ) : (
+                                                        <>
+                                                            <div className="text-sm font-medium text-gray-900 dark:text-white">{vuln.name}</div>
+                                                            <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">{vuln.description}</div>
+                                                        </>
+                                                    )}
+                                                </td>
+                                            );
+                                        }
+                                        if (colKey === 'asset_id') {
+                                            return (
+                                                <td key={colKey} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                                    {vuln.assets ? `${vuln.assets.name} (${vuln.assets.asset_id})` : 'N/A'}
+                                                </td>
+                                            );
+                                        }
+                                        if (colKey === 'derived_from') {
+                                            return (
+                                                <td key={colKey} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                                    {isEditing && selectedIds.has(vuln.id) ? (
+                                                        <select value={editValues[vuln.id]?.derived_from ?? vuln.derived_from} onChange={e => updateField(vuln.id, 'derived_from', e.target.value as any)} className="border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400"><option>KEV</option><option>Scanning</option><option>PT</option><option>Reported-Ext</option></select>
+                                                    ) : vuln.derived_from}
+                                                </td>
+                                            );
+                                        }
+                                        if (colKey === 'status') {
+                                            return (
+                                                <td key={colKey} className="px-6 py-4 whitespace-nowrap">
+                                                    {isEditing && selectedIds.has(vuln.id) ? (
+                                                        <select value={editValues[vuln.id]?.status ?? vuln.status} onChange={e => updateField(vuln.id, 'status', e.target.value as any)} className="border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400"><option>Planned</option><option>Remediated</option><option>NA</option></select>
+                                                    ) : <StatusBadge status={vuln.status} colorMap={vulnerabilityStatusStyles} />}
+                                                </td>
+                                            );
+                                        }
+                                        if (colKey.startsWith('custom_field_')) {
+                                            const fieldName = colKey.replace('custom_field_', '');
+                                            const value = vuln.custom_fields?.[fieldName] || '-';
+                                            return (
+                                                <td key={colKey} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                                    {isEditing && selectedIds.has(vuln.id) ? (
+                                                        <input type="text" value={editValues[vuln.id]?.custom_fields?.[fieldName] ?? vuln.custom_fields?.[fieldName] ?? ''} onChange={e => updateField(vuln.id, `custom_fields.${fieldName}` as any, e.target.value)} className="w-full border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                                                    ) : value}
+                                                </td>
+                                            );
+                                        }
+                                        return null;
                                     })}
 
                                 </tr>
