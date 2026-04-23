@@ -18,6 +18,9 @@ import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
 import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon, FilterIcon, FunnelIcon } from '../Icons';
 
 import { parseCSVLine } from '../../utils/csvParser';
+import { processImportData } from '../../utils/importUtils';
+import { ImportConfirmationModal } from '../common/ImportConfirmationModal';
+import { parseCSVText } from '../../utils/csvParser';
 
 
 
@@ -846,9 +849,17 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
     const [sortConfig, setSortConfig] = useState<{ key: keyof Asset; direction: 'ascending' | 'descending' } | null>(null);
 
+    const [currentPage, setCurrentPage] = useState(1);
+
+    const [itemsPerPage, setItemsPerPage] = useState(100);
+
 
 
     const [importData, setImportData] = useState<{ newAssets: AssetCreate[]; updatedAssets: { id: string; updates: AssetUpdate }[]; unchangedAssets: Asset[]; duplicates: string[] }>({ newAssets: [], updatedAssets: [], unchangedAssets: [], duplicates: [] });
+
+    const [newFieldsToCreate, setNewFieldsToCreate] = useState<any[]>([]);
+
+    const [pendingImportData, setPendingImportData] = useState<any[]>([]);
 
 
 
@@ -879,6 +890,109 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
     useEffect(() => {
         localStorage.setItem('assets-column-order', JSON.stringify(columnOrder));
     }, [columnOrder]);
+
+    // Column Drag and Drop state
+    const [columnOrder, setColumnOrder] = useState<string[]>([]);
+    const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
+    const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+
+    // Default column order
+    const defaultColumns = useMemo(() => [
+        'asset_id',
+        'name',
+        'criticality',
+        'business_unit',
+        'governed_status',
+        'nn_controls',
+        'source'
+    ], []);
+
+    // Initialize column order from localStorage or defaults
+    useEffect(() => {
+        const savedOrder = localStorage.getItem('assets_column_order');
+        const customFieldKeys = customFields.map(f => `custom_field_${f.field_name}`);
+        
+        if (savedOrder) {
+            try {
+                const parsed = JSON.parse(savedOrder);
+                // Merge saved order with any new custom fields
+                const combinedOrder = [...parsed];
+                
+                // Add any missing default columns
+                defaultColumns.forEach(col => {
+                    if (!combinedOrder.includes(col)) combinedOrder.push(col);
+                });
+
+                // Add any missing custom fields
+                customFieldKeys.forEach(col => {
+                    if (!combinedOrder.includes(col)) combinedOrder.push(col);
+                });
+
+                // Remove any columns that no longer exist (except defaults)
+                const finalOrder = combinedOrder.filter(col => 
+                    defaultColumns.includes(col) || customFieldKeys.includes(col)
+                );
+
+                setColumnOrder(finalOrder);
+            } catch (e) {
+                console.error('Failed to parse saved column order', e);
+                setColumnOrder([...defaultColumns, ...customFieldKeys]);
+            }
+        } else {
+            setColumnOrder([...defaultColumns, ...customFieldKeys]);
+        }
+    }, [customFields, defaultColumns]);
+
+    // Save column order when it changes
+    useEffect(() => {
+        if (columnOrder.length > 0) {
+            localStorage.setItem('assets_column_order', JSON.stringify(columnOrder));
+        }
+    }, [columnOrder]);
+
+    const handleDragStart = (e: React.DragEvent, columnKey: string) => {
+        setDraggedColumn(columnKey);
+        e.dataTransfer.setData('text/plain', columnKey);
+        e.dataTransfer.effectAllowed = 'move';
+        
+        // Add a ghost image or just styling
+        const target = e.currentTarget as HTMLElement;
+        target.style.opacity = '0.4';
+    };
+
+    const handleDragEnd = (e: React.DragEvent) => {
+        const target = e.currentTarget as HTMLElement;
+        target.style.opacity = '1';
+        setDraggedColumn(null);
+        setDragOverColumn(null);
+    };
+
+    const handleDragOver = (e: React.DragEvent, columnKey: string) => {
+        e.preventDefault();
+        if (draggedColumn === columnKey) return;
+        setDragOverColumn(columnKey);
+    };
+
+    const handleDrop = (e: React.DragEvent, targetColumnKey: string) => {
+        e.preventDefault();
+        if (!draggedColumn || draggedColumn === targetColumnKey) return;
+
+        setColumnOrder(prev => {
+            const newOrder = [...prev];
+            const draggedIndex = newOrder.indexOf(draggedColumn);
+            const targetIndex = newOrder.indexOf(targetColumnKey);
+            
+            // Swap columns
+            newOrder.splice(draggedIndex, 1);
+            newOrder.splice(targetIndex, 0, draggedColumn);
+            
+            return newOrder;
+        });
+
+        setDraggedColumn(null);
+        setDragOverColumn(null);
+    };
+
 
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
@@ -1064,7 +1178,11 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
         setAssets(assetsData);
 
-        setRelationships(relationshipsData);
+    // Reset to page 1 when filter changes or items per page changes
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [filter, itemsPerPage]);
+
 
         
 
@@ -1121,9 +1239,22 @@ const filteredAndSortedAssets = useMemo(() => {
             if (aValue === null || aValue === undefined) return 1;
             if (bValue === null || bValue === undefined) return -1;
 
-            if (aValue < bValue) {
-                return sortConfig.direction === 'ascending' ? -1 : 1;
-            }
+        return filteredItems;
+
+
+
+    }, [assets, filter, sortConfig, columnFilters]);
+
+    // Pagination: Get current page items
+
+    const startIndex = (currentPage - 1) * itemsPerPage;
+
+    const endIndex = startIndex + itemsPerPage;
+
+    const paginatedAssets = filteredAndSortedAssets.slice(startIndex, endIndex);
+
+
+
 
             if (aValue > bValue) {
                 return sortConfig.direction === 'ascending' ? 1 : -1;
@@ -1155,20 +1286,12 @@ const filteredAndSortedAssets = useMemo(() => {
             <th 
                 scope="col" 
                 key={columnKey} 
-                draggable
+                draggable={true}
                 onDragStart={(e) => handleDragStart(e, columnKey)}
-                onDragOver={handleDragOver}
-                onDragEnter={() => handleDragEnter(columnKey)}
-                onDragLeave={handleDragLeave}
-                onDrop={(e) => handleDrop(e, columnKey)}
                 onDragEnd={handleDragEnd}
-                className={`relative sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300 cursor-move transition-all ${
-                    isDragged ? 'opacity-50' : ''
-                } ${
-                    isDragOver ? 'border-l-4 border-l-blue-500 bg-blue-50 dark:bg-blue-900/20' : ''
-                } ${
-                    isDragging && !isDragged && !isDragOver ? 'opacity-75' : ''
-                }`}
+                onDragOver={(e) => handleDragOver(e, columnKey)}
+                onDrop={(e) => handleDrop(e, columnKey)}
+                className={`relative sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300 ${dragOverColumn === columnKey ? 'border-l-4 border-l-blue-500' : ''}`}
             >
                 <div className="flex items-center">
                     {columnKey !== 'nn_controls' ? (
@@ -1211,7 +1334,11 @@ const filteredAndSortedAssets = useMemo(() => {
         );
     };
 
-const requestSort = (key: keyof Asset) => {
+
+    const requestSort = (key: keyof Asset) => {
+
+
+
         let direction: 'ascending' | 'descending' = 'ascending';
 
         if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
@@ -1297,75 +1424,67 @@ const handleDeleteAsset = async () => {
 
     const handleBulkDelete = async () => {
 
-
-
         setIsConfirmingDelete(false);
-
-
 
         startBulkOperation(selectedIds.size);
 
+        
 
+        try {
 
-        let hasError = false;
+            // Use bulk deletion for efficiency with 1000+ records
 
+            await SupabaseService.deleteAssetsBulk(Array.from(selectedIds) as string[]);
 
+            
 
-        for (const id of selectedIds) {
+            // Mark all as successful since bulk operation either succeeds or fails entirely
 
-
-
-            try {
-
-
-
-                await SupabaseService.deleteAsset(id as string);
-
-
+            for (let i = 0; i < selectedIds.size; i++) {
 
                 incrementBulkProgress(true);
 
+            }
 
+            
 
-            } catch (err) {
+            finishBulkOperation(false);
 
+            
+            // Log the bulk delete activity
+            await SupabaseService.logAllActivity({
+                action: 'Bulk Deleted Assets',
+                module: 'Governance',
+                entity_id: null,
+                entity_name: `${selectedIds.size} assets deleted`,
+                event_data: { count: selectedIds.size }
+            });
 
+            // Refresh data after successful deletion
 
-                console.error('Failed to delete asset', id, err);
+            fetchAssets();
 
+        } catch (err) {
 
+            console.error('Failed to bulk delete assets', err);
 
-                hasError = true;
+            
 
+            // Mark all as failed
 
+            for (let i = 0; i < selectedIds.size; i++) {
 
                 incrementBulkProgress(false);
 
-
-
             }
 
+            
 
+            finishBulkOperation(true);
 
         }
 
-
-
-        finishBulkOperation(hasError);
-
-
-
-        fetchAssets();
-
-
-
     };
-
-
-
-
-
-
 
     const handleCloseBulkProgress = () => {
 
@@ -1622,799 +1741,222 @@ const handleDeleteAsset = async () => {
 
 
         assetRelationships.forEach(r => {
-
-
-
             if (r.source_asset_id !== asset.asset_id && !relatedAssets.includes(r.source_asset_id)) {
-
-
-
                 relatedAssets.push(r.source_asset_id);
-
-
-
             }
-
-
-
             if (r.target_asset_id !== asset.asset_id && !relatedAssets.includes(r.target_asset_id)) {
-
-
-
                 relatedAssets.push(r.target_asset_id);
-
-
-
             }
-
-
-
         });
-
-
-
-
-
-
-
         return relatedAssets;
-
-
-
     };
 
+    const handleExportCSV = () => {
+        // Build headers with custom fields
+        const baseHeaders = ['asset_id', 'name', 'criticality', 'details', 'governed_status', 'vulnerability_count', 'exposure', 'category', 'asset_owner', 'business_unit', 'physical_location', 'ip_address', 'mac_id', 'source'];
+        const customFieldHeaders = customFields.map(field => field.field_label);
+        const headers = [...baseHeaders, ...customFieldHeaders];
 
+        const csvContent = [
 
+            headers.join(','),
 
+            ...filteredAndSortedAssets.map(asset => {
 
+                // Base asset data
+                const baseData = [
+                    asset.asset_id,
+                    `"${(asset.name || '').replace(/"/g, '""')}"`,
+                    asset.criticality || '',
+                    `"${(asset.details || '').replace(/"/g, '""')}"`,
+                    asset.governed_status || '',
+                    asset.vulnerability_count || 0,
+                    asset.exposure || '',
+                    asset.category || '',
+                    asset.asset_owner || '',
+                    asset.business_unit || '',
+                    asset.physical_location || '',
+                    asset.ip_address || '',
+                    asset.mac_id || '',
+                    asset.source || ''
+                ];
 
+                // Custom fields data
+                const customFieldsData = customFields.map(field => {
+                    const value = asset.custom_fields?.[field.field_name] || '';
+                    return `"${String(value).replace(/"/g, '""')}"`;
+                });
+
+                return [...baseData, ...customFieldsData].join(',');
+            })
+        ].join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'assets.csv';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    const prepareImportData = (records: any[]) => {
+        // Define valid asset categories
+        const validCategories = ['Physical/Hardware', 'Software', 'Services/Infra', 'Information'];
+        
+        // Function to normalize category values
+        const normalizeCategory = (category: string): string => {
+            if (!category) return 'Information'; // Default category
+            
+            const normalized = category.trim();
+            
+            // Exact match
+            if (validCategories.includes(normalized)) {
+                return normalized;
+            }
+            
+            // Case-insensitive matching
+            const lowerNormalized = normalized.toLowerCase();
+            for (const validCat of validCategories) {
+                if (validCat.toLowerCase() === lowerNormalized) {
+                    return validCat;
+                }
+            }
+            
+            // Partial matching for common variations
+            if (lowerNormalized.includes('physical') || lowerNormalized.includes('hardware')) {
+                return 'Physical/Hardware';
+            }
+            if (lowerNormalized.includes('software') || lowerNormalized.includes('app')) {
+                return 'Software';
+            }
+            if (lowerNormalized.includes('service') || lowerNormalized.includes('infra') || lowerNormalized.includes('infrastructure')) {
+                return 'Services/Infra';
+            }
+            if (lowerNormalized.includes('info') || lowerNormalized.includes('data')) {
+                return 'Information';
+            }
+            
+            // Default fallback
+            return 'Information';
+        };
+        
+        const newAssets: AssetCreate[] = [];
+        const updatedAssets: { id: string; updates: AssetUpdate }[] = [];
+        
+        records.forEach(record => {
+            // Normalize category to prevent constraint violations
+            const normalizedRecord = {
+                ...record,
+                category: normalizeCategory(record.category || '')
+            };
+            
+            const existing = assets.find(a => a.asset_id === record.asset_id);
+            if (existing) {
+                updatedAssets.push({ id: existing.id, updates: normalizedRecord });
+            } else {
+                newAssets.push(normalizedRecord);
+            }
+        });
+
+        setImportData({ newAssets, updatedAssets, unchangedAssets: [], duplicates: [] });
+        setModalState({ type: 'import' });
+    };
 
     const handleImportCSV = (event: ChangeEvent<HTMLInputElement>) => {
-
-
-
         const file = event.target.files?.[0];
-
-
-
         if (!file) return;
-
-
-
-
-
-
 
         const reader = new FileReader();
 
-
-
         reader.onload = async (e) => {
-
-
-
-            const text = e.target?.result as string;
-
-
-
-            if(!text) return;
-
-
-
-
-
-
-
-            const lines = text.split('\n').slice(1);
-
-
-
-            const parsedAssets: AssetCreate[] = lines
-
-
-
-                .map(line => {
-
-
-
-                    const fields = parseCSVLine(line);
-
-                    const [asset_id, name, criticality, details, governed_status, vulnerability_count, exposure, category, asset_owner, business_unit, physical_location, ip_address, mac_id] = fields;
-
-
-
-                    // asset_id is optional — DB trigger auto-generates if blank
-
-                    if (!name || !criticality || !governed_status || !exposure || !category) return null;
-
-
-
-
-
-
-
-                    // Basic validation for enum types
-
-
-
-                    const validCriticality: AssetCriticality[] = ['High', 'Medium', 'Low'];
-
-
-
-                    const validGovernedStatus: AssetGovernedStatus[] = ['Governed', 'Non-Governed'];
-
-
-
-                    const validExposure: AssetExposure[] = ['Internal', 'External', 'DMZ'];
-
-
-
-                    const validCategory: AssetCategory[] = ['Physical/Hardware', 'Software', 'Services/Infra', 'Information'];
-
-
-
-
-
-
-
-                    if (!validCriticality.includes(criticality as AssetCriticality) ||
-
-
-
-                        !validGovernedStatus.includes(governed_status as AssetGovernedStatus) ||
-
-
-
-                        !validExposure.includes(exposure as AssetExposure) ||
-
-
-
-                        !validCategory.includes(category as AssetCategory)) {
-
-
-
-                        return null;
-
-
-
-                    }
-
-
-
-
-
-
-
-                    return {
-
-
-
-                        // Pass asset_id only when present; omit so DB trigger generates it
-
-                        ...(asset_id ? { asset_id } : {}),
-
-
-
-                        name,
-
-
-
-                        criticality: criticality as AssetCriticality,
-
-
-
-                        details: details || '',
-
-
-
-                        governed_status: governed_status as AssetGovernedStatus,
-
-
-
-                        vulnerability_count: Number(vulnerability_count) || 0,
-
-
-
-                        exposure: exposure as AssetExposure,
-
-
-
-                        category: category as AssetCategory,
-
-
-
-                        asset_owner: asset_owner || '',
-
-
-
-                        business_unit: business_unit || '',
-
-
-
-                        physical_location: physical_location || '',
-
-
-
-                        ip_address: ip_address || '',
-
-
-
-                        mac_id: mac_id || '',
-
-
-
-                        source: 'File Upload'
-
-
-
-                    };
-
-
-
-                })
-
-
-
-                .filter((asset) => 
-
-    asset !== null &&
-
-    asset.name &&
-
-    asset.criticality &&
-
-    asset.details !== undefined &&
-
-    asset.governed_status &&
-
-    asset.exposure &&
-
-    asset.category &&
-
-    asset.source
-
-) as AssetCreate[];
-
-
-
-
-
-
-
-            // Separate new assets from existing assets that need updates
-
-            const existingAssetMap = new Map(assets.map(a => [a.asset_id, a]));
-
-            const newAssets: AssetCreate[] = [];
-
-            const updatedAssets: { id: string; updates: AssetUpdate }[] = [];
-
-            const unchangedAssets: Asset[] = [];
-
-
-
-            parsedAssets.forEach(parsedAsset => {
-
-                const existingAsset = existingAssetMap.get(parsedAsset.asset_id) as Asset | undefined;
-
-                if (existingAsset) {
-
-                    // Check if asset actually changed
-
-                    const hasChanges = (
-
-                        existingAsset.name !== parsedAsset.name ||
-
-                        existingAsset.asset_owner !== parsedAsset.asset_owner ||
-
-                        existingAsset.business_unit !== parsedAsset.business_unit ||
-
-                        existingAsset.physical_location !== parsedAsset.physical_location ||
-
-                        existingAsset.ip_address !== parsedAsset.ip_address ||
-
-                        existingAsset.mac_id !== parsedAsset.mac_id ||
-
-                        existingAsset.criticality !== parsedAsset.criticality ||
-
-                        existingAsset.details !== parsedAsset.details ||
-
-                        existingAsset.governed_status !== parsedAsset.governed_status ||
-
-                        existingAsset.vulnerability_count !== parsedAsset.vulnerability_count ||
-
-                        existingAsset.exposure !== parsedAsset.exposure ||
-
-                        existingAsset.category !== parsedAsset.category
-
-                    );
-
-
-
-                    if (hasChanges) {
-
-                        // Asset exists and has changes, prepare update
-
-                        const updates: AssetUpdate = {
-
-                            name: parsedAsset.name,
-
-                            asset_owner: parsedAsset.asset_owner,
-
-                            business_unit: parsedAsset.business_unit,
-
-                            physical_location: parsedAsset.physical_location,
-
-                            ip_address: parsedAsset.ip_address,
-
-                            mac_id: parsedAsset.mac_id,
-
-                            criticality: parsedAsset.criticality,
-
-                            details: parsedAsset.details,
-
-                            governed_status: parsedAsset.governed_status,
-
-                            vulnerability_count: parsedAsset.vulnerability_count,
-
-                            exposure: parsedAsset.exposure,
-
-                            category: parsedAsset.category,
-
-                            source: 'File Upload'
-
-                        };
-
-                        updatedAssets.push({ id: existingAsset.id, updates });
-
-                    } else {
-
-                        // No changes, add to unchanged list
-
-                        unchangedAssets.push(existingAsset);
-
-                    }
-
-                } else {
-
-                    // New asset, add to list
-
-                    newAssets.push(parsedAsset);
-
-                }
-
-            });
-
-
-
-            setImportData({ newAssets, updatedAssets, unchangedAssets, duplicates: [] });
-
-            setModalState({ type: 'import' });
-
-
-
-        };
-
-
-
-        reader.readAsText(file);
-
-
-
-        if(fileInputRef.current) fileInputRef.current.value = '';
-
-    };
-
-
-
-    const handleConfirmImport = async () => {
-
-        if (importData.newAssets.length > 0 || importData.updatedAssets.length > 0) {
-
             try {
-
-                setIsImporting(true);
-
-                const totalItems = importData.newAssets.length + importData.updatedAssets.length;
-
-                setTotalToImport(totalItems);
-
-                setImportedCount(0);
-
-                setImportErrors(0);
-
-                setImportProgress(0);
-
-
-
-                let processed = 0;
-
-                let errors = 0;
-
-
-
-                // Helper function to safely calculate progress
-
-                const updateProgress = (processedCount: number) => {
-
-                    const progress = totalItems > 0 ? Math.round((processedCount / totalItems) * 100) : 0;
-
-                    setImportProgress(progress);
-
-                    setImportedCount(processedCount);
-
-                };
-
-
-
-                // Add new assets using single API (server handles chunking automatically)
-
-                if (importData.newAssets.length > 0) {
-
-                    try {
-
-                        const result = await SupabaseService.bulkAddAssets(importData.newAssets);
-
-                        processed += importData.newAssets.length;
-
-                        updateProgress(processed);
-
-                        
-
-                        // Handle chunked response format for large imports
-
-                        if (result && typeof result === 'object' && 'errors' in result) {
-
-                            errors += (result as { errors?: number }).errors || 0;
-
-                            setImportErrors(errors);
-
-                        }
-
-                    } catch (err) {
-
-                        errors += importData.newAssets.length;
-
-                        setImportErrors(errors);
-
-                        console.error('Failed to import new assets:', err);
-
-                    }
-
-                }
-
+                const text = e.target?.result as string;
+                const parsedData = parseCSVText(text);
+                const { records, newFields } = processImportData('assets', parsedData.headers, parsedData.rows, customFields);
                 
-
-                // Update existing assets
-
-                if (importData.updatedAssets.length > 0) {
-
-                    for (const { id, updates } of importData.updatedAssets) {
-
-                        try {
-
-                            await SupabaseService.updateAsset(id, updates);
-
-                            processed++;
-
-                            updateProgress(processed);
-
-                        } catch (err) {
-
-                            errors++;
-
-                            setImportErrors(errors);
-
-                            console.error(`Failed to update asset ${id}:`, err);
-
-                        }
-
-                    }
-
-                }
-
-
-
-                await SupabaseService.logAllActivity({
-
-                    action: 'CSV Import - Added and Updated Assets',
-
-                    module: 'Governance',
-
-                    event_data: { 
-
-                        newCount: importData.newAssets.length, 
-
-                        updatedCount: importData.updatedAssets.length,
-
-                        totalProcessed: processed,
-
-                        errors: errors
-
-                    }
-
-                });
-
-
-
-                setModalState({ type: null });
-
-                fetchAssets();
-
+                // Store new fields to be created
+                setNewFieldsToCreate(newFields);
+                
+                // Prepare import data
+                prepareImportData(records);
             } catch (err) {
-
-                setError('Failed to import assets.');
-
-                console.error(err);
-
-            } finally {
-
-                setIsImporting(false);
-
+                setError('Failed to import CSV. Please check the file format.');
             }
-
-        }
-
+        };
+        reader.readAsText(file);
     };
-
-
-
-    const handleExportCSV = () => {
-
-
-
-        const headers = ['asset_id', 'name', 'criticality', 'details', 'governed_status', 'vulnerability_count', 'exposure', 'category', 'asset_owner', 'business_unit', 'physical_location', 'ip_address', 'mac_id', 'source'];
-
-
-
-    const csvContent = [
-
-
-
-        headers.join(','),
-
-
-
-        ...filteredAndSortedAssets.map(asset =>
-
-
-
-            [
-
-
-
-                asset.asset_id,
-
-
-
-                `"${(asset.name || '').replace(/"/g, '""')}"`,
-
-
-
-                asset.criticality || '',
-
-
-
-                `"${(asset.details || '').replace(/"/g, '""')}"`,
-
-
-
-                asset.governed_status || '',
-
-
-
-                asset.vulnerability_count || 0,
-
-
-
-                asset.exposure || '',
-
-
-
-                asset.category || '',
-
-
-
-                asset.asset_owner || '',
-
-
-
-                asset.business_unit || '',
-
-
-
-                asset.physical_location || '',
-
-
-
-                asset.ip_address || '',
-
-
-
-                asset.mac_id || '',
-
-
-
-                asset.source || ''
-
-
-
-            ].join(',')
-
-
-
-        )
-
-
-
-    ].join('\n');
-
-
-
-
-
-
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-
-
-
-    const link = document.createElement('a');
-
-
-
-    link.href = URL.createObjectURL(blob);
-
-
-
-    link.download = `assets-${new Date().toISOString().split('T')[0]}.csv`;
-
-
-
-    link.click();
-
-
-
-};
-
-
-
-
-
-
 
     const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
+    const editSelectCls = "border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-4";
 
+    const handleConfirmImport = async () => {
+        try {
+            setIsImporting(true);
+            
+            // First, create any new custom fields
+            if (newFieldsToCreate.length > 0) {
+                for (const field of newFieldsToCreate) {
+                    await SupabaseService.createCustomField('assets', field);
+                }
+                // Refresh custom fields after creating new ones
+                await fetchCustomFields();
+            }
+            
+            const total = importData.newAssets.length + importData.updatedAssets.length;
+            setTotalToImport(total);
+            setImportedCount(0);
+            
+            // Use bulk import for new assets
+            if (importData.newAssets.length > 0) {
+                await SupabaseService.bulkAddAssets(importData.newAssets);
+                setImportedCount(importData.newAssets.length);
+            }
 
+            // Handle updates individually (bulk update not available)
+            for (const { id, updates } of importData.updatedAssets) {
+                await SupabaseService.updateAsset(id, updates);
+                setImportedCount(prev => prev + 1);
+            }
 
-    const editSelectCls = "border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
+            fetchAssets();
+            setModalState({ type: null });
+        } catch (err) {
+            setError('Failed to complete import.');
+        } finally {
+            setIsImporting(false);
+        }
+    };
 
-
-
-
-
-
-
+    
     return (
-
-
-
         <div>
-
-
-
             <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
-
-
-
                 <div className="w-full sm:w-1/3">
-
-
-
                     <input
-
-
-
                         type="text"
-
-
-
                         placeholder="Filter assets..."
-
-
-
                         value={filter}
-
-
-
                         onChange={e => setFilter(e.target.value)}
-
-
-
                         className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-
-
-
-                        aria-label="Filter assets"
-
-
-
                     />
-
-
-
                 </div>
-
-
-
                 <div className="flex space-x-2">
-
-
-
                     <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
-
-                     <button onClick={() => setShowAIChat(true)} title="AI Assistant" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
-
-
+                    <button onClick={() => setShowAIChat(true)} title="AI Generate" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <BotIcon className="h-5 w-5" />
-
-
-
                     </button>
-
-
-
                     <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
-
-
                         <UploadIcon className="h-5 w-5" />
-
-
-
                     </button>
-
-
-
                     <button onClick={handleExportCSV} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
-
-
                         <DownloadIcon className="h-5 w-5" />
-
-
-
                     </button>
-
-
-
                     <button onClick={() => setModalState({ type: 'add' })} title="Add Asset" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
-
-
                         <PlusIcon className="h-5 w-5" />
-
-
-
                     </button>
-
-
-
-
-
-
-
                 </div>
-
-
-
             </div>
-
-
-
-
-
 
 
             {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">{error}</div>}
@@ -2442,9 +1984,6 @@ const handleDeleteAsset = async () => {
 
 
                             <tr>
-
-
-
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 w-16 px-4 py-3">
                                     <div className="flex items-center space-x-2">
                                         <input
@@ -2452,31 +1991,27 @@ const handleDeleteAsset = async () => {
                                             checked={selectedIds.size === filteredAndSortedAssets.length && filteredAndSortedAssets.length > 0}
                                             onChange={() => toggleAll(filteredAndSortedAssets.map(i => i.id))}
                                             className="rounded border-gray-300 dark:border-gray-600 cursor-pointer"
-                                            title="Select All"
+                                            title={`Select All ${filteredAndSortedAssets.length} Assets (All Pages)`}
                                         />
                                         <button onClick={() => setShowColumnManagement(true)} title="Manage Columns" className="p-1 text-gray-400 hover:text-purple-500 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors">
                                             <PlusIcon className="h-4 w-4" />
                                         </button>
                                     </div>
                                 </th>
-
-
-
-                                {columnOrder.map(columnKey => {
-                                    if (columnKey === 'asset_id') return renderFilterableHeader('asset_id', 'Asset ID');
-                                    if (columnKey === 'name') return renderFilterableHeader('name', 'Name');
-                                    if (columnKey === 'criticality') return renderFilterableHeader('criticality', 'Criticality');
-                                    if (columnKey === 'business_unit') return renderFilterableHeader('business_unit', 'Business Unit');
-                                    if (columnKey === 'governed_status') return renderFilterableHeader('governed_status', 'Governed');
-                                    if (columnKey === 'nn_controls') return renderFilterableHeader('nn_controls', 'NN Controls');
-                                    if (columnKey === 'source') return renderFilterableHeader('source', 'Source');
-                                    return null;
+                                {columnOrder.map(colKey => {
+                                    const customField = customFields.find(f => `custom_field_${f.field_name}` === colKey);
+                                    const title = customField 
+                                        ? customField.field_label + (customField.is_required ? " *" : "")
+                                        : colKey === 'asset_id' ? 'Asset ID'
+                                        : colKey === 'name' ? 'Name'
+                                        : colKey === 'criticality' ? 'Criticality'
+                                        : colKey === 'business_unit' ? 'Business Unit'
+                                        : colKey === 'governed_status' ? 'Governed'
+                                        : colKey === 'nn_controls' ? 'NN Controls'
+                                        : colKey === 'source' ? 'Source'
+                                        : colKey;
+                                    return renderFilterableHeader(colKey, title);
                                 })}
-
-                                {/* Custom Fields Columns */}
-                                {customFields.map((field) => (
-                                    renderFilterableHeader(`custom_field_${field.field_name}`, field.field_label + (field.is_required ? " *" : ""))
-                                ))}
 
 
 
@@ -2508,7 +2043,7 @@ const handleDeleteAsset = async () => {
 
 
 
-                            ) : filteredAndSortedAssets.map(asset => (
+                            ) : paginatedAssets.map(asset => (
 
 
 
@@ -2576,46 +2111,46 @@ const handleDeleteAsset = async () => {
 
 
 
-                                    {columnOrder.map(columnKey => {
-                                        if (columnKey === 'asset_id') {
+                                    {columnOrder.map(colKey => {
+                                        if (colKey === 'asset_id') {
                                             return (
-                                                <td key="asset_id" className="px-6 py-4 whitespace-nowrap text-sm font-mono font-semibold">
+                                                <td key={colKey} className="px-6 py-4 whitespace-nowrap text-sm font-mono font-semibold">
                                                     <span className={asset.governed_status === 'Governed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-blue-600 dark:text-blue-400'}>
                                                         {asset.asset_id}
                                                     </span>
                                                 </td>
                                             );
                                         }
-                                        if (columnKey === 'name') {
+                                        if (colKey === 'name') {
                                             return (
-                                                <td key="name" className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                                                <td key={colKey} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                                                     {isEditing && selectedIds.has(asset.id) ? (
                                                         <input type="text" value={editValues[asset.id]?.name ?? asset.name} onChange={e => updateField(asset.id, 'name', e.target.value)} className={editInputCls} />
                                                     ) : asset.name}
                                                 </td>
                                             );
                                         }
-                                        if (columnKey === 'criticality') {
+                                        if (colKey === 'criticality') {
                                             return (
-                                                <td key="criticality" className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                                <td key={colKey} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                                     {isEditing && selectedIds.has(asset.id) ? (
                                                         <select value={editValues[asset.id]?.criticality ?? asset.criticality} onChange={e => updateField(asset.id, 'criticality', e.target.value as any)} className={editSelectCls}><option>Low</option><option>Medium</option><option>High</option></select>
                                                     ) : asset.criticality}
                                                 </td>
                                             );
                                         }
-                                        if (columnKey === 'business_unit') {
+                                        if (colKey === 'business_unit') {
                                             return (
-                                                <td key="business_unit" className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                                <td key={colKey} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                                     {isEditing && selectedIds.has(asset.id) ? (
                                                         <input type="text" value={editValues[asset.id]?.business_unit ?? asset.business_unit ?? ''} onChange={e => updateField(asset.id, 'business_unit', e.target.value)} className={editInputCls} />
                                                     ) : (asset.business_unit || '-')}
                                                 </td>
                                             );
                                         }
-                                        if (columnKey === 'governed_status') {
+                                        if (colKey === 'governed_status') {
                                             return (
-                                                <td key="governed_status" className="px-6 py-4 whitespace-nowrap text-sm">
+                                                <td key={colKey} className="px-6 py-4 whitespace-nowrap text-sm">
                                                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                                                         asset.governed_status === 'Governed'
                                                             ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
@@ -2626,9 +2161,9 @@ const handleDeleteAsset = async () => {
                                                 </td>
                                             );
                                         }
-                                        if (columnKey === 'nn_controls') {
+                                        if (colKey === 'nn_controls') {
                                             return (
-                                                <td key="nn_controls" className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
+                                                <td key={colKey} className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
                                                     {asset.nn_controls && asset.nn_controls.length > 0 ? (
                                                         <div className="flex items-center gap-1.5">
                                                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
@@ -2639,36 +2174,30 @@ const handleDeleteAsset = async () => {
                                                             </span>
                                                         </div>
                                                     ) : (
-                                                        <span className="text-xs text-gray-400">-</span>
+                                                        <span className="text-xs text-gray-400 dark:text-gray-500">-</span>
                                                     )}
                                                 </td>
                                             );
                                         }
-                                        if (columnKey === 'source') {
+                                        if (colKey === 'source') {
                                             return (
-                                                <td key="source" className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                                <td key={colKey} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                                     {displaySource(asset.source)}
                                                 </td>
                                             );
                                         }
+                                        if (colKey.startsWith('custom_field_')) {
+                                            const fieldName = colKey.replace('custom_field_', '');
+                                            const value = asset.custom_fields?.[fieldName] || '-';
+                                            return (
+                                                <td key={colKey} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                                    {isEditing && selectedIds.has(asset.id) ? (
+                                                        <input type="text" value={editValues[asset.id]?.custom_fields?.[fieldName] ?? asset.custom_fields?.[fieldName] ?? ''} onChange={e => updateField(asset.id, `custom_fields.${fieldName}` as any, e.target.value)} className={editInputCls} />
+                                                    ) : value}
+                                                </td>
+                                            );
+                                        }
                                         return null;
-                                    })}
-
-                                    {/* Custom Fields Data Cells */}
-                                    {customFields.map((field) => {
-
-                                        const customFieldValue = asset.custom_fields?.[field.field_name];
-
-                                        return (
-
-                                            <td key={field.id} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-
-                                                {customFieldValue || '-'}
-
-                                            </td>
-
-                                        );
-
                                     })}
 
 
@@ -2695,7 +2224,43 @@ const handleDeleteAsset = async () => {
 
             </div>
 
-
+            {/* Pagination Controls */}
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex items-center space-x-2">
+                    <button
+                        onClick={() => setCurrentPage(currentPage - 1)}
+                        disabled={currentPage === 1}
+                        className="px-3 py-1 text-sm bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                    >
+                        Previous
+                    </button>
+                    <div className="px-4 py-1 text-sm text-gray-700 dark:text-gray-300 bg-white border border-gray-300 rounded-md shadow-sm dark:bg-gray-800 dark:border-gray-600">
+                        {currentPage} of {Math.ceil(filteredAndSortedAssets.length / itemsPerPage)}
+                    </div>
+                    <button
+                        onClick={() => setCurrentPage(currentPage + 1)}
+                        disabled={currentPage === Math.ceil(filteredAndSortedAssets.length / itemsPerPage)}
+                        className="px-3 py-1 text-sm bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                    >
+                        Next
+                    </button>
+                </div>
+                <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-700 dark:text-gray-300">
+                        Items per page:
+                    </span>
+                    <select
+                        value={itemsPerPage}
+                        onChange={e => setItemsPerPage(Number(e.target.value))}
+                        className="rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                    >
+                        <option value={50}>50</option>
+                        <option value={100}>100</option>
+                        <option value={200}>200</option>
+                        <option value={500}>500</option>
+                    </select>
+                </div>
+            </div>
 
             <AssetModal
 
@@ -2957,209 +2522,73 @@ const handleDeleteAsset = async () => {
 
 
 
-            <Modal isOpen={modalState.type === 'import'} onClose={closeModal} title="Import CSV Preview">
+            {newFieldsToCreate.length > 0 ? (
+                <ImportConfirmationModal
+                    isOpen={modalState.type === 'import'}
+                    onClose={closeModal}
+                    onConfirm={handleConfirmImport}
+                    newFields={newFieldsToCreate}
+                    moduleName="Assets"
+                />
+            ) : (
+                <Modal isOpen={modalState.type === 'import'} onClose={closeModal} title="Import CSV Preview">
+                    <div className="space-y-4">
+                        <div>
+                            <h4 className="font-semibold text-gray-900 dark:text-white mb-2">New Assets to Import ({importData.newAssets.length})</h4>
+                            {importData.newAssets.length > 0 ? (
+                                <div className="max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-md p-3">
+                                    {importData.newAssets.map((asset, idx) => (
+                                        <div key={idx} className="py-2 px-2 border-b border-gray-100 dark:border-gray-700 last:border-b-0 text-sm dark:text-gray-300">
+                                            <div className="font-medium">{asset.asset_id} - {asset.name}</div>
+                                            <div className="text-xs text-gray-500 dark:text-gray-400">Criticality: {asset.criticality} | Category: {asset.category}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-gray-500 dark:text-gray-400 text-sm">No new assets to import.</div>
+                            )}
+                        </div>
 
-
-
-                <div className="space-y-4">
-
-
-
-                    <div>
-
-
-
-                        <h4 className="font-semibold text-gray-900 dark:text-white mb-2">New Assets to Import ({importData.newAssets.length})</h4>
-
-
-
-                        {importData.newAssets.length > 0 ? (
-
-
-
-                            <div className="max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-md p-3">
-
-
-
-                                {importData.newAssets.map((asset, idx) => (
-
-
-
-                                    <div key={idx} className="py-2 px-2 border-b border-gray-100 dark:border-gray-700 last:border-b-0 text-sm dark:text-gray-300">
-
-
-
-                                        <div className="font-medium">{asset.asset_id} - {asset.name}</div>
-
-
-
-                                        <div className="text-xs text-gray-500 dark:text-gray-400">Criticality: {asset.criticality} | Category: {asset.category}</div>
-
-
-
-                                    </div>
-
-
-
-                                ))}
-
-
-
+                        {importData.updatedAssets.length > 0 && (
+                            <div>
+                                <h4 className="font-semibold text-blue-600 dark:text-blue-400 mb-2">Assets to Update ({importData.updatedAssets.length})</h4>
+                                <div className="max-h-48 overflow-y-auto border border-blue-200 dark:border-blue-700 rounded-md p-3 bg-blue-50 dark:bg-gray-800">
+                                    {importData.updatedAssets.map(({ id, updates }, idx) => (
+                                        <div key={idx} className="py-1 px-2 text-sm text-blue-800 dark:text-blue-200">
+                                            {updates.asset_id} - {updates.name} (will be updated)
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
-
-
-
-                        ) : (
-
-
-
-                            <div className="text-gray-500 dark:text-gray-400 text-sm">No new assets to import.</div>
-
-
-
                         )}
 
-
-
+                        {importData.unchangedAssets.length > 0 && (
+                            <div>
+                                <h4 className="font-semibold text-gray-600 dark:text-gray-400 mb-2">Unchanged Assets ({importData.unchangedAssets.length})</h4>
+                                <div className="max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-md p-3 bg-gray-50 dark:bg-gray-800">
+                                    {importData.unchangedAssets.map((asset, idx) => (
+                                        <div key={idx} className="py-1 px-2 text-sm text-gray-600 dark:text-gray-400">
+                                            {asset.asset_id} - {asset.name} (no changes)
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
 
-
-
-                    {importData.updatedAssets.length > 0 && (
-
-
-
-                        <div>
-
-
-
-                            <h4 className="font-semibold text-blue-600 dark:text-blue-400 mb-2">Assets to Update ({importData.updatedAssets.length})</h4>
-
-
-
-                            <div className="max-h-48 overflow-y-auto border border-blue-200 dark:border-blue-700 rounded-md p-3 bg-blue-50 dark:bg-gray-800">
-
-
-
-                                {importData.updatedAssets.map(({ id, updates }, idx) => (
-
-
-
-                                    <div key={idx} className="py-1 px-2 text-sm text-blue-800 dark:text-blue-200">
-
-
-
-                                        {updates.asset_id} - {updates.name} (will be updated)
-
-
-
-                                    </div>
-
-
-
-                                ))}
-
-
-
-                            </div>
-
-
-
-                        </div>
-
-
-
-                    )}
-
-
-
-                    {importData.unchangedAssets.length > 0 && (
-
-
-
-                        <div>
-
-
-
-                            <h4 className="font-semibold text-gray-600 dark:text-gray-400 mb-2">Unchanged Assets ({importData.unchangedAssets.length})</h4>
-
-
-
-                            <div className="max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-md p-3 bg-gray-50 dark:bg-gray-800">
-
-
-
-                                {importData.unchangedAssets.map((asset, idx) => (
-
-
-
-                                    <div key={idx} className="py-1 px-2 text-sm text-gray-600 dark:text-gray-400">
-
-
-
-                                        {asset.asset_id} - {asset.name} (no changes)
-
-
-
-                                    </div>
-
-
-
-                                ))}
-
-
-
-                            </div>
-
-
-
-                        </div>
-
-
-
-                    )}
-
-
-
-                </div>
-
-
-
-                <div className="mt-6 flex justify-end space-x-3">
-
-
-
-                    <button onClick={closeModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
-
-
-
-                    <button onClick={handleConfirmImport} disabled={importData.newAssets.length === 0 && importData.updatedAssets.length === 0} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed">
-
-
-
-                        {importData.newAssets.length > 0 && importData.updatedAssets.length > 0 
-
-                            ? `Add ${importData.newAssets.length} & Update ${importData.updatedAssets.length} Assets`
-
-                            : importData.newAssets.length > 0 
-
-                                ? `Import ${importData.newAssets.length} Asset${importData.newAssets.length !== 1 ? 's' : ''}`
-
-                                : `Update ${importData.updatedAssets.length} Asset${importData.updatedAssets.length !== 1 ? 's' : ''}`
-
-                        }
-
-
-
-                    </button>
-
-
-
-                </div>
-
-
-
-            </Modal>
+                    <div className="mt-6 flex justify-end space-x-3">
+                        <button onClick={closeModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
+                        <button onClick={handleConfirmImport} disabled={importData.newAssets.length === 0 && importData.updatedAssets.length === 0} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed">
+                            {importData.newAssets.length > 0 && importData.updatedAssets.length > 0 
+                                ? `Add ${importData.newAssets.length} & Update ${importData.updatedAssets.length} Assets`
+                                : importData.newAssets.length > 0 
+                                    ? `Import ${importData.newAssets.length} Asset${importData.newAssets.length !== 1 ? 's' : ''}`
+                                    : `Update ${importData.updatedAssets.length} Asset${importData.updatedAssets.length !== 1 ? 's' : ''}`
+                            }
+                        </button>
+                    </div>
+                </Modal>
+            )}
 
 
 
@@ -3235,53 +2664,93 @@ const handleDeleteAsset = async () => {
 
 
 
-/>
+            />
 
 
 
-{/* Import Progress Modal */}
+            {/* Import Progress Modal */}
 
-<BulkProgressModal
 
-isOpen={isImporting}
 
-title="Importing Assets"
+            <BulkProgressModal
 
-progress={{
 
-total: totalToImport,
 
-completed: importedCount - importErrors,
+                isOpen={isImporting}
 
-failed: importErrors,
 
-status: isImporting ? 'processing' : 'idle'
 
-}}
+                title="Importing Assets"
 
-onClose={() => {}} // Import can't be cancelled, so empty function
 
-/>
+
+                progress={{
+
+
+
+                    total: totalToImport,
+
+
+
+                    completed: importedCount - importErrors,
+
+
+
+                    failed: importErrors,
+
+
+
+                    status: isImporting ? 'processing' : 'idle'
+
+
+
+
+                }}
+
+
+
+                onClose={() => {}} // Import can't be cancelled, so empty function
+
+
+
+            />
 
 
 
             <CustomFieldsManager
 
+
+
                 isOpen={showColumnManagement}
+
+
 
                 onClose={() => setShowColumnManagement(false)}
 
+
+
                 onFieldChange={() => {
+
+
 
                     fetchCustomFields();
 
+
+
                     fetchAssets();
+
+
 
                 }}
 
+
+
                 moduleName="assets"
 
+
+
                 title="Manage Asset Custom Columns"
+
 
             />
 
@@ -3289,6 +2758,14 @@ onClose={() => {}} // Import can't be cancelled, so empty function
 
         </div>
 
+
+
     );
 
+
+
+
+
 };
+
+export default AssetsView;
