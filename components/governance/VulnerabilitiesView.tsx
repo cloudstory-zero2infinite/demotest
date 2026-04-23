@@ -455,14 +455,61 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
 
     const [importData, setImportData] = useState<any[]>([]);
     const [isImporting, setIsImporting] = useState(false);
+
     const [importProgress, setImportProgress] = useState(0);
+
     const [totalToImport, setTotalToImport] = useState(0);
+
     const [importedCount, setImportedCount] = useState(0);
+
     const [importErrors, setImportErrors] = useState(0);
 
     const [filter, setFilter] = useState('');
 
     const [sortConfig, setSortConfig] = useState<{ key: keyof Vulnerability; direction: 'ascending' | 'descending' } | null>(null);
+
+    // Draggable columns state
+    const [columnOrder, setColumnOrder] = useState(['name', 'asset_id', 'derived_from', 'status']);
+
+    const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
+
+    const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+
+    const [isDragging, setIsDragging] = useState(false);
+
+    // Load column order from localStorage
+    useEffect(() => {
+
+        const savedOrder = localStorage.getItem('vulnerabilities-column-order');
+
+        if (savedOrder) {
+
+            try {
+
+                const parsed = JSON.parse(savedOrder);
+
+                if (Array.isArray(parsed) && parsed.length === 4) {
+
+                    setColumnOrder(parsed);
+
+                }
+
+            } catch (e) {
+
+                console.error('Failed to load column order:', e);
+
+            }
+
+        }
+
+    }, []);
+
+    // Save column order to localStorage
+    useEffect(() => {
+
+        localStorage.setItem('vulnerabilities-column-order', JSON.stringify(columnOrder));
+
+    }, [columnOrder]);
 
     const [currentPage, setCurrentPage] = useState(1);
 
@@ -893,6 +940,86 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
 
         }
 
+    };
+
+    // Drag and drop handlers
+    const handleDragStart = (e: React.DragEvent, columnKey: string) => {
+        setDraggedColumn(columnKey);
+        setIsDragging(true);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', columnKey);
+    };
+    
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    };
+    
+    const handleDragEnter = (columnKey: string) => {
+        if (draggedColumn && draggedColumn !== columnKey) {
+            setDragOverColumn(columnKey);
+        }
+    };
+    
+    const handleDragLeave = () => {
+        setDragOverColumn(null);
+    };
+    
+    const handleDrop = (e: React.DragEvent, targetColumn: string) => {
+        e.preventDefault();
+        if (draggedColumn && draggedColumn !== targetColumn) {
+            const newOrder = [...columnOrder];
+            const draggedIndex = newOrder.indexOf(draggedColumn);
+            const targetIndex = newOrder.indexOf(targetColumn);
+            
+            // Remove dragged column and insert at new position
+            newOrder.splice(draggedIndex, 1);
+            newOrder.splice(targetIndex, 0, draggedColumn);
+            
+            setColumnOrder(newOrder);
+        }
+        setDraggedColumn(null);
+        setDragOverColumn(null);
+        setIsDragging(false);
+    };
+    
+    const handleDragEnd = () => {
+        setDraggedColumn(null);
+        setDragOverColumn(null);
+        setIsDragging(false);
+    };
+
+    const renderFilterableHeader = (columnKey: string, title: string) => {
+        const isDragged = draggedColumn === columnKey;
+        const isDragOver = dragOverColumn === columnKey;
+        
+        return (
+            <th 
+                scope="col" 
+                key={columnKey} 
+                draggable
+                onDragStart={(e) => handleDragStart(e, columnKey)}
+                onDragOver={handleDragOver}
+                onDragEnter={() => handleDragEnter(columnKey)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, columnKey)}
+                onDragEnd={handleDragEnd}
+                className={`relative sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300 cursor-move transition-all ${
+                    isDragged ? 'opacity-50' : ''
+                } ${
+                    isDragOver ? 'border-l-4 border-l-blue-500 bg-blue-50 dark:bg-blue-900/20' : ''
+                } ${
+                    isDragging && !isDragged && !isDragOver ? 'opacity-75' : ''
+                }`}
+            >
+                <div className="flex items-center">
+                    <button onClick={() => requestSort(columnKey as keyof Vulnerability)} className="flex items-center text-left focus:outline-none flex-grow">
+                        {title}
+                        {getSortIconFor(columnKey as keyof Vulnerability)}
+                    </button>
+                </div>
+            </th>
+        );
     };
 
     const handleBulkDelete = async () => {

@@ -875,6 +875,21 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
     const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
     const [openFilterDropdown, setOpenFilterDropdown] = useState<{key: string, rect: DOMRect} | null>(null);
+    
+    // Draggable columns state
+    const [columnOrder, setColumnOrder] = useState<string[]>(() => {
+        // Load saved column order from localStorage or use default
+        const saved = localStorage.getItem('assets-column-order');
+        return saved ? JSON.parse(saved) : ['asset_id', 'name', 'criticality', 'business_unit', 'governed_status', 'nn_controls', 'source'];
+    });
+    const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
+    const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
+
+    // Save column order to localStorage whenever it changes
+    useEffect(() => {
+        localStorage.setItem('assets-column-order', JSON.stringify(columnOrder));
+    }, [columnOrder]);
 
     // Column Drag and Drop state
     const [columnOrder, setColumnOrder] = useState<string[]>([]);
@@ -982,17 +997,17 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
             if (openFilterDropdown) {
-                 const target = event.target as HTMLElement;
-                 if (!target.closest('.FilterDropdownCore') && !target.closest('.FilterTriggerBtn')) {
-                     setOpenFilterDropdown(null);
-                 }
+                const target = event.target as HTMLElement;
+                if (!target.closest('.FilterDropdownCore') && !target.closest('.FilterTriggerBtn')) {
+                    setOpenFilterDropdown(null);
+                }
             }
         }
         function handleScroll(event: Event) {
-             const target = event.target as HTMLElement;
-             if (!target.closest('.FilterDropdownCore')) {
-                  setOpenFilterDropdown(null);
-             }
+            const target = event.target as HTMLElement;
+            if (!target.closest('.FilterDropdownCore')) {
+                setOpenFilterDropdown(null);
+            }
         }
         document.addEventListener("mousedown", handleClickOutside);
         document.addEventListener("scroll", handleScroll, true);
@@ -1000,7 +1015,55 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
             document.removeEventListener("mousedown", handleClickOutside);
             document.removeEventListener("scroll", handleScroll, true);
         };
-    }, [openFilterDropdown]);
+    }, [openFilterDropdown, setOpenFilterDropdown]); // Added setOpenFilterDropdown to the dependency array
+    
+    // Drag and drop handlers
+    const handleDragStart = (e: React.DragEvent, columnKey: string) => {
+        setDraggedColumn(columnKey);
+        // ... (rest of the code remains the same)
+        setIsDragging(true);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', columnKey);
+    };
+    
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    };
+    
+    const handleDragEnter = (columnKey: string) => {
+        if (draggedColumn && draggedColumn !== columnKey) {
+            setDragOverColumn(columnKey);
+        }
+    };
+    
+    const handleDragLeave = () => {
+        setDragOverColumn(null);
+    };
+    
+    const handleDrop = (e: React.DragEvent, targetColumn: string) => {
+        e.preventDefault();
+        if (draggedColumn && draggedColumn !== targetColumn) {
+            const newOrder = [...columnOrder];
+            const draggedIndex = newOrder.indexOf(draggedColumn);
+            const targetIndex = newOrder.indexOf(targetColumn);
+            
+            // Remove dragged column and insert at new position
+            newOrder.splice(draggedIndex, 1);
+            newOrder.splice(targetIndex, 0, draggedColumn);
+            
+            setColumnOrder(newOrder);
+        }
+        setDraggedColumn(null);
+        setDragOverColumn(null);
+        setIsDragging(false);
+    };
+    
+    const handleDragEnd = () => {
+        setDraggedColumn(null);
+        setDragOverColumn(null);
+        setIsDragging(false);
+    };
 
 
 
@@ -1112,21 +1175,8 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
 
-        } catch (e) {
 
-            setError("Failed to load assets.");
-
-        } finally {
-
-            setLoading(false);
-
-        }
-
-    }, [fetchCustomFields]);
-
-
-
-    useUnifiedRefresh(isActive, fetchAssets);
+        setAssets(assetsData);
 
     // Reset to page 1 when filter changes or items per page changes
     useEffect(() => {
@@ -1134,151 +1184,60 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
     }, [filter, itemsPerPage]);
 
 
+        
 
-    const filteredAndSortedAssets = useMemo(() => {
+        // Also fetch custom fields
+        await fetchCustomFields();
+    } catch (e) {
+        setError("Failed to load assets.");
+    } finally {
+        setLoading(false);
+    }
+}, [fetchCustomFields]);
 
+useUnifiedRefresh(isActive, fetchAssets);
 
+const filteredAndSortedAssets = useMemo(() => {
+    let filteredItems = [...assets];
 
-        let filteredItems = [...assets];
-
-        Object.entries(columnFilters).forEach(([key, selectedValues]) => {
-            if (selectedValues && selectedValues.length > 0) {
-                filteredItems = filteredItems.filter(item => {
-                    let val;
-                    if (key.startsWith('custom_field_')) {
-                        val = item.custom_fields?.[key.replace('custom_field_', '')];
-                    } else {
-                        val = item[key as keyof Asset];
-                    }
+    Object.entries(columnFilters).forEach(([key, selectedValues]) => {
+        if (selectedValues && Array.isArray(selectedValues) && selectedValues.length > 0) {
+            filteredItems = filteredItems.filter(item => {
+                let val;
+                if (key.startsWith('custom_field_')) {
+                    val = item.custom_fields?.[key.replace('custom_field_', '')];
                     val = val !== undefined && val !== null && val !== "" ? String(val) : '-';
-                    return selectedValues.includes(val);
-                });
-            }
-        });
-
-        if (filter) {
-
-
-
-            const lowerCaseFilter = filter.toLowerCase();
-
-
-
-            filteredItems = filteredItems.filter(item =>
-
-
-
-                String(item.asset_id ?? '').toLowerCase().includes(lowerCaseFilter) ||
-
-
-
-                String(item.name ?? '').toLowerCase().includes(lowerCaseFilter) ||
-
-
-
-                String(item.asset_owner ?? '').toLowerCase().includes(lowerCaseFilter) ||
-
-
-
-                String(item.business_unit ?? '').toLowerCase().includes(lowerCaseFilter) ||
-
-
-
-                String(item.ip_address ?? '').toLowerCase().includes(lowerCaseFilter) ||
-
-
-
-                String(item.mac_id ?? '').toLowerCase().includes(lowerCaseFilter) ||
-
-
-
-                String(item.physical_location ?? '').toLowerCase().includes(lowerCaseFilter) ||
-
-
-
-                String(item.source ?? '').toLowerCase().includes(lowerCaseFilter) ||
-
-
-
-                String(item.details ?? '').toLowerCase().includes(lowerCaseFilter)
-
-
-
-            );
-
-
-
-        }
-
-
-
-
-
-
-
-        if (sortConfig !== null) {
-
-
-
-            filteredItems.sort((a, b) => {
-
-
-
-                const aValue = a[sortConfig.key];
-
-
-
-                const bValue = b[sortConfig.key];
-
-
-
-                if (aValue === null || aValue === undefined) return 1;
-
-
-
-                if (bValue === null || bValue === undefined) return -1;
-
-
-
-
-
-
-
-                if (aValue < bValue) {
-
-
-
-                    return sortConfig.direction === 'ascending' ? -1 : 1;
-
-
-
+                } else {
+                    val = item[key as keyof Asset];
                 }
-
-
-
-                if (aValue > bValue) {
-
-
-
-                    return sortConfig.direction === 'ascending' ? 1 : -1;
-
-
-
-                }
-
-
-
-                return 0;
-
-
-
+                return selectedValues.includes(val);
             });
-
-
-
         }
+    });
 
+    if (filter) {
+        const lowerCaseFilter = filter.toLowerCase();
 
+        filteredItems = filteredItems.filter(item =>
+            String(item.asset_id ?? '').toLowerCase().includes(lowerCaseFilter) ||
+            String(item.name ?? '').toLowerCase().includes(lowerCaseFilter) ||
+            String(item.asset_owner ?? '').toLowerCase().includes(lowerCaseFilter) ||
+            String(item.business_unit ?? '').toLowerCase().includes(lowerCaseFilter) ||
+            String(item.ip_address ?? '').toLowerCase().includes(lowerCaseFilter) ||
+            String(item.mac_id ?? '').toLowerCase().includes(lowerCaseFilter) ||
+            String(item.physical_location ?? '').toLowerCase().includes(lowerCaseFilter) ||
+            String(item.source ?? '').toLowerCase().includes(lowerCaseFilter) ||
+            String(item.details ?? '').toLowerCase().includes(lowerCaseFilter)
+        );
+    }
+
+    if (sortConfig !== null) {
+        filteredItems.sort((a, b) => {
+            const aValue = a[sortConfig.key];
+            const bValue = b[sortConfig.key];
+
+            if (aValue === null || aValue === undefined) return 1;
+            if (bValue === null || bValue === undefined) return -1;
 
         return filteredItems;
 
@@ -1297,8 +1256,16 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
 
+            if (aValue > bValue) {
+                return sortConfig.direction === 'ascending' ? 1 : -1;
+            }
 
+            return 0;
+        });
+    }
 
+    return filteredItems;
+}, [assets, filter, sortConfig, columnFilters]);
 
     const renderFilterableHeader = (columnKey: string, title: string) => {
         // Check if field has dropdown filter
@@ -1311,6 +1278,9 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
         const hasCustomDropdown = customField && (customField.field_type === 'select' || customField.field_type === 'boolean');
         
         const shouldShowFilter = hasDropdownFilter || hasCustomDropdown;
+        
+        const isDragged = draggedColumn === columnKey;
+        const isDragOver = dragOverColumn === columnKey;
         
         return (
             <th 
@@ -1371,282 +1341,77 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
         let direction: 'ascending' | 'descending' = 'ascending';
 
-
-
         if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
-
-
-
             direction = 'descending';
-
-
-
         }
-
-
 
         setSortConfig({ key, direction });
-
-
-
     };
 
-
-
-
-
-
-
-    const getSortIconFor = (key: keyof Asset) => {
-
-
-
+const getSortIconFor = (key: keyof Asset) => {
         if (!sortConfig || sortConfig.key !== key) {
-
-
-
             return <SortUpDownIcon className="h-4 w-4 ml-1 text-gray-400" />;
-
-
-
         }
-
-
 
         return sortConfig.direction === 'ascending' ? <SortUpIcon className="h-4 w-4 ml-1" /> : <SortDownIcon className="h-4 w-4 ml-1" />;
-
-
-
     };
 
-
-
-
-
-
-
-    const closeModal = () => {
-
-
-
+const closeModal = () => {
         setError(null);
-
-
-
         setModalState({ type: null });
-
-
-
     };
 
-
-
-
-
-
-
-    const handleSaveAsset = async (formData: AssetCreate | AssetUpdate) => {
-
-
-
+const handleSaveAsset = async (formData: AssetCreate | AssetUpdate) => {
         try {
-
-
-
             if (modalState.type === 'edit' && modalState.asset) {
-
-
-
                 const updatedAsset = await SupabaseService.updateAsset(modalState.asset.id, formData);
-
-
-
                 await SupabaseService.logAllActivity({
-
-
-
                     action: 'Updated Asset',
-
-
-
                     module: 'Governance',
-
-
-
                     entity_id: updatedAsset.id,
-
-
-
                     entity_name: updatedAsset.name,
-
-
-
                     event_data: { changes: formData }
-
-
-
                 });
-
-
-
             } else if (modalState.type === 'add') {
-
-
-
                 const addedAsset = await SupabaseService.addAsset(formData as AssetCreate);
-
-
-
                 await SupabaseService.logAllActivity({
-
-
-
                     action: 'Created Asset',
-
-
-
                     module: 'Governance',
-
-
-
                     entity_id: addedAsset.id,
-
-
-
                     entity_name: addedAsset.name,
-
-
-
                     event_data: { details: formData }
-
-
-
                 });
-
-
-
             }
-
-
-
             fetchAssets();
-
-
-
             closeModal();
-
-
-
         } catch (err) {
-
-
-
             setError('Failed to save asset.');
-
-
-
         }
-
-
-
     };
 
-
-
-
-
-
-
-    const handleDeleteAsset = async () => {
-
-
-
+const handleDeleteAsset = async () => {
         if (modalState.type === 'delete' && modalState.asset) {
-
-
-
             try {
-
-
-
                 setDeleting(true);
-
-
-
                 setError(null);
-
-
-
                 console.log('Deleting asset:', modalState.asset.id, modalState.asset.asset_id);
-
-
-
                 await SupabaseService.deleteAsset(modalState.asset.id);
-
-
-
                 await SupabaseService.logAllActivity({
-
-
-
                     action: 'Deleted Asset',
-
-
-
                     module: 'Governance',
-
-
-
                     entity_id: modalState.asset.id,
-
-
-
                     entity_name: modalState.asset.name
-
-
-
                 });
-
-
-
                 fetchAssets();
-
-
-
                 closeModal();
-
-
-
             } catch (err: any) {
-
-
-
                 console.error('Delete asset error:', err);
-
-
-
                 const errorMessage = err?.message || 'Failed to delete asset.';
-
-
-
                 setError(errorMessage);
-
-
-
             } finally {
-
-
-
                 setDeleting(false);
-
-
-
             }
-
-
-
         }
-
 
 
     };

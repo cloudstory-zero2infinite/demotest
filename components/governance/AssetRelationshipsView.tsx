@@ -331,11 +331,37 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
     const [error, setError] = useState<string | null>(null);
 
-    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | null; rel?: AssetRelationship | null }>({ type: null });
+    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | 'import' | null; rel?: AssetRelationship | null }>({ type: null });
 
     const [filter, setFilter] = useState('');
 
     const [sortConfig, setSortConfig] = useState<{ key: keyof AssetRelationship; direction: 'ascending' | 'descending' } | null>(null);
+
+    // Draggable columns state
+    const [columnOrder, setColumnOrder] = useState(['source_asset_id', 'relationship_type', 'target_asset_id']);
+    const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
+    const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
+
+    // Load column order from localStorage
+    useEffect(() => {
+        const savedOrder = localStorage.getItem('asset-relationships-column-order');
+        if (savedOrder) {
+            try {
+                const parsed = JSON.parse(savedOrder);
+                if (Array.isArray(parsed) && parsed.length === 3) {
+                    setColumnOrder(parsed);
+                }
+            } catch (e) {
+                console.error('Failed to load column order:', e);
+            }
+        }
+    }, []);
+
+    // Save column order to localStorage
+    useEffect(() => {
+        localStorage.setItem('asset-relationships-column-order', JSON.stringify(columnOrder));
+    }, [columnOrder]);
 
     const [currentPage, setCurrentPage] = useState(1);
 
@@ -540,7 +566,85 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
     };
 
+    // Drag and drop handlers
+    const handleDragStart = (e: React.DragEvent, columnKey: string) => {
+        setDraggedColumn(columnKey);
+        setIsDragging(true);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', columnKey);
+    };
+    
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    };
+    
+    const handleDragEnter = (columnKey: string) => {
+        if (draggedColumn && draggedColumn !== columnKey) {
+            setDragOverColumn(columnKey);
+        }
+    };
+    
+    const handleDragLeave = () => {
+        setDragOverColumn(null);
+    };
+    
+    const handleDrop = (e: React.DragEvent, targetColumn: string) => {
+        e.preventDefault();
+        if (draggedColumn && draggedColumn !== targetColumn) {
+            const newOrder = [...columnOrder];
+            const draggedIndex = newOrder.indexOf(draggedColumn);
+            const targetIndex = newOrder.indexOf(targetColumn);
+            
+            // Remove dragged column and insert at new position
+            newOrder.splice(draggedIndex, 1);
+            newOrder.splice(targetIndex, 0, draggedColumn);
+            
+            setColumnOrder(newOrder);
+        }
+        setDraggedColumn(null);
+        setDragOverColumn(null);
+        setIsDragging(false);
+    };
+    
+    const handleDragEnd = () => {
+        setDraggedColumn(null);
+        setDragOverColumn(null);
+        setIsDragging(false);
+    };
 
+    const renderFilterableHeader = (columnKey: string, title: string) => {
+        const isDragged = draggedColumn === columnKey;
+        const isDragOver = dragOverColumn === columnKey;
+        
+        return (
+            <th 
+                scope="col" 
+                key={columnKey} 
+                draggable
+                onDragStart={(e) => handleDragStart(e, columnKey)}
+                onDragOver={handleDragOver}
+                onDragEnter={() => handleDragEnter(columnKey)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, columnKey)}
+                onDragEnd={handleDragEnd}
+                className={`relative sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300 cursor-move transition-all ${
+                    isDragged ? 'opacity-50' : ''
+                } ${
+                    isDragOver ? 'border-l-4 border-l-blue-500 bg-blue-50 dark:bg-blue-900/20' : ''
+                } ${
+                    isDragging && !isDragged && !isDragOver ? 'opacity-75' : ''
+                }`}
+            >
+                <div className="flex items-center">
+                    <button onClick={() => requestSort(columnKey as keyof AssetRelationship)} className="flex items-center text-left focus:outline-none flex-grow">
+                        {title}
+                        {getSortIconFor(columnKey as keyof AssetRelationship)}
+                    </button>
+                </div>
+            </th>
+        );
+    };
 
     const closeModal = () => setModalState({ type: null });
 
@@ -886,9 +990,19 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
     const handleImportCSV = (event: React.ChangeEvent<HTMLInputElement>) => {
 
+        console.log('CSV import triggered');
+
         const file = event.target.files?.[0];
 
-        if (!file) return;
+        console.log('File selected:', file);
+
+        if (!file) {
+
+            console.log('No file selected');
+
+            return;
+
+        }
 
 
 
@@ -898,23 +1012,15 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
         reader.onload = async (e) => {
 
+            console.log('FileReader onload triggered');
+
             const text = e.target?.result as string;
 
-            if (!text) return;
+            console.log('File content length:', text?.length);
 
+            if (!text) {
 
-
-            const { headers, rows } = parseCSVText(text);
-
-            const { newFields, records } = processImportData('asset_relationships', headers, rows, customFields);
-
-
-
-            if (newFields.length > 0) {
-
-                setNewFieldsToCreate(newFields);
-
-                setPendingImportData(records);
+                console.log('No file content');
 
                 return;
 
@@ -922,11 +1028,65 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
 
 
-            prepareImportData(records);
+            try {
+
+                console.log('Parsing CSV text...');
+
+                const { headers, rows } = parseCSVText(text);
+
+                console.log('Parsed CSV:', { headers, rowCount: rows.length });
+
+
+
+                console.log('Processing import data...');
+
+                const { newFields, records } = processImportData('asset_relationships', headers, rows, customFields);
+
+                console.log('Processed data:', { newFieldsCount: newFields.length, recordsCount: records.length });
+
+
+
+                if (newFields.length > 0) {
+
+                    console.log('New fields detected, setting up field creation');
+
+                    setNewFieldsToCreate(newFields);
+
+                    setPendingImportData(records);
+
+                    return;
+
+                }
+
+
+
+                console.log('Preparing import data...');
+
+                prepareImportData(records);
+
+            } catch (error) {
+
+                console.error('Error during CSV import:', error);
+
+                alert('Error importing CSV: ' + error.message);
+
+            }
 
         };
 
 
+
+        reader.onerror = (error) => {
+
+            console.error('FileReader error:', error);
+
+            alert('Error reading file');
+
+        };
+
+
+
+        console.log('Starting to read file...');
 
         reader.readAsText(file);
 
@@ -936,7 +1096,11 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
     const prepareImportData = (records: any[]) => {
 
+        console.log('prepareImportData called with records:', records);
+
         setImportData({ newRels: records, skipped: 0 });
+
+        console.log('Import data set, opening import modal');
 
         setModalState({ type: 'import' });
 
@@ -956,9 +1120,18 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
             // Use bulk import for efficiency
 
-            await SupabaseService.bulkAddAssetRelationships(importData.newRels);
+            const result = await SupabaseService.bulkAddAssetRelationships(importData.newRels);
 
             
+
+            // Handle skipped duplicates from backend response
+            const skippedCount = (result as any)?.skipped || 0;
+            const insertedCount = (result as any)?.inserted || importData.newRels.length;
+
+            let activityMessage = `${insertedCount} relationships imported`;
+            if (skippedCount > 0) {
+                activityMessage += ` (${skippedCount} duplicates skipped)`;
+            }
 
             await SupabaseService.logAllActivity({
 
@@ -968,15 +1141,15 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
                 entity_id: null,
 
-                entity_name: `${importData.newRels.length} relationships imported`,
+                entity_name: activityMessage,
 
-                event_data: { count: importData.newRels.length }
+                event_data: { count: insertedCount, skipped: skippedCount, total: importData.newRels.length }
 
             });
 
 
 
-            fetchRelationships();
+            fetchData();
 
             setModalState({ type: null });
 
@@ -1224,23 +1397,14 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
                                 </th>
 
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-                                    <button onClick={() => requestSort('source_asset_id')} className="flex items-center w-full text-left focus:outline-none">Source Asset {getSortIconFor('source_asset_id')}</button>
-
-                                </th>
-
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-                                    <button onClick={() => requestSort('relationship_type')} className="flex items-center w-full text-left focus:outline-none">Relationship {getSortIconFor('relationship_type')}</button>
-
-                                </th>
-
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-                                    <button onClick={() => requestSort('target_asset_id')} className="flex items-center w-full text-left focus:outline-none">Target Asset {getSortIconFor('target_asset_id')}</button>
-
-                                </th>
+                                {columnOrder.map(columnKey => {
+                                    const columnTitles = {
+                                        'source_asset_id': 'Source Asset',
+                                        'relationship_type': 'Relationship',
+                                        'target_asset_id': 'Target Asset'
+                                    };
+                                    return renderFilterableHeader(columnKey, columnTitles[columnKey as keyof typeof columnTitles]);
+                                })}
 
                                 {/* Custom Fields Columns */}
 
@@ -1308,47 +1472,40 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
                                     </td>
 
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-
-                                        {isEditing && selectedIds.has(rel.id) ? (
-
-                                            <select value={editValues[rel.id]?.source_asset_id ?? rel.source_asset_id} onChange={e => updateField(rel.id, 'source_asset_id', e.target.value)} className={editSelectCls}>
-
-                                                {assetIds.map(id => <option key={id} value={id}>{id}</option>)}
-
-                                            </select>
-
-                                        ) : rel.source_asset_id}
-
-                                    </td>
-
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 dark:text-blue-400 font-medium">
-
-                                        {isEditing && selectedIds.has(rel.id) ? (
-
-                                            <select value={editValues[rel.id]?.relationship_type ?? rel.relationship_type} onChange={e => updateField(rel.id, 'relationship_type', e.target.value)} className={editSelectCls}>
-
-                                                {RELATIONSHIP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-
-                                            </select>
-
-                                        ) : rel.relationship_type}
-
-                                    </td>
-
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-
-                                        {isEditing && selectedIds.has(rel.id) ? (
-
-                                            <select value={editValues[rel.id]?.target_asset_id ?? rel.target_asset_id} onChange={e => updateField(rel.id, 'target_asset_id', e.target.value)} className={editSelectCls}>
-
-                                                {assetIds.map(id => <option key={id} value={id}>{id}</option>)}
-
-                                            </select>
-
-                                        ) : rel.target_asset_id}
-
-                                    </td>
+                                    {columnOrder.map(columnKey => {
+                                        if (columnKey === 'source_asset_id') {
+                                            return (
+                                                <td key={columnKey} className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                                                    {isEditing && selectedIds.has(rel.id) ? (
+                                                        <select value={editValues[rel.id]?.source_asset_id ?? rel.source_asset_id} onChange={e => updateField(rel.id, 'source_asset_id', e.target.value)} className={editSelectCls}>
+                                                            {assetIds.map(id => <option key={id} value={id}>{id}</option>)}
+                                                        </select>
+                                                    ) : rel.source_asset_id}
+                                                </td>
+                                            );
+                                        } else if (columnKey === 'relationship_type') {
+                                            return (
+                                                <td key={columnKey} className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 dark:text-blue-400 font-medium">
+                                                    {isEditing && selectedIds.has(rel.id) ? (
+                                                        <select value={editValues[rel.id]?.relationship_type ?? rel.relationship_type} onChange={e => updateField(rel.id, 'relationship_type', e.target.value)} className={editSelectCls}>
+                                                            {RELATIONSHIP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                                        </select>
+                                                    ) : rel.relationship_type}
+                                                </td>
+                                            );
+                                        } else if (columnKey === 'target_asset_id') {
+                                            return (
+                                                <td key={columnKey} className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                                                    {isEditing && selectedIds.has(rel.id) ? (
+                                                        <select value={editValues[rel.id]?.target_asset_id ?? rel.target_asset_id} onChange={e => updateField(rel.id, 'target_asset_id', e.target.value)} className={editSelectCls}>
+                                                            {assetIds.map(id => <option key={id} value={id}>{id}</option>)}
+                                                        </select>
+                                                    ) : rel.target_asset_id}
+                                                </td>
+                                            );
+                                        }
+                                        return null;
+                                    })}
 
                                     {/* Custom Fields Data Cells */}
 
@@ -1609,6 +1766,49 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
                 moduleName="Asset Relationships"
 
             />
+
+            {/* Import Confirmation Modal */}
+            {modalState.type === 'import' && (
+                <div className="fixed inset-0 z-50 overflow-y-auto">
+                    <div className="flex items-center justify-center min-h-screen px-4">
+                        <div className="fixed inset-0 bg-black opacity-25" onClick={() => setModalState({ type: null })}></div>
+                        <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-lg font-medium text-gray-900 dark:text-white">Import Asset Relationships</h3>
+                                <button onClick={() => setModalState({ type: null })} className="text-gray-400 hover:text-gray-500">
+                                    <span className="sr-only">Close</span>
+                                    <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+                            <div className="text-sm text-gray-600 dark:text-gray-300">
+                                <p>Ready to import <span className="font-semibold">{importData.newRels.length}</span> asset relationships.</p>
+                                <p className="mt-2 text-amber-600 dark:text-amber-400">
+                                    <span className="font-medium">Note:</span> Existing relationships with the same source, target, and type will be automatically skipped to prevent duplicates.
+                                </p>
+                                <p className="mt-2">Do you want to proceed with the import?</p>
+                            </div>
+                            <div className="mt-6 flex justify-end space-x-3">
+                                <button 
+                                    onClick={() => setModalState({ type: null })} 
+                                    disabled={isSaving}
+                                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500 disabled:opacity-50"
+                                >
+                                    Cancel
+                                </button>
+                                <button 
+                                    onClick={handleConfirmImport} 
+                                    disabled={isSaving}
+                                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 disabled:opacity-50"
+                                >
+                                    {isSaving ? 'Importing...' : 'Import'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {bulkProgress.status === 'idle' && (
                 <SelectionActionBar

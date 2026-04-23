@@ -2177,6 +2177,10 @@ type FormData = {
 
 
 
+    ctl_id: string;
+
+
+
     ctl_name: string;
 
 
@@ -2209,6 +2213,10 @@ type FormData = {
 
 
 
+    custom_fields?: Record<string, any>;
+
+
+
 };
 
 
@@ -2218,6 +2226,10 @@ type FormData = {
 
 
 const DEFAULT_FORM: FormData = {
+
+
+
+    ctl_id: `CTL-${Date.now()}`,
 
 
 
@@ -2250,6 +2262,10 @@ const DEFAULT_FORM: FormData = {
 
 
     ctl_other_details: '',
+
+
+
+    custom_fields: {},
 
 
 
@@ -2310,95 +2326,38 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
 
 
+        useEffect(() => {
+        if (isOpen && customFields.length > 0) {
+            if (controlToEdit) {
+                const customFieldsData: Record<string, any> = {};
+                customFields.forEach(field => {
+                    customFieldsData[field.field_name] = controlToEdit.custom_fields?.[field.field_name] || '';
+                });
 
+                setFormData({
+                    ctl_id: controlToEdit.ctl_id,
+                    ctl_name: controlToEdit.ctl_name,
+                    ctl_status: controlToEdit.ctl_status,
+                    ctl_type: controlToEdit.ctl_type,
+                    enforcement_type: controlToEdit.enforcement_type,
+                    ctl_description: controlToEdit.ctl_description ?? '',
+                    ctld_by: controlToEdit.ctld_by ?? [],
+                    ctl_ref_fw: controlToEdit.ctl_ref_fw ?? '',
+                    ctl_other_details: controlToEdit.ctl_other_details ?? '',
+                    custom_fields: customFieldsData,
+                });
+            } else {
+                const customFieldsData: Record<string, any> = {};
+                customFields.forEach(field => {
+                    customFieldsData[field.field_name] = '';
+                });
 
-
-    useEffect(() => {
-
-
-
-        if (controlToEdit) {
-
-
-
-            const customFieldsData: Record<string, any> = {};
-
-            customFields.forEach(field => {
-
-                customFieldsData[field.field_name] = controlToEdit.custom_fields?.[field.field_name] || '';
-
-            });
-
-            setFormData({
-
-
-
-                ctl_name: controlToEdit.ctl_name,
-
-
-
-                ctl_status: controlToEdit.ctl_status,
-
-
-
-                ctl_type: controlToEdit.ctl_type,
-
-
-
-                enforcement_type: controlToEdit.enforcement_type,
-
-
-
-                ctl_description: controlToEdit.ctl_description ?? '',
-
-
-
-                ctld_by: controlToEdit.ctld_by ?? [],
-
-
-
-                ctl_ref_fw: controlToEdit.ctl_ref_fw ?? '',
-
-
-
-                ctl_other_details: controlToEdit.ctl_other_details ?? '',
-
-
-
-                custom_fields: customFieldsData,
-
-
-
-            });
-
-
-
-        } else {
-
-
-
-            const customFieldsData: Record<string, any> = {};
-
-            customFields.forEach(field => {
-
-                customFieldsData[field.field_name] = '';
-
-            });
-
-            setFormData({
-
-                ...DEFAULT_FORM,
-
-                custom_fields: customFieldsData,
-
-            });
-
-
-
+                setFormData({
+                    ...DEFAULT_FORM,
+                    custom_fields: customFieldsData,
+                });
+            }
         }
-
-
-
     }, [controlToEdit, isOpen, customFields]);
 
 
@@ -2532,6 +2491,10 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
 
         try {
+
+
+
+            console.log('Submitting control data:', formData);
 
 
 
@@ -3958,7 +3921,11 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-            setError('Failed to save control.');
+            console.error('Save control error:', err);
+
+
+
+            setError(`Failed to save control: ${err.message}`);
 
 
 
@@ -4041,75 +4008,62 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-
     const handleBulkDelete = async () => {
-
-
 
         setIsConfirmingDelete(false);
 
-
-
         startBulkOperation(selectedIds.size);
 
+        try {
 
+            const ids = Array.from(selectedIds) as string[];
 
-        let hasError = false;
+            const result = await SupabaseService.deleteControlRegistryBulk(ids);
 
-
-
-        for (const id of selectedIds) {
-
-
-
-            try {
-
-
-
-                await SupabaseService.deleteControlRegistry(id as string);
-
-
-
+            // Update progress based on results
+            for (let i = 0; i < result.deleted; i++) {
                 incrementBulkProgress(true);
-
-
-
-            } catch (err) {
-
-
-
-                hasError = true;
-
-
-
-                incrementBulkProgress(false);
-
-
-
             }
 
+            for (let i = 0; i < result.errors; i++) {
+                incrementBulkProgress(false);
+            }
 
+            finishBulkOperation(result.errors > 0);
+
+            await SupabaseService.logAllActivity({ 
+                action: 'Bulk Deleted Controls', 
+                module: 'Governance', 
+                event_data: { 
+                    count: result.deleted, 
+                    total: result.total, 
+                    errors: result.errors 
+                } 
+            });
+
+        } catch (err) {
+
+            console.error('Bulk delete failed:', err);
+
+            finishBulkOperation(true);
+
+            await SupabaseService.logAllActivity({ 
+                action: 'Bulk Delete Controls Failed', 
+                module: 'Governance', 
+                event_data: { 
+                    count: selectedIds.size, 
+                    error: err.message 
+                } 
+            });
 
         }
 
-
-
-        finishBulkOperation(hasError);
-
-
-
-        await SupabaseService.logAllActivity({ action: 'Bulk Deleted Controls', module: 'Governance', event_data: { count: selectedIds.size } });
-
-
-
         fetchControls();
-
-
 
     };
 
 
-
+// ... (rest of the code remains the same)
 
 
 
@@ -4746,7 +4700,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                                <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading controls...</td></tr>
+                                <tr><td colSpan={8 + customFields.length} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading controls...</td></tr>
 
 
 
@@ -4754,7 +4708,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                                <tr><td colSpan={8} className="text-center py-4 text-gray-500 dark:text-gray-400">No controls found.</td></tr>
+                                <tr><td colSpan={8 + customFields.length} className="text-center py-4 text-gray-500 dark:text-gray-400">No controls found.</td></tr>
 
 
 
@@ -5086,8 +5040,35 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                                </tr>
+                                    {/* Custom Fields Data Cells */}
+                                    {customFields.map((field) => {
+                                        const customFieldValue = ctl.custom_fields?.[field.field_name];
+                                        const editValue = editValues[ctl.id]?.custom_fields?.[field.field_name];
+                                        return (
+                                            <td key={field.id} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                                {isEditing && selectedIds.has(ctl.id) ? (
+                                                    <input
+                                                        type="text"
+                                                        value={editValue ?? customFieldValue ?? ''}
+                                                        onChange={(e) => {
+                                                    const currentCustomFields = editValues[ctl.id]?.custom_fields || ctl.custom_fields || {};
+                                                    updateField(ctl.id, 'custom_fields' as any, {
+                                                        ...currentCustomFields,
+                                                        [field.field_name]: e.target.value
+                                                    });
+                                                }}
+                                                        className={editInputCls}
+                                                        placeholder={`Enter ${field.field_label}`}
+                                                        required={field.is_required}
+                                                    />
+                                                ) : (
+                                                    customFieldValue || '-'
+                                                )}
+                                            </td>
+                                        );
+                                    })}
 
+                                </tr>
 
 
                             ))}
