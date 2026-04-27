@@ -94,6 +94,59 @@ export const STANDARD_FIELD_MAPS: Record<string, Record<string, string>> = {
 };
 
 /**
+ * System fields definitions for mapping UI.
+ */
+export const SYSTEM_FIELDS_CONFIG: Record<string, { key: string; label: string }[]> = {
+  assets: [
+    { key: 'asset_id', label: 'Asset ID' },
+    { key: 'name', label: 'Asset Name' },
+    { key: 'asset_owner', label: 'Owner' },
+    { key: 'business_unit', label: 'Business Unit' },
+    { key: 'physical_location', label: 'Physical Location' },
+    { key: 'criticality', label: 'Criticality' },
+    { key: 'category', label: 'Type' },
+    { key: 'details', label: 'Asset Description' },
+    { key: 'governed_status', label: 'Governed' },
+    { key: 'exposure', label: 'Exposure' },
+    { key: 'ip_address', label: 'IP Address' },
+    { key: 'mac_id', label: 'UID / Mac ID' },
+    { key: 'vulnerability_count', label: 'Vulnerability Count' },
+    { key: 'source', label: 'Source' },
+  ],
+  vulnerabilities: [
+    { key: 'name', label: 'Name' },
+    { key: 'description', label: 'Description' },
+    { key: 'derived_from', label: 'Source (Derived From)' },
+    { key: 'status', label: 'Status' },
+    { key: 'asset_id', label: 'Associated Asset' },
+  ],
+  asset_relationships: [
+    { key: 'source_asset_id', label: 'Source Asset ID' },
+    { key: 'target_asset_id', label: 'Target Asset ID' },
+    { key: 'relationship_type', label: 'Relationship Type' },
+  ],
+  capabilities: [
+    { key: 'capab_id', label: 'Capability ID' },
+    { key: 'capab_name', label: 'Capability Name' },
+    { key: 'capab_provider', label: 'Provider(s)' },
+    { key: 'capab_cmdb_id', label: 'CMDB ID(s)' },
+    { key: 'capab_owner', label: 'Capability Owner' },
+    { key: 'capab_other_details', label: 'Other Details' },
+  ],
+  control_registry: [
+    { key: 'ctl_id', label: 'Control ID' },
+    { key: 'ctl_name', label: 'Control Name' },
+    { key: 'ctl_status', label: 'Control Status' },
+    { key: 'ctl_type', label: 'Control Type' },
+    { key: 'enforcement_type', label: 'Enforcement Type' },
+    { key: 'ctl_description', label: 'Description' },
+    { key: 'ctld_by', label: 'Controlled By' },
+    { key: 'ctl_ref_fw', label: 'Reference FW' },
+    { key: 'ctl_other_details', label: 'Other Details' },
+  ]
+};
+
+/**
  * Checks if a value is a date string.
  */
 const isDate = (val: string): boolean => {
@@ -227,6 +280,80 @@ export const processImportData = (
         }
       } else {
         customData[mapping.key] = value;
+      }
+    });
+
+    return { ...standardData, custom_fields: customData };
+  });
+
+  return {
+    newFields: newCustomFieldDefs,
+    records: mappedRecords
+  };
+};
+
+/**
+ * Applies a manual mapping to raw data.
+ */
+export const applyManualMapping = (
+  mapping: { csvHeader: string; mappedField: string; type: string }[],
+  rows: Record<string, string>[],
+  existingFields: CustomField[]
+) => {
+  const newCustomFieldDefs: CustomFieldCreate[] = [];
+  const existingFieldNames = new Set(existingFields.map(f => f.field_name.toLowerCase()));
+
+  // 1. Identify new custom fields to create
+  mapping.filter(m => m.type === 'new').forEach(m => {
+    const fieldName = m.csvHeader.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    
+    // Ensure uniqueness
+    let finalFieldName = fieldName;
+    let counter = 1;
+    while (existingFieldNames.has(finalFieldName)) {
+        finalFieldName = `${fieldName}_${counter++}`;
+    }
+
+    // Update the mapping to use the final field name
+    m.mappedField = finalFieldName;
+
+    // Get sample values for type inference
+    const sampleValues = rows.map(r => r[m.csvHeader]);
+    const inferredType = sampleValues.some(v => v && v.trim() !== '') 
+      ? inferFieldType(sampleValues) 
+      : 'text';
+
+    newCustomFieldDefs.push({
+      field_name: finalFieldName,
+      field_label: m.csvHeader,
+      field_type: inferredType,
+      is_required: false,
+      display_order: existingFields.length + newCustomFieldDefs.length + 1
+    });
+  });
+
+  // 2. Transform rows
+  const mappedRecords = rows.map(row => {
+    const standardData: Record<string, any> = {};
+    const customData: Record<string, any> = {};
+
+    mapping.forEach(m => {
+      if (m.type === 'ignore' || m.mappedField === 'ignore') return;
+
+      const value = row[m.csvHeader];
+      
+      if (m.type === 'standard') {
+        // Special handling for array fields
+        if (['capab_provider', 'capab_cmdb_id', 'ctld_by'].includes(m.mappedField)) {
+            standardData[m.mappedField] = value ? value.split(';').map(s => s.trim()).filter(Boolean) : [];
+        } else if (m.mappedField === 'vulnerability_count') {
+            standardData[m.mappedField] = Number(value) || 0;
+        } else {
+            standardData[m.mappedField] = value;
+        }
+      } else {
+        // Custom field (existing or new)
+        customData[m.mappedField] = value;
       }
     });
 

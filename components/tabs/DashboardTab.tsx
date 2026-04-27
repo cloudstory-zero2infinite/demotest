@@ -11,6 +11,7 @@ import { VulnerabilityTrackCard } from '../dashboard/VulnerabilityTrackCard';
 import { FrameworkComplianceGrid } from '../dashboard/FrameworkComplianceGrid';
 import { SankeyMappingCard } from '../dashboard/SankeyMappingCard';
 import { DataIntegrityCard } from '../dashboard/DataIntegrityCard';
+import { ScoringTrendCard } from '../dashboard/ScoringTrendCard';
 
 type DerivedComplianceStatus = 'Compliant' | 'NonCompliant' | 'NotMapped';
 
@@ -79,6 +80,12 @@ export const DashboardTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
     
     const currentStats = stats || defaultStats;
     console.log('DashboardTab currentStats:', currentStats);
+    console.log('DashboardTab controls data:', {
+        controlsLength: currentStats.controls.length,
+        controlsSample: currentStats.controls.slice(0, 2),
+        statsObject: stats,
+        loadingState: loading
+    });
 
     const securityScore = useMemo(() => {
         const { controlRegistry, tasks, assets, policies, vulnerabilities } = currentStats;
@@ -281,7 +288,18 @@ export const DashboardTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
                     <FrameworkComplianceGrid data={frameworkComplianceData} />
                 </div>
             </div>
-            {/* Row 3: Sankey */}
+            {/* Row 3: Scoring Trend */}
+            <div className="col-span-1 md:col-span-1 lg:col-span-1 max-w-lg mx-auto">
+                <ScoringTrendCard 
+                    assets={currentStats.assets}
+                    controls={currentStats.controlRegistry}
+                    vulnerabilities={currentStats.vulnerabilities}
+                    tasks={currentStats.tasks}
+                    policies={currentStats.policies}
+                />
+            </div>
+
+            {/* Row 4: Sankey */}
             <SankeyMappingCard
                 data={sankeyData}
                 frameworkNames={frameworkNames}

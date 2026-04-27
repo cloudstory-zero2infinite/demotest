@@ -8,7 +8,8 @@ import * as SupabaseService from '../../services/supabase';
 
 import { CustomField } from '../../services/supabase';
 
-import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon } from '../Icons';
+import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon, FunnelIcon } from '../Icons';
+import { FilterDropdown } from '../common/FilterDropdown';
 
 import { parseCSVLine } from '../../utils/csvParser';
 
@@ -22,8 +23,9 @@ import { useTableSelection } from '../../hooks/useTableSelection';
 
 import { SelectionActionBar } from '../common/SelectionActionBar';
 
-import { processImportData } from '../../utils/importUtils';
+import { processImportData, SYSTEM_FIELDS_CONFIG, applyManualMapping } from '../../utils/importUtils';
 import { ImportConfirmationModal } from '../common/ImportConfirmationModal';
+import { ImportMappingModal, ColumnMapping } from '../common/ImportMappingModal';
 import { parseCSVText } from '../../utils/csvParser';
 import CustomFieldsManager from '../common/CustomFieldsManager';
 
@@ -961,7 +963,7 @@ const CapabilityModal: React.FC<CapabilityModalProps> = ({ isOpen, onClose, onSa
 
 
 
-type ModalState = { type: 'add' | 'edit' | 'view' | 'delete' | 'import' | null; item?: Capability | null };
+type ModalState = { type: 'add' | 'edit' | 'view' | 'delete' | 'import' | 'mapping' | null; item?: Capability | null };
 
 
 
@@ -995,6 +997,8 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
     const [importErrors, setImportErrors] = useState(0);
 
     const [showAIChat, setShowAIChat] = useState(false);
+    const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+    const [openFilterDropdown, setOpenFilterDropdown] = useState<{key: string, rect: DOMRect} | null>(null);
 
     const [orgContacts, setOrgContacts] = useState<OrgContact[]>([]);
 
@@ -1008,6 +1012,8 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
     const [showColumnManagement, setShowColumnManagement] = useState(false);
     const [newFieldsToCreate, setNewFieldsToCreate] = useState<any[]>([]);
     const [pendingImportData, setPendingImportData] = useState<any[]>([]);
+    const [importHeaders, setImportHeaders] = useState<string[]>([]);
+    const [rawRows, setRawRows] = useState<any[]>([]);
 
 
 
@@ -1125,12 +1131,28 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
 
                 (c.capab_provider ?? []).some(p => p.toLowerCase().includes(q)) ||
 
-                (c.capab_cmdb_id ?? []).some(id => id.toLowerCase().includes(q)) ||
-
-                (c.capab_other_details ?? '').toLowerCase().includes(q)
-
+                (c.capab_cmdb_id ?? []).some(id => id.toLowerCase().includes(q))
             );
 
+        }
+
+        // Apply column-level filters
+        if (Object.keys(columnFilters).length > 0) {
+            items = items.filter(item => {
+                return Object.entries(columnFilters).every(([key, selectedValues]) => {
+                    if (!selectedValues || selectedValues.length === 0) return true;
+                    
+                    let val;
+                    if (key.startsWith('custom_field_')) {
+                        val = item.custom_fields?.[key.replace('custom_field_', '')];
+                    } else {
+                        val = (item as any)[key];
+                    }
+                    
+                    const displayVal = val !== undefined && val !== null && val !== "" ? String(val) : '-';
+                    return selectedValues.includes(displayVal);
+                });
+            });
         }
 
         if (sortConfig !== null) {
@@ -1157,7 +1179,7 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
 
         return items;
 
-    }, [capabilities, filter, sortConfig]);
+    }, [capabilities, filter, sortConfig, columnFilters]);
 
 
 
@@ -1398,12 +1420,26 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
 
         const reader = new FileReader();
         reader.onload = async (e) => {
-            const text = e.target?.result as string;
-            if (!text) return;
+            const content = e.target?.result as string;
+            if (!content) return;
 
-            const { headers, rows } = parseCSVText(text);
-            const { newFields, records } = processImportData('capabilities', headers, rows, customFields);
+            try {
+                const parsed = parseCSVText(content);
+                setImportHeaders(parsed.headers);
+                setRawRows(parsed.rows);
+                setModalState({ type: 'mapping' });
+            } catch (err) {
+                setError('Failed to parse import file.');
+            }
+        };
+        reader.readAsText(file);
+        if (event.target) event.target.value = '';
+    };
 
+    const handleConfirmMapping = (mapping: ColumnMapping[]) => {
+        try {
+            const { records, newFields } = applyManualMapping(mapping, rawRows, customFields);
+            
             if (newFields.length > 0) {
                 setNewFieldsToCreate(newFields);
                 setPendingImportData(records);
@@ -1411,10 +1447,9 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
             }
 
             prepareImportData(records);
-        };
-
-        reader.readAsText(file);
-        if (fileInputRef.current) fileInputRef.current.value = '';
+        } catch (err) {
+            setError('Failed to process mapping.');
+        }
     };
 
     const prepareImportData = (records: any[]) => {
@@ -1641,9 +1676,36 @@ const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded
                                 </th>
 
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-                                    <button onClick={() => requestSort('capab_owner')} className="flex items-center w-full text-left focus:outline-none">Owner {getSortIconFor('capab_owner')}</button>
-
+                                    <div className="flex items-center">
+                                        <button onClick={() => requestSort('capab_owner')} className="flex items-center text-left focus:outline-none flex-grow">
+                                            Owner {getSortIconFor('capab_owner')}
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                if (openFilterDropdown?.key === 'capab_owner') {
+                                                    setOpenFilterDropdown(null);
+                                                } else {
+                                                    setOpenFilterDropdown({ key: 'capab_owner', rect });
+                                                }
+                                            }}
+                                            className={`ml-1 p-0.5 rounded transition-colors ${columnFilters['capab_owner']?.length ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+                                            title="Filter"
+                                        >
+                                            <FunnelIcon className="h-3 w-3" />
+                                        </button>
+                                    </div>
+                                    {openFilterDropdown?.key === 'capab_owner' && (
+                                        <FilterDropdown
+                                            columnKey="capab_owner"
+                                            items={capabilities}
+                                            columnFilters={columnFilters}
+                                            setColumnFilters={setColumnFilters}
+                                            onClose={() => setOpenFilterDropdown(null)}
+                                            triggerRect={openFilterDropdown.rect}
+                                        />
+                                    )}
                                 </th>
 
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Provider(s)</th>
@@ -1656,23 +1718,48 @@ const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded
 
                                 </th>
 
-                                {/* Custom Fields Columns */}
-
-                                {customFields.map((field) => (
-
-                                    <th key={field.id} scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-                                        <div className="flex items-center">
-
-                                            {field.field_label}
-
-                                            {field.is_required && <span className="text-red-500 ml-1">*</span>}
-
-                                        </div>
-
-                                    </th>
-
-                                ))}
+                                 {customFields.map((field) => {
+                                    const colKey = `custom_field_${field.field_name}`;
+                                    const shouldShowFilter = field.field_type === 'select' || field.field_type === 'boolean';
+                                    
+                                    return (
+                                        <th key={field.id} scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                            <div className="flex items-center">
+                                                <span className="flex-grow">
+                                                    {field.field_label}
+                                                    {field.is_required && <span className="text-red-500 ml-1">*</span>}
+                                                </span>
+                                                {shouldShowFilter && (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            const rect = e.currentTarget.getBoundingClientRect();
+                                                            if (openFilterDropdown?.key === colKey) {
+                                                                setOpenFilterDropdown(null);
+                                                            } else {
+                                                                setOpenFilterDropdown({ key: colKey, rect });
+                                                            }
+                                                        }}
+                                                        className={`ml-1 p-0.5 rounded transition-colors ${columnFilters[colKey]?.length ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+                                                        title="Filter"
+                                                    >
+                                                        <FunnelIcon className="h-3 w-3" />
+                                                    </button>
+                                                )}
+                                            </div>
+                                            {openFilterDropdown?.key === colKey && shouldShowFilter && (
+                                                <FilterDropdown
+                                                    columnKey={colKey}
+                                                    items={capabilities}
+                                                    columnFilters={columnFilters}
+                                                    setColumnFilters={setColumnFilters}
+                                                    onClose={() => setOpenFilterDropdown(null)}
+                                                    triggerRect={openFilterDropdown.rect}
+                                                />
+                                            )}
+                                        </th>
+                                    );
+                                })}
 
                             </tr>
 
@@ -2158,17 +2245,21 @@ const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded
             />
 
             <ImportConfirmationModal
-
                 isOpen={newFieldsToCreate.length > 0}
-
                 onClose={() => { setNewFieldsToCreate([]); setPendingImportData([]); }}
-
                 onConfirm={handleConfirmNewFields}
-
                 newFields={newFieldsToCreate}
-
                 moduleName="Capabilities"
+            />
 
+            <ImportMappingModal
+                isOpen={modalState.type === 'mapping'}
+                onClose={() => setModalState({ type: null })}
+                onConfirm={handleConfirmMapping}
+                headers={importHeaders}
+                moduleName="Capabilities"
+                systemFields={SYSTEM_FIELDS_CONFIG.capabilities}
+                existingCustomFields={customFields}
             />
 
             {bulkProgress.status === 'idle' && (
