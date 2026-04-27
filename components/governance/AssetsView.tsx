@@ -18,9 +18,11 @@ import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
 import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon, FilterIcon, FunnelIcon } from '../Icons';
 
 import { parseCSVLine } from '../../utils/csvParser';
-import { processImportData } from '../../utils/importUtils';
+import { processImportData, SYSTEM_FIELDS_CONFIG, applyManualMapping } from '../../utils/importUtils';
 import { ImportConfirmationModal } from '../common/ImportConfirmationModal';
+import { ImportMappingModal, ColumnMapping } from '../common/ImportMappingModal';
 import { parseCSVText } from '../../utils/csvParser';
+import { FilterDropdown } from '../common/FilterDropdown';
 
 
 
@@ -689,127 +691,32 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
 
 // Helper function to display source
-
 const displaySource = (source: string | null | undefined): string => {
-
-    const sourceStr = source || '';
-
-    // Legacy normalisation for records created before source tracking was standardised
-
-    if (sourceStr.toLowerCase().includes('csv') || sourceStr.toLowerCase().includes('import') || sourceStr.toLowerCase().includes('export')) {
-
-        return 'File Upload';
-
-    }
-
-    if (sourceStr === '-' || sourceStr.trim() === '') {
-
+    if (!source || source === '-' || source.trim() === '') {
         return 'Manual';
-
     }
-
-    if (sourceStr.toLowerCase().includes('ai generated')) {
-
+    
+    // Handle exact matches first
+    if (source === 'File Upload' || source === 'Manual' || source === 'AI') {
+        return source;
+    }
+    
+    // Legacy normalisation for records created before source tracking was standardised
+    const sourceLower = source.toLowerCase();
+    if (sourceLower.includes('csv') || sourceLower.includes('import') || sourceLower.includes('export')) {
+        return 'File Upload';
+    }
+    
+    if (sourceLower.includes('ai generated') || sourceLower === 'ai') {
         return 'AI';
-
     }
-
-    return sourceStr; // Will show 'Manual', etc.
-
+    
+    // Default fallback - if it's not one of the expected values, treat as Manual
+    return 'Manual';
 };
 
 
 
-const FilterDropdown = ({ columnKey, items, columnFilters, setColumnFilters, onClose, triggerRect }: any) => {
-    // get unique values for columnKey
-    const uniqueValues = useMemo(() => {
-        const values = new Set<string>();
-        items.forEach((item: any) => {
-             let val;
-             if (columnKey.startsWith('custom_field_')) {
-                 val = item.custom_fields?.[columnKey.replace('custom_field_', '')];
-             } else {
-                 val = item[columnKey];
-             }
-             values.add(val !== undefined && val !== null && val !== "" ? String(val) : '-');
-        });
-        return Array.from(values).sort((a, b) => a.localeCompare(b));
-    }, [items, columnKey]);
-
-    const [localSelectedValues, setLocalSelectedValues] = useState<string[]>(columnFilters[columnKey] || []);
-
-    const handleToggle = (val: string) => {
-        if (localSelectedValues.includes(val)) {
-            setLocalSelectedValues(prev => prev.filter(v => v !== val));
-        } else {
-            setLocalSelectedValues(prev => [...prev, val]);
-        }
-    };
-
-    const handleClear = () => {
-        setColumnFilters((prev: any) => {
-            const next = { ...prev };
-            delete next[columnKey];
-            return next;
-        });
-        onClose();
-    };
-
-    const handleSave = () => {
-        setColumnFilters((prev: any) => {
-            if (localSelectedValues.length === 0) {
-                const next = { ...prev };
-                delete next[columnKey];
-                return next;
-            }
-            return { ...prev, [columnKey]: localSelectedValues };
-        });
-        onClose();
-    };
-
-    const style: React.CSSProperties = {
-        position: 'fixed',
-        zIndex: 9999,
-        top: triggerRect ? triggerRect.bottom + 4 : 0,
-        left: triggerRect ? triggerRect.left : 0,
-    };
-
-    return createPortal(
-        <div style={style} className="FilterDropdownCore w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg p-3" onClick={e => e.stopPropagation()}>
-            <div className="mb-3 max-h-48 overflow-y-auto space-y-2">
-                {uniqueValues.map(val => (
-                    <label key={val} className="flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer p-1 hover:bg-gray-50 dark:hover:bg-gray-700 rounded">
-                        <input
-                            type="checkbox"
-                            checked={localSelectedValues.includes(val)}
-                            onChange={() => handleToggle(val)}
-                            className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 bg-white dark:bg-gray-700"
-                        />
-                        <span className="truncate">{val}</span>
-                    </label>
-                ))}
-            </div>
-            <div className="border-t border-gray-200 dark:border-gray-700 pt-3 flex items-center justify-between">
-                <button
-                    onClick={handleClear}
-                    disabled={!columnFilters[columnKey]?.length && localSelectedValues.length === 0}
-                    className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 disabled:text-gray-400 disabled:cursor-not-allowed"
-                >
-                    Clear Filter
-                </button>
-                <div className="flex space-x-2">
-                    <button onClick={onClose} className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300">
-                        Cancel
-                    </button>
-                    <button onClick={handleSave} className="text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded">
-                        Save
-                    </button>
-                </div>
-            </div>
-        </div>,
-        document.body
-    );
-};
 
 export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
 
@@ -835,7 +742,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
 
-    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | 'import' | null; asset?: Asset | null }>({ type: null });
+    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | 'import' | 'mapping' | null; asset?: Asset | null }>({ type: null });
 
 
 
@@ -860,6 +767,8 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
     const [newFieldsToCreate, setNewFieldsToCreate] = useState<any[]>([]);
 
     const [pendingImportData, setPendingImportData] = useState<any[]>([]);
+    const [importHeaders, setImportHeaders] = useState<string[]>([]);
+    const [rawRows, setRawRows] = useState<any[]>([]);
 
 
 
@@ -1302,7 +1211,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
     const renderFilterableHeader = (columnKey: string, title: string) => {
         // Check if field has dropdown filter
-        const hasDropdownFilter = ['criticality', 'category', 'exposure'].includes(columnKey);
+        const hasDropdownFilter = ['criticality', 'category', 'exposure', 'governed_status'].includes(columnKey);
         
         // Check if custom field has select or boolean type
         const isCustomField = columnKey.startsWith('custom_field_');
@@ -1742,57 +1651,24 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
     const handleSaveAll = async () => {
-
-
-
         try {
-
-
-
             setIsSaving(true);
 
-
-
             for (const [id, changes] of Object.entries(editValues)) {
-
-
-
-                await SupabaseService.updateAsset(id, { ...(changes as AssetUpdate), source: 'Manual' });
-
-
-
+                // Get the existing asset to preserve its source
+                const existingAsset = assets.find(a => a.id === id);
+                const preservedSource = existingAsset?.source || 'Manual';
+                
+                await SupabaseService.updateAsset(id, { ...(changes as AssetUpdate), source: preservedSource });
             }
 
-
-
             cancelEdit();
-
-
-
             fetchAssets();
-
-
-
         } catch (err) {
-
-
-
             setError('Failed to save changes.');
-
-
-
         } finally {
-
-
-
             setIsSaving(false);
-
-
-
         }
-
-
-
     };
 
 
@@ -2080,10 +1956,11 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
         const updatedAssets: { id: string; updates: AssetUpdate }[] = [];
         
         records.forEach(record => {
-            // Normalize category to prevent constraint violations
+            // Normalize category to prevent constraint violations and set source to File Upload
             const normalizedRecord = {
                 ...record,
-                category: normalizeCategory(record.category || '')
+                category: normalizeCategory(record.category || ''),
+                source: 'File Upload' // Force source to be File Upload for all CSV imports
             };
             
             const existing = assets.find(a => a.asset_id === record.asset_id);
@@ -2108,18 +1985,32 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
             try {
                 const text = e.target?.result as string;
                 const parsedData = parseCSVText(text);
-                const { records, newFields } = processImportData('assets', parsedData.headers, parsedData.rows, customFields);
                 
-                // Store new fields to be created
-                setNewFieldsToCreate(newFields);
-                
-                // Prepare import data
-                prepareImportData(records);
+                // Show mapping modal first
+                setImportHeaders(parsedData.headers);
+                setRawRows(parsedData.rows);
+                setModalState({ type: 'mapping' });
             } catch (err) {
                 setError('Failed to import CSV. Please check the file format.');
             }
         };
         reader.readAsText(file);
+        // Reset input so same file can be uploaded again
+        if (event.target) event.target.value = '';
+    };
+
+    const handleConfirmMapping = (mapping: ColumnMapping[]) => {
+        try {
+            const { records, newFields } = applyManualMapping(mapping, rawRows, customFields);
+            
+            // Store new fields to be created
+            setNewFieldsToCreate(newFields);
+            
+            // Prepare import data (duplicate check, etc)
+            prepareImportData(records);
+        } catch (err) {
+            setError('Failed to process mapping. Please try again.');
+        }
     };
 
     const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
@@ -2825,7 +2716,15 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                 </Modal>
             )}
 
-
+            <ImportMappingModal
+                isOpen={modalState.type === 'mapping'}
+                onClose={closeModal}
+                onConfirm={handleConfirmMapping}
+                headers={importHeaders}
+                moduleName="Assets"
+                systemFields={SYSTEM_FIELDS_CONFIG.assets}
+                existingCustomFields={customFields}
+            />
 
             {bulkProgress.status === 'idle' && (
 
@@ -2899,11 +2798,11 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
 
+                onClose={handleCloseBulkProgress}
+
+
+
             />
-
-
-
-            {/* Import Progress Modal */}
 
 
 

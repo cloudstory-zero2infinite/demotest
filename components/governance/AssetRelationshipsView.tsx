@@ -8,7 +8,8 @@ import { AssetRelationship, AssetRelationshipCreate } from '../../types';
 
 import { CustomField } from '../../services/supabase';
 
-import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon } from '../Icons';
+import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon, FunnelIcon } from '../Icons';
+import { FilterDropdown } from '../common/FilterDropdown';
 
 import { parseCSVLine } from '../../utils/csvParser';
 
@@ -22,8 +23,9 @@ import { SelectionActionBar } from '../common/SelectionActionBar';
 
 import { AIChatModal } from '../common/AIChatModal';
 
-import { processImportData } from '../../utils/importUtils';
+import { processImportData, SYSTEM_FIELDS_CONFIG, applyManualMapping } from '../../utils/importUtils';
 import { ImportConfirmationModal } from '../common/ImportConfirmationModal';
+import { ImportMappingModal, ColumnMapping } from '../common/ImportMappingModal';
 import { parseCSVText } from '../../utils/csvParser';
 import CustomFieldsManager from '../common/CustomFieldsManager';
 
@@ -331,7 +333,7 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
     const [error, setError] = useState<string | null>(null);
 
-    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | 'import' | null; rel?: AssetRelationship | null }>({ type: null });
+    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | 'import' | 'mapping' | null; rel?: AssetRelationship | null }>({ type: null });
 
     const [filter, setFilter] = useState('');
 
@@ -381,6 +383,11 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
     const [showColumnManagement, setShowColumnManagement] = useState(false);
     const [newFieldsToCreate, setNewFieldsToCreate] = useState<any[]>([]);
     const [pendingImportData, setPendingImportData] = useState<any[]>([]);
+    const [importHeaders, setImportHeaders] = useState<string[]>([]);
+    const [rawRows, setRawRows] = useState<any[]>([]);
+
+    const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+    const [openFilterDropdown, setOpenFilterDropdown] = useState<{key: string, rect: DOMRect} | null>(null);
 
 
 
@@ -494,12 +501,28 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
                 r.source_asset_id.toLowerCase().includes(lc) ||
 
-                r.target_asset_id.toLowerCase().includes(lc) ||
-
-                r.relationship_type.toLowerCase().includes(lc)
-
+                r.target_asset_id.toLowerCase().includes(lc)
             );
 
+        }
+
+        // Apply column-level filters
+        if (Object.keys(columnFilters).length > 0) {
+            items = items.filter(item => {
+                return Object.entries(columnFilters).every(([key, selectedValues]) => {
+                    if (!selectedValues || selectedValues.length === 0) return true;
+                    
+                    let val;
+                    if (key.startsWith('custom_field_')) {
+                        val = item.custom_fields?.[key.replace('custom_field_', '')];
+                    } else {
+                        val = (item as any)[key];
+                    }
+                    
+                    const displayVal = val !== undefined && val !== null && val !== "" ? String(val) : '-';
+                    return selectedValues.includes(displayVal);
+                });
+            });
         }
 
         if (sortConfig) {
@@ -526,7 +549,7 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
         return items;
 
-    }, [relationships, filter, sortConfig]);
+    }, [relationships, filter, sortConfig, columnFilters]);
 
 
 
@@ -616,6 +639,7 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
     const renderFilterableHeader = (columnKey: string, title: string) => {
         const isDragged = draggedColumn === columnKey;
         const isDragOver = dragOverColumn === columnKey;
+        const isFilterable = columnKey === 'relationship_type';
         
         return (
             <th 
@@ -641,7 +665,34 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
                         {title}
                         {getSortIconFor(columnKey as keyof AssetRelationship)}
                     </button>
+                    {isFilterable && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                if (openFilterDropdown?.key === columnKey) {
+                                    setOpenFilterDropdown(null);
+                                } else {
+                                    setOpenFilterDropdown({ key: columnKey, rect });
+                                }
+                            }}
+                            className={`ml-1 p-0.5 rounded transition-colors ${columnFilters[columnKey]?.length ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+                            title="Filter"
+                        >
+                            <FunnelIcon className="h-3 w-3" />
+                        </button>
+                    )}
                 </div>
+                {openFilterDropdown?.key === columnKey && isFilterable && (
+                    <FilterDropdown
+                        columnKey={columnKey}
+                        items={relationships}
+                        columnFilters={columnFilters}
+                        setColumnFilters={setColumnFilters}
+                        onClose={() => setOpenFilterDropdown(null)}
+                        triggerRect={openFilterDropdown.rect}
+                    />
+                )}
             </th>
         );
     };
@@ -989,108 +1040,43 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
 
     const handleImportCSV = (event: React.ChangeEvent<HTMLInputElement>) => {
-
-        console.log('CSV import triggered');
-
         const file = event.target.files?.[0];
-
-        console.log('File selected:', file);
-
-        if (!file) {
-
-            console.log('No file selected');
-
-            return;
-
-        }
-
-
+        if (!file) return;
 
         const reader = new FileReader();
-
-
-
         reader.onload = async (e) => {
-
-            console.log('FileReader onload triggered');
-
-            const text = e.target?.result as string;
-
-            console.log('File content length:', text?.length);
-
-            if (!text) {
-
-                console.log('No file content');
-
-                return;
-
-            }
-
-
+            const content = e.target?.result as string;
+            if (!content) return;
 
             try {
+                const parsed = parseCSVText(content);
+                setImportHeaders(parsed.headers);
+                setRawRows(parsed.rows);
+                setModalState({ type: 'mapping' });
+            } catch (err) {
+                setError('Failed to parse import file.');
+            }
+        };
+        reader.readAsText(file);
+        if (event.target) event.target.value = '';
+    };
 
-                console.log('Parsing CSV text...');
-
-                const { headers, rows } = parseCSVText(text);
-
-                console.log('Parsed CSV:', { headers, rowCount: rows.length });
-
-
-
-                console.log('Processing import data...');
-
-                const { newFields, records } = processImportData('asset_relationships', headers, rows, customFields);
-
-                console.log('Processed data:', { newFieldsCount: newFields.length, recordsCount: records.length });
-
-
-
-                if (newFields.length > 0) {
-
-                    console.log('New fields detected, setting up field creation');
-
-                    setNewFieldsToCreate(newFields);
-
-                    setPendingImportData(records);
-
-                    return;
-
-                }
-
-
-
-                console.log('Preparing import data...');
-
-                prepareImportData(records);
-
-            } catch (error) {
-
-                console.error('Error during CSV import:', error);
-
-                alert('Error importing CSV: ' + error.message);
-
+    const handleConfirmMapping = (mapping: ColumnMapping[]) => {
+        try {
+            const { records, newFields } = applyManualMapping(mapping, rawRows, customFields);
+            
+            if (newFields.length > 0) {
+                setNewFieldsToCreate(newFields);
+                setPendingImportData(records);
+                return;
             }
 
-        };
-
-
-
-        reader.onerror = (error) => {
-
-            console.error('FileReader error:', error);
-
-            alert('Error reading file');
-
-        };
-
-
-
-        console.log('Starting to read file...');
-
-        reader.readAsText(file);
-
+            prepareImportData(records);
+        } catch (err) {
+            setError('Failed to process mapping.');
+        }
     };
+
 
 
 
@@ -1406,23 +1392,49 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
                                     return renderFilterableHeader(columnKey, columnTitles[columnKey as keyof typeof columnTitles]);
                                 })}
 
-                                {/* Custom Fields Columns */}
-
-                                {customFields.map((field) => (
-
-                                    <th key={field.id} scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-                                        <div className="flex items-center">
-
-                                            {field.field_label}
-
-                                            {field.is_required && <span className="text-red-500 ml-1">*</span>}
-
-                                        </div>
-
-                                    </th>
-
-                                ))}
+                                 {/* Custom Fields Columns */}
+                                 {customFields.map((field) => {
+                                    const colKey = `custom_field_${field.field_name}`;
+                                    const shouldShowFilter = field.field_type === 'select' || field.field_type === 'boolean';
+                                    
+                                    return (
+                                        <th key={field.id} scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                            <div className="flex items-center">
+                                                <span className="flex-grow">
+                                                    {field.field_label}
+                                                    {field.is_required && <span className="text-red-500 ml-1">*</span>}
+                                                </span>
+                                                {shouldShowFilter && (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            const rect = e.currentTarget.getBoundingClientRect();
+                                                            if (openFilterDropdown?.key === colKey) {
+                                                                setOpenFilterDropdown(null);
+                                                            } else {
+                                                                setOpenFilterDropdown({ key: colKey, rect });
+                                                            }
+                                                        }}
+                                                        className={`ml-1 p-0.5 rounded transition-colors ${columnFilters[colKey]?.length ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+                                                        title="Filter"
+                                                    >
+                                                        <FunnelIcon className="h-3 w-3" />
+                                                    </button>
+                                                )}
+                                            </div>
+                                            {openFilterDropdown?.key === colKey && shouldShowFilter && (
+                                                <FilterDropdown
+                                                    columnKey={colKey}
+                                                    items={relationships}
+                                                    columnFilters={columnFilters}
+                                                    setColumnFilters={setColumnFilters}
+                                                    onClose={() => setOpenFilterDropdown(null)}
+                                                    triggerRect={openFilterDropdown.rect}
+                                                />
+                                            )}
+                                        </th>
+                                    );
+                                })}
 
                             </tr>
 
@@ -1754,17 +1766,21 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
             />
 
             <ImportConfirmationModal
-
                 isOpen={newFieldsToCreate.length > 0}
-
                 onClose={() => { setNewFieldsToCreate([]); setPendingImportData([]); }}
-
                 onConfirm={handleConfirmNewFields}
-
                 newFields={newFieldsToCreate}
-
                 moduleName="Asset Relationships"
+            />
 
+            <ImportMappingModal
+                isOpen={modalState.type === 'mapping'}
+                onClose={() => setModalState({ type: null })}
+                onConfirm={handleConfirmMapping}
+                headers={importHeaders}
+                moduleName="Asset Relationships"
+                systemFields={SYSTEM_FIELDS_CONFIG.asset_relationships}
+                existingCustomFields={customFields}
             />
 
             {/* Import Confirmation Modal */}

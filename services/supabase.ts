@@ -171,18 +171,35 @@ export interface OrgMeResponse {
 
 
 export const getOrgMe = async (): Promise<OrgMeResponse | null> => {
-
   try {
-
     return await apiRequest<OrgMeResponse>('/api/org/me');
-
   } catch {
-
     return null;
-
   }
-
 };
+
+export interface ScoringSnapshot {
+  id: string;
+  org_id: string;
+  score: number;
+  total_assets: number;
+  total_vulnerabilities: number;
+  total_controls: number;
+  total_tasks: number;
+  total_policies: number;
+  recorded_at: string;
+  snapshot_date: string;
+}
+
+export const getScoringTrend = async (range: string = '1week'): Promise<ScoringSnapshot[]> => {
+  try {
+    return await apiRequest<ScoringSnapshot[]>(`/api/compliance/scoring-trend?range=${range}`);
+  } catch (error) {
+    console.error('Error fetching scoring trend:', error);
+    return [];
+  }
+};
+
 
 
 
