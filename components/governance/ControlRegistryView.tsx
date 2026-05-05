@@ -18,7 +18,8 @@ import { CustomField } from '../../services/supabase';
 
 
 
-import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon } from '../Icons';
+import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon, FunnelIcon } from '../Icons';
+import { FilterDropdown } from '../common/FilterDropdown';
 
 
 
@@ -46,8 +47,9 @@ import { SelectionActionBar } from '../common/SelectionActionBar';
 
 
 
-import { processImportData } from '../../utils/importUtils';
+import { processImportData, SYSTEM_FIELDS_CONFIG, applyManualMapping } from '../../utils/importUtils';
 import { ImportConfirmationModal } from '../common/ImportConfirmationModal';
+import { ImportMappingModal, ColumnMapping } from '../common/ImportMappingModal';
 import { parseCSVText } from '../../utils/csvParser';
 import CustomFieldsManager from '../common/CustomFieldsManager';
 
@@ -2229,7 +2231,7 @@ const DEFAULT_FORM: FormData = {
 
 
 
-    ctl_id: `CTL-${Date.now()}`,
+    ctl_id: '', // Let server auto-generate
 
 
 
@@ -3266,7 +3268,7 @@ const EvidencePill: React.FC<{ evidence: EvidenceFileMetadata; controlId: string
 
 
 
-type ModalState = { type: 'add' | 'edit' | 'view' | 'delete' | 'import' | null; item?: ControlRegistry | null };
+type ModalState = { type: 'add' | 'edit' | 'view' | 'delete' | 'import' | 'mapping' | null; item?: ControlRegistry | null };
 
 
 
@@ -3357,7 +3359,8 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
     const [showAIChat, setShowAIChat] = useState(false);
 
-
+    const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+    const [openFilterDropdown, setOpenFilterDropdown] = useState<{key: string, rect: DOMRect} | null>(null);
 
     const [enforcementModal, setEnforcementModal] = useState<{ isOpen: boolean; control: ControlRegistry | null; requestedStatus: 'Enforced' | 'NotEnforced' }>({ isOpen: false, control: null, requestedStatus: 'Enforced' });
 
@@ -3374,6 +3377,8 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
     const [showColumnManagement, setShowColumnManagement] = useState(false);
     const [newFieldsToCreate, setNewFieldsToCreate] = useState<any[]>([]);
     const [pendingImportData, setPendingImportData] = useState<any[]>([]);
+    const [importHeaders, setImportHeaders] = useState<string[]>([]);
+    const [rawRows, setRawRows] = useState<any[]>([]);
 
 
 
@@ -3725,6 +3730,25 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
+        // Apply column-level filters
+        if (Object.keys(columnFilters).length > 0) {
+            items = items.filter(item => {
+                return Object.entries(columnFilters).every(([key, selectedValues]) => {
+                    if (!selectedValues || selectedValues.length === 0) return true;
+                    
+                    let val;
+                    if (key.startsWith('custom_field_')) {
+                        val = item.custom_fields?.[key.replace('custom_field_', '')];
+                    } else {
+                        val = (item as any)[key];
+                    }
+                    
+                    const displayVal = val !== undefined && val !== null && val !== "" ? String(val) : '-';
+                    return selectedValues.includes(displayVal);
+                });
+            });
+        }
+
         if (sortConfig !== null) {
 
 
@@ -3773,7 +3797,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-    }, [controls, filter, sortConfig]);
+    }, [controls, filter, sortConfig, columnFilters]);
 
 
 
@@ -3813,7 +3837,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-    }, [filter]);
+    }, [filter, columnFilters]);
 
 
 
@@ -4225,28 +4249,31 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
     const handleImportCSV = (event: ChangeEvent<HTMLInputElement>) => {
-
-
-
         const file = event.target.files?.[0];
-
-
-
         if (!file) return;
 
-
-
         const reader = new FileReader();
-
-
-
         reader.onload = async (e) => {
-            const text = e.target?.result as string;
-            if (!text) return;
+            const content = e.target?.result as string;
+            if (!content) return;
 
-            const { headers, rows } = parseCSVText(text);
-            const { newFields, records } = processImportData('control_registry', headers, rows, customFields);
+            try {
+                const parsed = parseCSVText(content);
+                setImportHeaders(parsed.headers);
+                setRawRows(parsed.rows);
+                setModalState({ type: 'mapping' });
+            } catch (err) {
+                setError('Failed to parse import file.');
+            }
+        };
+        reader.readAsText(file);
+        if (event.target) event.target.value = '';
+    };
 
+    const handleConfirmMapping = (mapping: ColumnMapping[]) => {
+        try {
+            const { records, newFields } = applyManualMapping(mapping, rawRows, customFields);
+            
             if (newFields.length > 0) {
                 setNewFieldsToCreate(newFields);
                 setPendingImportData(records);
@@ -4254,11 +4281,9 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
             }
 
             prepareImportData(records);
-        };
-
-        reader.readAsText(file);
-
-        if (fileInputRef.current) fileInputRef.current.value = '';
+        } catch (err) {
+            setError('Failed to process mapping.');
+        }
     };
 
     const prepareImportData = (records: any[]) => {
@@ -4645,49 +4670,152 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-
-
-                                    <button onClick={() => requestSort('ctl_status')} className="flex items-center w-full text-left focus:outline-none">Status {getSortIconFor('ctl_status')}</button>
-
-
-
+                                    <div className="flex items-center">
+                                        <button onClick={() => requestSort('ctl_status')} className="flex items-center text-left focus:outline-none flex-grow">
+                                            Status {getSortIconFor('ctl_status')}
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                if (openFilterDropdown?.key === 'ctl_status') {
+                                                    setOpenFilterDropdown(null);
+                                                } else {
+                                                    setOpenFilterDropdown({ key: 'ctl_status', rect });
+                                                }
+                                            }}
+                                            className={`ml-1 p-0.5 rounded transition-colors ${columnFilters['ctl_status']?.length ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+                                            title="Filter"
+                                        >
+                                            <FunnelIcon className="h-3 w-3" />
+                                        </button>
+                                    </div>
+                                    {openFilterDropdown?.key === 'ctl_status' && (
+                                        <FilterDropdown
+                                            columnKey="ctl_status"
+                                            items={controls}
+                                            columnFilters={columnFilters}
+                                            setColumnFilters={setColumnFilters}
+                                            onClose={() => setOpenFilterDropdown(null)}
+                                            triggerRect={openFilterDropdown.rect}
+                                        />
+                                    )}
                                 </th>
-
-
 
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-
-
-                                    <button onClick={() => requestSort('ctl_type')} className="flex items-center w-full text-left focus:outline-none">Type {getSortIconFor('ctl_type')}</button>
-
-
-
+                                    <div className="flex items-center">
+                                        <button onClick={() => requestSort('ctl_type')} className="flex items-center text-left focus:outline-none flex-grow">
+                                            Type {getSortIconFor('ctl_type')}
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                if (openFilterDropdown?.key === 'ctl_type') {
+                                                    setOpenFilterDropdown(null);
+                                                } else {
+                                                    setOpenFilterDropdown({ key: 'ctl_type', rect });
+                                                }
+                                            }}
+                                            className={`ml-1 p-0.5 rounded transition-colors ${columnFilters['ctl_type']?.length ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+                                            title="Filter"
+                                        >
+                                            <FunnelIcon className="h-3 w-3" />
+                                        </button>
+                                    </div>
+                                    {openFilterDropdown?.key === 'ctl_type' && (
+                                        <FilterDropdown
+                                            columnKey="ctl_type"
+                                            items={controls}
+                                            columnFilters={columnFilters}
+                                            setColumnFilters={setColumnFilters}
+                                            onClose={() => setOpenFilterDropdown(null)}
+                                            triggerRect={openFilterDropdown.rect}
+                                        />
+                                    )}
                                 </th>
-
-
 
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
-
-
-
-                                    <button onClick={() => requestSort('enforcement_type')} className="flex items-center w-full text-left focus:outline-none">Enforcement {getSortIconFor('enforcement_type')}</button>
-
-
-
+                                    <div className="flex items-center">
+                                        <button onClick={() => requestSort('enforcement_type')} className="flex items-center text-left focus:outline-none flex-grow">
+                                            Enforcement {getSortIconFor('enforcement_type')}
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                if (openFilterDropdown?.key === 'enforcement_type') {
+                                                    setOpenFilterDropdown(null);
+                                                } else {
+                                                    setOpenFilterDropdown({ key: 'enforcement_type', rect });
+                                                }
+                                            }}
+                                            className={`ml-1 p-0.5 rounded transition-colors ${columnFilters['enforcement_type']?.length ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+                                            title="Filter"
+                                        >
+                                            <FunnelIcon className="h-3 w-3" />
+                                        </button>
+                                    </div>
+                                    {openFilterDropdown?.key === 'enforcement_type' && (
+                                        <FilterDropdown
+                                            columnKey="enforcement_type"
+                                            items={controls}
+                                            columnFilters={columnFilters}
+                                            setColumnFilters={setColumnFilters}
+                                            onClose={() => setOpenFilterDropdown(null)}
+                                            triggerRect={openFilterDropdown.rect}
+                                        />
+                                    )}
                                 </th>
-
-
 
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Controlled By</th>
 
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Ref Framework</th>
 
-
-                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Ref Framework</th>                                {/* Custom Fields Columns */}                                {customFields.map((field) => (                                    <th key={field.id} scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">                                        <div className="flex items-center">                                            {field.field_label}                                            {field.is_required && <span className="text-red-500 ml-1">*</span>}                                        </div>                                    </th>                                ))}                            </tr>
-
-
-
+                                {/* Custom Fields Columns */}
+                                {customFields.map((field) => {
+                                    const colKey = `custom_field_${field.field_name}`;
+                                    const shouldShowFilter = field.field_type === 'select' || field.field_type === 'boolean';
+                                    
+                                    return (
+                                        <th key={field.id} scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                            <div className="flex items-center">
+                                                <span className="flex-grow">
+                                                    {field.field_label}
+                                                    {field.is_required && <span className="text-red-500 ml-1">*</span>}
+                                                </span>
+                                                {shouldShowFilter && (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            const rect = e.currentTarget.getBoundingClientRect();
+                                                            if (openFilterDropdown?.key === colKey) {
+                                                                setOpenFilterDropdown(null);
+                                                            } else {
+                                                                setOpenFilterDropdown({ key: colKey, rect });
+                                                            }
+                                                        }}
+                                                        className={`ml-1 p-0.5 rounded transition-colors ${columnFilters[colKey]?.length ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+                                                        title="Filter"
+                                                    >
+                                                        <FunnelIcon className="h-3 w-3" />
+                                                    </button>
+                                                )}
+                                            </div>
+                                            {openFilterDropdown?.key === colKey && shouldShowFilter && (
+                                                <FilterDropdown
+                                                    columnKey={colKey}
+                                                    items={controls}
+                                                    columnFilters={columnFilters}
+                                                    setColumnFilters={setColumnFilters}
+                                                    onClose={() => setOpenFilterDropdown(null)}
+                                                    triggerRect={openFilterDropdown.rect}
+                                                />
+                                            )}
+                                        </th>
+                                    );
+                                })}
+                            </tr>
                         </thead>
 
 
@@ -4984,7 +5112,16 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                                            <input type="text" value={(editValues[ctl.id]?.ctld_by ?? ctl.ctld_by ?? []).join(', ')} onChange={e => updateField(ctl.id, 'ctld_by', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} className={editInputCls} placeholder="Comma-separated" />
+                                            <CapabilityMultiSelect 
+                                                values={editValues[ctl.id]?.ctld_by ?? ctl.ctld_by ?? []} 
+                                                onChange={vals => {
+                                                    console.log(`Control ${ctl.id} - Before:`, editValues[ctl.id]?.ctld_by ?? ctl.ctld_by ?? []);
+                                                    console.log(`Control ${ctl.id} - New values:`, vals);
+                                                    updateField(ctl.id, 'ctld_by', vals);
+                                                }} 
+                                                capabilities={capabilities} 
+                                                readOnly={false}
+                                            />
 
 
 
@@ -5811,6 +5948,16 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                 onConfirm={handleConfirmNewFields}
                 newFields={newFieldsToCreate}
                 moduleName="Control Registry"
+            />
+
+            <ImportMappingModal
+                isOpen={modalState.type === 'mapping'}
+                onClose={() => setModalState({ type: null })}
+                onConfirm={handleConfirmMapping}
+                headers={importHeaders}
+                moduleName="Control Registry"
+                systemFields={SYSTEM_FIELDS_CONFIG.control_registry}
+                existingCustomFields={customFields}
             />
         </div>
 

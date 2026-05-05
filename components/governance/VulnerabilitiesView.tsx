@@ -8,7 +8,8 @@ import * as SupabaseService from '../../services/supabase';
 
 import { CustomField } from '../../services/supabase';
 
-import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon } from '../Icons';
+import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon, FunnelIcon } from '../Icons';
+import { FilterDropdown } from '../common/FilterDropdown';
 
 import { Modal } from '../common/Modal';
 
@@ -29,8 +30,9 @@ import * as XLSX from 'xlsx';
 import { parseCSVLine } from '../../utils/csvParser';
 
 import { BulkProgressModal } from '../common/BulkProgressModal';
-import { processImportData } from '../../utils/importUtils';
+import { processImportData, SYSTEM_FIELDS_CONFIG, applyManualMapping } from '../../utils/importUtils';
 import { ImportConfirmationModal } from '../common/ImportConfirmationModal';
+import { ImportMappingModal, ColumnMapping } from '../common/ImportMappingModal';
 import { parseCSVText } from '../../utils/csvParser';
 
 // Helper function to sanitize input
@@ -451,7 +453,7 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
 
     const [error, setError] = useState<string | null>(null);
 
-    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | 'import' | null; vulnerability?: Vulnerability | null }>({ type: null });
+    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | 'import' | 'mapping' | null; vulnerability?: Vulnerability | null }>({ type: null });
 
     const [importData, setImportData] = useState<any[]>([]);
     const [isImporting, setIsImporting] = useState(false);
@@ -478,6 +480,8 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
     const [showColumnManagement, setShowColumnManagement] = useState(false);
     const [newFieldsToCreate, setNewFieldsToCreate] = useState<any[]>([]);
     const [pendingImportData, setPendingImportData] = useState<any[]>([]);
+    const [importHeaders, setImportHeaders] = useState<string[]>([]);
+    const [rawRows, setRawRows] = useState<any[]>([]);
 
     const {
         selectedIds, isEditing, editValues, isConfirmingDelete, isSaving, bulkProgress,
@@ -489,6 +493,9 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
     const [columnOrder, setColumnOrder] = useState<string[]>([]);
     const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
     const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+
+    const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+    const [openFilterDropdown, setOpenFilterDropdown] = useState<{key: string, rect: DOMRect} | null>(null);
 
     // Default column order for vulnerabilities
     const defaultColumns = useMemo(() => [
@@ -705,7 +712,25 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
                 (item.assets?.asset_id && item.assets.asset_id.toLowerCase().includes(lowerCaseFilter))
 
             );
+        }
 
+        // Apply column-level filters
+        if (Object.keys(columnFilters).length > 0) {
+            filteredItems = filteredItems.filter(item => {
+                return Object.entries(columnFilters).every(([key, selectedValues]) => {
+                    if (!selectedValues || selectedValues.length === 0) return true;
+                    
+                    let val;
+                    if (key.startsWith('custom_field_')) {
+                        val = item.custom_fields?.[key.replace('custom_field_', '')];
+                    } else {
+                        val = (item as any)[key];
+                    }
+                    
+                    const displayVal = val !== undefined && val !== null && val !== "" ? String(val) : '-';
+                    return selectedValues.includes(displayVal);
+                });
+            });
         }
 
         if (sortConfig !== null) {
@@ -1057,7 +1082,7 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
             if (!content) return;
 
             let headers: string[] = [];
-            let rows: string[][] = [];
+            let rows: any[] = [];
 
             try {
                 if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
@@ -1067,31 +1092,49 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
                     const excelData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[];
                     
                     if (excelData.length > 0) {
-                        headers = excelData[0].map(h => String(h || ''));
-                        rows = excelData.slice(1).map(row => row.map((v: any) => String(v || '')));
+                        headers = excelData[0].map((h: any) => String(h || ''));
+                        // Transform array rows to object rows for mapping
+                        rows = excelData.slice(1).map(row => {
+                            const obj: any = {};
+                            headers.forEach((h, idx) => {
+                                obj[h] = row[idx];
+                            });
+                            return obj;
+                        });
                     }
                 } else {
                     const text = content as string;
                     const parsed = parseCSVText(text);
                     headers = parsed.headers;
+                    // parseCSVText returns objects already
                     rows = parsed.rows;
                 }
 
-                const { newFields, records } = processImportData('vulnerabilities', headers, rows, customFields);
-
-                if (newFields.length > 0) {
-                    setNewFieldsToCreate(newFields);
-                    setPendingImportData(records);
-                    return;
-                }
-
-                prepareImportData(records);
+                setImportHeaders(headers);
+                setRawRows(rows);
+                setModalState({ type: 'mapping' });
             } catch (err) {
                 setError('Failed to parse import file.');
             }
         };
 
         if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    const handleConfirmMapping = (mapping: ColumnMapping[]) => {
+        try {
+            const { records, newFields } = applyManualMapping(mapping, rawRows, customFields);
+            
+            if (newFields.length > 0) {
+                setNewFieldsToCreate(newFields);
+                setPendingImportData(records);
+                return;
+            }
+
+            prepareImportData(records);
+        } catch (err) {
+            setError('Failed to process mapping.');
+        }
     };
 
     const prepareImportData = async (records: any[]) => {
@@ -1286,7 +1329,7 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
 
                                 </th>
 
-                                {columnOrder.map(colKey => {
+                                 {columnOrder.map(colKey => {
                                     const customField = customFields.find(f => `custom_field_${f.field_name}` === colKey);
                                     const title = customField 
                                         ? customField.field_label
@@ -1295,7 +1338,57 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
                                         : colKey === 'derived_from' ? 'Source'
                                         : colKey === 'status' ? 'Status'
                                         : colKey;
-                                    return renderFilterableHeader(colKey, title);
+                                    
+                                    const hasDropdownFilter = ['derived_from', 'status'].includes(colKey);
+                                    const hasCustomDropdown = customField && (customField.field_type === 'select' || customField.field_type === 'boolean');
+                                    const shouldShowFilter = hasDropdownFilter || hasCustomDropdown;
+
+                                    return (
+                                        <th 
+                                            scope="col" 
+                                            key={colKey} 
+                                            draggable={true}
+                                            onDragStart={(e) => handleDragStart(e, colKey)}
+                                            onDragEnd={handleDragEnd}
+                                            onDragOver={(e) => handleDragOver(e, colKey)}
+                                            onDrop={(e) => handleDrop(e, colKey)}
+                                            className={`relative sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300 ${dragOverColumn === colKey ? 'border-l-4 border-l-blue-500' : ''}`}
+                                        >
+                                            <div className="flex items-center">
+                                                <button onClick={() => requestSort(colKey as keyof Vulnerability)} className="flex items-center text-left focus:outline-none flex-grow">
+                                                    {title}
+                                                    {getSortIconFor(colKey as keyof Vulnerability)}
+                                                </button>
+                                                {shouldShowFilter && (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            const rect = e.currentTarget.getBoundingClientRect();
+                                                            if (openFilterDropdown?.key === colKey) {
+                                                                setOpenFilterDropdown(null);
+                                                            } else {
+                                                                setOpenFilterDropdown({ key: colKey, rect });
+                                                            }
+                                                        }}
+                                                        className={`ml-1 p-0.5 rounded transition-colors ${columnFilters[colKey]?.length ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+                                                        title="Filter"
+                                                    >
+                                                        <FunnelIcon className="h-3 w-3" />
+                                                    </button>
+                                                )}
+                                            </div>
+                                            {openFilterDropdown?.key === colKey && shouldShowFilter && (
+                                                <FilterDropdown
+                                                    columnKey={colKey}
+                                                    items={vulnerabilities}
+                                                    columnFilters={columnFilters}
+                                                    setColumnFilters={setColumnFilters}
+                                                    onClose={() => setOpenFilterDropdown(null)}
+                                                    triggerRect={openFilterDropdown.rect}
+                                                />
+                                            )}
+                                        </th>
+                                    );
                                 })}
 
                             </tr>
@@ -1606,17 +1699,21 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
             />
 
             <ImportConfirmationModal
-
                 isOpen={newFieldsToCreate.length > 0}
-
                 onClose={() => { setNewFieldsToCreate([]); setPendingImportData([]); }}
-
                 onConfirm={handleConfirmNewFields}
-
                 newFields={newFieldsToCreate}
-
                 moduleName="Vulnerabilities"
+            />
 
+            <ImportMappingModal
+                isOpen={modalState.type === 'mapping'}
+                onClose={() => setModalState({ type: null })}
+                onConfirm={handleConfirmMapping}
+                headers={importHeaders}
+                moduleName="Vulnerabilities"
+                systemFields={SYSTEM_FIELDS_CONFIG.vulnerabilities}
+                existingCustomFields={customFields}
             />
 
             {bulkProgress.status === 'idle' && (

@@ -18,6 +18,142 @@ const EVIDENCE_BUCKET = 'control-evidence';
 
 
 
+// ── Control Registry ID Generation Functions ─────────────────────────────
+
+/**
+ * Generate a unique control registry ID with format CTL-organization_prefix-number
+ * Example: CTL-AB-001, CTL-XY-123
+ */
+const generateControlRegistryId = async (orgId) => {
+  try {
+    console.log('Generating control registry ID for orgId:', orgId);
+    
+    // Get organization information to extract name
+    const { data: orgData, error: orgError } = await supabaseAdmin
+      .from('organizations')
+      .select('name')
+      .eq('id', orgId)
+      .single();
+    
+    console.log('Organization data:', { orgData, orgError });
+    
+    if (orgError || !orgData) {
+      console.warn('Organization not found, using fallback prefix');
+      return 'CTL-UN-001';
+    }
+    
+    const orgName = orgData.name;
+    
+    // Extract first 2 letters from organization name (remove spaces, special chars)
+    const orgPrefix = orgName
+      .replace(/[^a-zA-Z0-9]/g, '') // Remove special characters
+      .toUpperCase()
+      .substring(0, 2);
+    
+    // If prefix is less than 2 chars, pad with 'X'
+    const paddedPrefix = orgPrefix.padEnd(2, 'X').substring(0, 2);
+    
+    // Get existing control registry IDs to determine next number
+    const { data: existingControls, error: ctlError } = await supabaseAdmin
+      .from('control_registry')
+      .select('ctl_id')
+      .eq('org_id', orgId)
+      .like('ctl_id', `CTL-${paddedPrefix}-%`);
+    
+    if (ctlError) {
+      console.warn('Error fetching existing controls:', ctlError);
+      return 'CTL-XX-001';
+    }
+    
+    // Find the highest number for this organization prefix
+    const existingNumbers = (existingControls || [])
+      .map(control => {
+        const parts = control.ctl_id?.split('-');
+        return parts ? parseInt(parts[2]) || 0 : 0;
+      })
+      .filter(num => !isNaN(num));
+    
+    const nextNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
+    
+    // Format with leading zeros (3 digits)
+    const formattedNumber = nextNumber.toString().padStart(3, '0');
+    
+    const generatedId = `CTL-${paddedPrefix}-${formattedNumber}`;
+    console.log('Generated control registry ID:', generatedId);
+    
+    return generatedId;
+  } catch (error) {
+    console.error('Error generating control registry ID:', error);
+    // Fallback ID
+    return 'CTL-XX-001';
+  }
+};
+
+/**
+ * Generate multiple control registry IDs for bulk operations
+ */
+const generateBulkControlRegistryIds = async (orgId, count) => {
+  const ids = [];
+  
+  try {
+    // Get organization information once
+    const { data: orgData, error: orgError } = await supabaseAdmin
+      .from('organizations')
+      .select('name')
+      .eq('id', orgId)
+      .single();
+    
+    let orgPrefix = 'XX';
+    if (!orgError && orgData) {
+      const orgName = orgData.name;
+      orgPrefix = orgName
+        .replace(/[^a-zA-Z0-9]/g, '')
+        .toUpperCase()
+        .substring(0, 2)
+        .padEnd(2, 'X')
+        .substring(0, 2);
+    }
+    
+    // Get existing controls to determine starting number
+    const { data: existingControls, error: ctlError } = await supabaseAdmin
+      .from('control_registry')
+      .select('ctl_id')
+      .eq('org_id', orgId)
+      .like('ctl_id', `CTL-${orgPrefix}-%`);
+    
+    let startNumber = 1;
+    if (!ctlError && existingControls) {
+      const existingNumbers = existingControls
+        .map(control => {
+          const parts = control.ctl_id?.split('-');
+          return parts ? parseInt(parts[2]) || 0 : 0;
+        })
+        .filter(num => !isNaN(num));
+      
+      if (existingNumbers.length > 0) {
+        startNumber = Math.max(...existingNumbers) + 1;
+      }
+    }
+    
+    // Generate sequential IDs
+    for (let i = 0; i < count; i++) {
+      const formattedNumber = (startNumber + i).toString().padStart(3, '0');
+      ids.push(`CTL-${orgPrefix}-${formattedNumber}`);
+    }
+    
+    return ids;
+  } catch (error) {
+    console.error('Error generating bulk control registry IDs:', error);
+    // Fallback IDs
+    for (let i = 0; i < count; i++) {
+      ids.push(`CTL-XX-${(i + 1).toString().padStart(3, '0')}`);
+    }
+    return ids;
+  }
+};
+
+
+
 // ── Utility: log to all_activity_log (fire-and-forget) ─────────────────────
 
 function logActivity(payload) {
@@ -61,12 +197,22 @@ router.get('/', requireAuth, async (req, res) => {
 
 
 router.post('/', requireAuth, async (req, res) => {
-
   try {
-
     console.log('POST /api/control-registry - Request body:', req.body);
 
-    let payload = { ...req.body, user_id: req.userId, org_id: req.orgId };
+    // Generate auto control registry ID if not provided
+    let ctl_id = req.body.ctl_id;
+    if (!ctl_id) {
+      ctl_id = await generateControlRegistryId(req.orgId);
+      console.log('Generated control registry ID:', ctl_id);
+    }
+
+    let payload = { 
+      ...req.body, 
+      ctl_id,
+      user_id: req.userId, 
+      org_id: req.orgId 
+    };
 
     // Store control type as-is (Custom should be allowed in database)
     console.log('DATABASE STORAGE INFO: Storing control type as-is');
@@ -75,13 +221,9 @@ router.post('/', requireAuth, async (req, res) => {
     console.log('POST /api/control-registry - Final payload:', payload);
 
     const { data, error } = await supabaseAdmin
-
       .from('control_registry')
-
       .insert(payload)
-
       .select()
-
       .single();
 
     console.log('POST /api/control-registry - Supabase response:', { data, error });
@@ -95,7 +237,6 @@ router.post('/', requireAuth, async (req, res) => {
     res.status(201).json(data);
 
   } catch (err) {
-
     console.error('POST /api/control-registry - Error:', err);
 
     res.status(500).json({ message: err.message });
@@ -110,7 +251,16 @@ router.post('/bulk', requireAuth, async (req, res) => {
 
   try {
 
-    const payloads = req.body.map(c => ({ ...c, user_id: req.userId, org_id: req.orgId }));
+    // Generate auto control registry IDs for bulk creation
+    const controlCount = req.body.length;
+    const generatedIds = await generateBulkControlRegistryIds(req.orgId, controlCount);
+    
+    const payloads = req.body.map((c, index) => ({ 
+      ...c, 
+      ctl_id: c.ctl_id || generatedIds[index],
+      user_id: req.userId, 
+      org_id: req.orgId 
+    }));
 
     const { data, error } = await supabaseAdmin
 
