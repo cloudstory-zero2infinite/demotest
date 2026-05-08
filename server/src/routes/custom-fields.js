@@ -54,18 +54,27 @@ router.post('/:moduleName', requireAuth, async (req, res) => {
       field_options: field_type === 'select' ? field_options : null,
       is_required: is_required || false,
       display_order: display_order || 0,
+      is_active: true, // Ensure it's active if we're upserting
+      updated_at: new Date().toISOString()
     };
 
+    // Use upsert to avoid duplicate key errors if the field already exists (even if inactive)
     const { data, error } = await supabaseAdmin
       .from('custom_fields')
-      .insert(payload)
+      .upsert(payload, { 
+        onConflict: 'org_id,module_name,field_name',
+        ignoreDuplicates: false 
+      })
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('Database error creating custom field:', error);
+      throw error;
+    }
     res.status(201).json(data);
   } catch (err) {
-    console.error('Error creating custom field:', err);
+    console.error('Server error creating custom field:', err);
     res.status(500).json({ message: err.message });
   }
 });

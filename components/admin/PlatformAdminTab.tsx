@@ -41,6 +41,7 @@ const RoleBadge: React.FC<{ role: string }> = ({ role }) => {
         tenant_admin: 'Tenant Admin',
         admin: 'Admin',
         user: 'User',
+        cxo: 'CXO',
     };
     return <span className="text-sm text-gray-600 dark:text-gray-400">{map[role] ?? role}</span>;
 };
@@ -54,12 +55,16 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
     const [membersLoading, setMembersLoading] = useState(true);
 
     // Add members form
-    const [emailDescriptionPairs, setEmailDescriptionPairs] = useState<Array<{ email: string; description: string }>>([
-        { email: '', description: '' },
+    const [emailDescriptionPairs, setEmailDescriptionPairs] = useState<Array<{ email: string; description: string; role: string }>>([
+        { email: '', description: '', role: 'user' },
     ]);
     const [addLoading, setAddLoading] = useState(false);
     const [successMessage, setSuccessMessage] = useState('');
     const [errorMessage, setErrorMessage] = useState('');
+    const [showSuccessModal, setShowSuccessModal] = useState(false);
+    const [lastAddedUsers, setLastAddedUsers] = useState<Array<{ email: string; role: string }>>([]);
+    const [isInviting, setIsInviting] = useState(false);
+    const [inviteSent, setInviteSent] = useState(false);
 
     // Per-row action loading
     const [actionLoading, setActionLoading] = useState<number | null>(null);
@@ -138,8 +143,21 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
         }
     };
 
+    // ── Update Role ───────────────────────────────────────────────────────────
+    const handleUpdateRole = async (id: number, role: string) => {
+        setActionLoading(id);
+        try {
+            await SupabaseService.updateMemberRole(id, role);
+            await refresh();
+        } catch (err: any) {
+            alert(err.message || 'Failed to update role.');
+        } finally {
+            setActionLoading(null);
+        }
+    };
+
     // ── Add members form ───────────────────────────────────────────────────────
-    const handlePairChange = (index: number, field: 'email' | 'description', value: string) => {
+    const handlePairChange = (index: number, field: 'email' | 'description' | 'role', value: string) => {
         setEmailDescriptionPairs(prev => {
             const updated = [...prev];
             updated[index][field] = value;
@@ -147,7 +165,7 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
         });
     };
 
-    const handleOnboardUsers = async (e: FormEvent) => {
+    const handleInviteUsers = async (e: FormEvent) => {
         e.preventDefault();
         setAddLoading(true);
         setSuccessMessage('');
@@ -161,36 +179,44 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
             const validPairs = emailDescriptionPairs.filter(p => p.email.trim().length > 0);
             if (validPairs.length === 0) throw new Error('Please enter at least one email address.');
 
-            const successfulUsers: any[] = [];
-            const failedUsers: Array<{ email: string; reason: string }> = [];
+            // 1. Send Invitations First
+            const results = await Promise.all(validPairs.map(async (pair) => {
+                await SupabaseService.inviteMember(pair.email);
+                return { email: pair.email, role: pair.role, description: pair.description };
+            }));
 
-            for (const pair of validPairs) {
-                try {
-                    const userData = await SupabaseService.onboardUserToOrganization(orgId, pair.email, 'user', pair.description);
-                    successfulUsers.push({ ...pair, ...userData });
-                } catch (err) {
-                    failedUsers.push({ email: pair.email, reason: err instanceof Error ? err.message : 'Unknown error' });
-                }
-            }
-
-            if (successfulUsers.length > 0) {
-                const pendingCount = successfulUsers.filter((u: any) => !u.user_id).length;
-                const activeCount = successfulUsers.length - pendingCount;
-                let msg = `✓ Successfully added ${successfulUsers.length} member(s).`;
-                if (activeCount > 0 && pendingCount > 0) msg += ` (${activeCount} active, ${pendingCount} pending signup)`;
-                else if (pendingCount > 0) msg += ` (${pendingCount} pending — awaiting sign up)`;
-                setSuccessMessage(msg);
-                setEmailDescriptionPairs([{ email: '', description: '' }]);
-                await refresh();
-            }
-
-            if (failedUsers.length > 0) {
-                setErrorMessage(`Failed to add ${failedUsers.length} member(s):\n${failedUsers.map(f => `${f.email}: ${f.reason}`).join('\n')}`);
-            }
+            setLastAddedUsers(results); 
+            setInviteSent(true);
+            setShowSuccessModal(true);
+            setSuccessMessage(`Invitations sent to ${results.length} user(s). Now add them to the organization.`);
         } catch (err) {
-            setErrorMessage(err instanceof Error ? err.message : 'Failed to add members.');
+            setErrorMessage(err instanceof Error ? err.message : 'Failed to send invitations.');
         } finally {
             setAddLoading(false);
+        }
+    };
+
+    const handleAddInvitedMembers = async () => {
+        setIsInviting(true);
+        try {
+            const me = await SupabaseService.getOrgMe();
+            const orgId = me?.orgId;
+            if (!orgId) throw new Error('No organisation found.');
+
+            await Promise.all(lastAddedUsers.map(user => 
+                SupabaseService.onboardUserToOrganization(orgId, user.email, user.role, user.description)
+            ));
+            
+            setSuccessMessage(`Successfully added ${lastAddedUsers.length} member(s) to the organization.`);
+            setTimeout(() => {
+                setShowSuccessModal(false);
+                refresh();
+                setEmailDescriptionPairs([{ email: '', description: '', role: 'user' }]);
+            }, 2000);
+        } catch (err: any) {
+            alert(err.message || 'Failed to add members to organization.');
+        } finally {
+            setIsInviting(false);
         }
     };
 
@@ -312,7 +338,7 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
     };
 
     const handleBulkRemove = async () => {
-        const removable = members.filter(m => selectedIds.has(m.id) && m.user_id !== currentUserId && m.role !== 'tenant_admin');
+        const removable = members.filter(m => selectedIds.has(m.id) && m.user_id !== currentUserId && m.role !== 'tenant_admin' && m.role !== 'cxo');
         if (removable.length === 0) return;
         setIsSaving(true);
         try {
@@ -332,7 +358,7 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
     };
 
     const selectedPendingCount = members.filter(m => selectedIds.has(m.id) && m.status === 'pending_approval').length;
-    const selectedRemovableCount = members.filter(m => selectedIds.has(m.id) && m.user_id !== currentUserId && m.role !== 'tenant_admin').length;
+    const selectedRemovableCount = members.filter(m => selectedIds.has(m.id) && m.user_id !== currentUserId && m.role !== 'tenant_admin' && m.role !== 'cxo').length;
     const allMemberIds = members.map(m => m.id);
 
     return (
@@ -400,7 +426,7 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                             <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800">
                                 {members.map(member => {
                                     const isSelf = member.user_id === currentUserId;
-                                    const isTenantAdmin = member.role === 'tenant_admin';
+                                    const isTenantAdmin = member.role === 'tenant_admin' || member.role === 'cxo';
                                     const isPendingApproval = member.status === 'pending_approval';
                                     const isLoading = actionLoading === member.id;
                                     const isConfirming = confirmRemove === member.id;
@@ -426,7 +452,20 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                                                 )}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
-                                                <RoleBadge role={member.role} />
+                                                {!readOnly && !isSelf && member.role !== 'tenant_admin' ? (
+                                                    <select
+                                                        value={member.role}
+                                                        onChange={(e) => handleUpdateRole(member.id, e.target.value)}
+                                                        disabled={isLoading}
+                                                        className="text-xs rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                                                    >
+                                                        <option value="user">User</option>
+                                                        <option value="admin">Admin</option>
+                                                        <option value="cxo">CXO</option>
+                                                    </select>
+                                                ) : (
+                                                    <RoleBadge role={member.role} />
+                                                )}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 <StatusBadge member={member} />
@@ -545,14 +584,14 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                     </div>
                 )}
 
-                <form onSubmit={handleOnboardUsers} className="space-y-4">
+                <form onSubmit={handleInviteUsers} className="space-y-4">
                     <div className="flex justify-between items-center">
                         <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                             Email addresses <span className="text-red-500">*</span>
                         </label>
                         <button
                             type="button"
-                            onClick={() => setEmailDescriptionPairs(prev => [...prev, { email: '', description: '' }])}
+                            onClick={() => setEmailDescriptionPairs(prev => [...prev, { email: '', description: '', role: 'user' }])}
                             className="text-xs px-2 py-1 text-blue-600 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-400"
                         >
                             + Add row
@@ -561,7 +600,7 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
 
                     <div className="space-y-3">
                         {emailDescriptionPairs.map((pair, index) => (
-                            <div key={index} className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                            <div key={index} className="grid grid-cols-1 md:grid-cols-4 gap-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                                 <div>
                                     <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Email *</label>
                                     <input
@@ -582,6 +621,18 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                                         className="block w-full rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white focus:ring-blue-500 focus:border-blue-500"
                                     />
                                 </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Role *</label>
+                                    <select
+                                        value={pair.role}
+                                        onChange={e => handlePairChange(index, 'role', e.target.value)}
+                                        className="block w-full rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                                    >
+                                        <option value="user">User</option>
+                                        <option value="admin">Admin</option>
+                                        <option value="cxo">CXO</option>
+                                    </select>
+                                </div>
                                 <div className="flex items-end">
                                     {emailDescriptionPairs.length > 1 && (
                                         <button
@@ -600,7 +651,7 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                     <div className="flex justify-end gap-3">
                         <button
                             type="button"
-                            onClick={() => { setEmailDescriptionPairs([{ email: '', description: '' }]); setSuccessMessage(''); setErrorMessage(''); }}
+                            onClick={() => { setEmailDescriptionPairs([{ email: '', description: '', role: 'user' }]); setSuccessMessage(''); setErrorMessage(''); }}
                             className="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600"
                         >
                             Clear
@@ -610,7 +661,7 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                             disabled={addLoading}
                             className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
                         >
-                            {addLoading ? 'Adding…' : 'Add Members'}
+                            {addLoading ? 'Sending Invitations…' : 'Invite Members'}
                         </button>
                     </div>
                 </form>
@@ -775,6 +826,86 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                     contextLabel="Organisation Contacts"
                 />
             )}
+            {/* ── Add Members Success Modal ── */}
+            <Modal
+                isOpen={showSuccessModal}
+                onClose={() => setShowSuccessModal(false)}
+                title="Member(s) Invited Successfully"
+            >
+                <div className="space-y-4">
+                    <div className="flex items-center gap-3 text-green-600 dark:text-green-400 mb-2">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span className="font-semibold">Successfully added {lastAddedUsers.length} member(s).</span>
+                    </div>
+                    
+                    <ul className="space-y-2 max-h-32 overflow-auto p-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-100 dark:border-gray-700">
+                        {lastAddedUsers.map(u => (
+                            <li key={u.email} className="text-sm flex justify-between items-center">
+                                <span className="text-gray-700 dark:text-gray-300 font-medium">{u.email}</span>
+                                <span className="text-[10px] uppercase tracking-wider bg-gray-200 dark:bg-gray-600 px-1.5 py-0.5 rounded font-bold text-gray-500 dark:text-gray-400">
+                                    {u.role}
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+
+                    <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800/50">
+                        <div className="flex items-start gap-3">
+                            <div className="mt-1">
+                                <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <p className="text-sm font-semibold text-blue-900 dark:text-blue-200">Invitations Sent!</p>
+                                <p className="text-xs text-blue-700/70 dark:text-blue-300/60 mt-0.5">
+                                    Members have been invited. Now add them to the organization to finalize.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="mt-4">
+                            <button
+                                onClick={handleAddInvitedMembers}
+                                disabled={isInviting}
+                                className={`w-full py-2.5 px-4 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${
+                                    isInviting
+                                    ? 'bg-gray-100 text-gray-400' 
+                                    : 'bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-500/20 hover:scale-[1.01] active:scale-[0.99]'
+                                } disabled:opacity-70`}
+                            >
+                                {isInviting ? (
+                                    <>
+                                        <svg className="animate-spin h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Adding to Organization...
+                                    </>
+                                ) : (
+                                    <>
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                        </svg>
+                                        Add to Organisation
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                    
+                    {!inviteSent && (
+                        <button 
+                            onClick={() => setShowSuccessModal(false)}
+                            className="w-full py-2 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors font-medium"
+                        >
+                            Skip for now
+                        </button>
+                    )}
+                </div>
+            </Modal>
         </div>
     );
 };

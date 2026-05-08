@@ -10,8 +10,8 @@ export async function checkAllExpiredPolicies() {
 
     const { data: expired } = await supabaseAdmin
       .from('policy_documents')
-      .select('policy_id, name, user_id, org_id')
-      .eq('policy_status', 'approved')
+      .select('policy_id, name, user_id, org_id, policy_status')
+      .in('policy_status', ['approved', 'reviewed'])
       .lt('refresh_date', now);
 
     if (!expired || expired.length === 0) return;
@@ -21,7 +21,7 @@ export async function checkAllExpiredPolicies() {
         .from('policy_documents')
         .update({ policy_status: 'to_review', updated_at: new Date().toISOString() })
         .eq('policy_id', policy.policy_id)
-        .eq('policy_status', 'approved'); // idempotency guard
+        .in('policy_status', ['approved', 'reviewed']); // idempotency guard
 
       if (count === 0) continue;
 
@@ -35,8 +35,8 @@ export async function checkAllExpiredPolicies() {
         org_id: policy.org_id,
         severity: 'warning',
         event_data: {
-          message: `Policy "${policy.name}" has expired and moved to To Review`,
-          from_status: 'approved',
+          message: `Policy "${policy.name}" has expired and moved to In Review`,
+          from_status: policy.policy_status,
           to_status: 'to_review',
         },
       }).then(() => {});

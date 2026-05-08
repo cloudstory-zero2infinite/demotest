@@ -30,6 +30,46 @@ import { requireAuth } from '../middleware/auth.js';
 
 
 
+async function generateNextAssetId(orgId) {
+  let orgPrefix = 'OR';
+  try {
+    const { data: org } = await supabaseAdmin
+      .from('organizations')
+      .select('name')
+      .eq('id', orgId)
+      .single();
+    if (org && org.name) {
+      orgPrefix = org.name.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase() || 'OR';
+    }
+  } catch (orgError) {
+    console.warn('Failed to fetch org name for prefix:', orgError.message);
+  }
+
+  let maxNum = 1000;
+  try {
+    const { data: existingAssets } = await supabaseAdmin
+      .from('assets')
+      .select('asset_id')
+      .eq('org_id', orgId)
+      .like('asset_id', `AST-${orgPrefix}-%`);
+    if (existingAssets) {
+      existingAssets.forEach(asset => {
+        if (asset.asset_id) {
+          const numStr = asset.asset_id.replace(`AST-${orgPrefix}-`, '');
+          const num = parseInt(numStr, 10);
+          if (!isNaN(num) && num > maxNum) {
+            maxNum = num;
+          }
+        }
+      });
+    }
+  } catch (existingError) {
+    console.warn('Failed to query existing assets for sequential ID:', existingError.message);
+  }
+
+  return `AST-${orgPrefix}-${maxNum + 1}`;
+}
+
 const router = Router();
 
 
@@ -173,6 +213,9 @@ router.post('/', requireAuth, async (req, res) => {
 
 
     const payload = { ...body, user_id: req.userId, org_id: req.orgId };
+    if (!payload.asset_id || payload.asset_id.trim() === '') {
+      payload.asset_id = await generateNextAssetId(req.orgId);
+    }
 
 
 
@@ -357,6 +400,85 @@ router.post('/bulk', requireAuth, async (req, res) => {
 
 
     const assets = req.body;
+    
+    if (!Array.isArray(assets) || assets.length === 0) {
+      return res.status(400).json({ message: 'Invalid assets array' });
+    }
+
+    let orgPrefix = 'OR';
+    try {
+      const { data: org } = await supabaseAdmin
+        .from('organizations')
+        .select('name')
+        .eq('id', req.orgId)
+        .single();
+      if (org && org.name) {
+        orgPrefix = org.name.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase() || 'OR';
+      }
+    } catch (orgError) {
+      console.warn('Failed to fetch org name for prefix:', orgError.message);
+    }
+
+    let maxNum = 1000;
+    try {
+      const { data: existingAssets } = await supabaseAdmin
+        .from('assets')
+        .select('asset_id')
+        .eq('org_id', req.orgId)
+        .like('asset_id', `AST-${orgPrefix}-%`);
+      if (existingAssets) {
+        existingAssets.forEach(asset => {
+          if (asset.asset_id) {
+            const numStr = asset.asset_id.replace(`AST-${orgPrefix}-`, '');
+            const num = parseInt(numStr, 10);
+            if (!isNaN(num) && num > maxNum) {
+              maxNum = num;
+            }
+          }
+        });
+      }
+    } catch (existingError) {
+      console.warn('Failed to query existing assets for sequential ID:', existingError.message);
+    }
+
+    // Validate required fields for each asset
+    for (const [index, asset] of assets.entries()) {
+      console.log(`Validating asset ${index}:`, JSON.stringify(asset, null, 2));
+      
+      if (!asset.name || asset.name.trim() === '') {
+        return res.status(400).json({ 
+          message: `Asset at index ${index} is missing required field: name`,
+          asset: asset
+        });
+      }
+      if (!asset.asset_id || asset.asset_id.trim() === '') {
+        maxNum++;
+        asset.asset_id = `AST-${orgPrefix}-${maxNum}`;
+      }
+      if (!asset.criticality) {
+        return res.status(400).json({ 
+          message: `Asset at index ${index} is missing required field: criticality`,
+          asset: asset
+        });
+      }
+      if (!asset.category) {
+        return res.status(400).json({ 
+          message: `Asset at index ${index} is missing required field: category`,
+          asset: asset
+        });
+      }
+      if (!asset.exposure) {
+        return res.status(400).json({ 
+          message: `Asset at index ${index} is missing required field: exposure`,
+          asset: asset
+        });
+      }
+      if (!asset.governed_status) {
+        console.log(`Asset ${index} missing governed_status, auto-generating...`);
+        asset.governed_status = 'Non-Governed';
+        console.log(`Generated governed_status for asset ${index}:`, asset.governed_status);
+      }
+    }
 
 
 
@@ -367,66 +489,31 @@ router.post('/bulk', requireAuth, async (req, res) => {
     
 
 
-
-
-
-
-
-    // If payload is small, use direct insertion
-
-
-
-
-
-
-
     if (assets.length <= 200) {
-
-
-
-
-
-
-
-      const payloads = assets.map(({ governed_status, nn_controls, ...a }) => ({ ...a, user_id: req.userId, org_id: req.orgId }));
-
-
-
-
-
-
-
-      const { data, error } = await supabaseAdmin.from('assets').insert(payloads).select();
-
-
-
-
-
-
-
-      if (error) throw error;
-
-
-
-
-
-
-
-      res.status(201).json(data || []);
-
-
-
-
-
-
-
-      return;
-
-
-
-
-
-
+      try {
+        console.log(`Direct insertion for ${assets.length} assets`);
+        const payloads = assets.map(({ governed_status, nn_controls, ...a }) => ({ ...a, user_id: req.userId, org_id: req.orgId }));
+        
+        // Add timeout promise to prevent hanging
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Database operation timeout')), 25000)
+        );
+        
+        const dbPromise = supabaseAdmin.from('assets').upsert(payloads, { 
+          onConflict: 'asset_id',
+          ignoreDuplicates: false
+        }).select();
+        
+        const { data, error } = await Promise.race([dbPromise, timeoutPromise]);
+        if (error) throw error;
+        
+        console.log(`Direct insertion successful: ${data?.length || 0} assets inserted`);
+        res.status(201).json(data || []);
+        return;
+      } catch (directError) {
+        console.error('Direct insertion failed, falling back to chunked processing:', directError.message);
+        // Fall through to chunked processing
+      }
 
     }
 
@@ -444,11 +531,9 @@ router.post('/bulk', requireAuth, async (req, res) => {
 
 
 
-    // For large payloads, process in optimized chunks with parallel processing
-
-    const CHUNK_SIZE = 500; // Increased chunk size for better performance
-
-    const MAX_PARALLEL_CHUNKS = 3; // Process up to 3 chunks in parallel
+    // For large payloads, process in optimized chunks sequentially to prevent timeouts
+    const CHUNK_SIZE = 50; 
+    const MAX_PARALLEL_CHUNKS = 1; 
 
     const results = [];
 
@@ -508,42 +593,49 @@ router.post('/bulk', requireAuth, async (req, res) => {
 
       
 
-      // Process chunks in parallel
-
+      // Process chunks in parallel with retry logic
       const chunkPromises = parallelChunks.map(async ({ chunkIndex, startIndex, endIndex, data }) => {
-
-        try {
-
-          console.log(`Processing chunk ${chunkIndex}: items ${startIndex}-${endIndex}`);
-
-          const { data: insertData, error } = await supabaseAdmin.from('assets').insert(data).select();
-
-          if (error) throw error;
-
-          console.log(`Chunk ${chunkIndex} completed: ${insertData?.length || 0} items inserted`);
-
-          return { success: true, chunkIndex, data: insertData || [], count: insertData?.length || 0 };
-
-        } catch (chunkError) {
-
-          console.error(`Error processing chunk ${chunkIndex}:`, chunkError);
-
-          return { 
-
-            success: false, 
-
-            chunkIndex, 
-
-            error: chunkError.message,
-
-            startIndex, 
-
-            endIndex 
-
-          };
-
+        const maxRetries = 2;
+        let lastError;
+        
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            console.log(`Processing chunk ${chunkIndex} (attempt ${attempt}/${maxRetries}): items ${startIndex}-${endIndex}`);
+            
+            // Add timeout protection for chunk processing
+            const timeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Chunk processing timeout')), 20000)
+            );
+            
+            const dbPromise = supabaseAdmin.from('assets').upsert(data, { 
+              onConflict: 'asset_id',
+              ignoreDuplicates: false 
+            }).select();
+            
+            const { data: insertData, error } = await Promise.race([dbPromise, timeoutPromise]);
+            
+            if (error) throw error;
+            console.log(`Chunk ${chunkIndex} completed: ${insertData?.length || 0} items inserted`);
+            return { success: true, chunkIndex, data: insertData || [], count: insertData?.length || 0 };
+          } catch (chunkError) {
+            lastError = chunkError;
+            console.error(`Error processing chunk ${chunkIndex} (attempt ${attempt}/${maxRetries}):`, chunkError.message);
+            
+            // If not the last attempt, wait before retry
+            if (attempt < maxRetries) {
+              console.log(`Retrying chunk ${chunkIndex} in 2 seconds...`);
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+          }
         }
-
+        
+        return { 
+          success: false, 
+          chunkIndex, 
+          error: lastError?.message || 'Unknown error',
+          startIndex, 
+          endIndex 
+        };
       });
 
       
@@ -3421,11 +3513,17 @@ router.post('/relationships/bulk', requireAuth, async (req, res) => {
 
 
   } catch (err) {
-
-    console.error('Bulk relationship upload error:', err);
-
-    res.status(500).json({ message: err.message });
-
+    console.error('Bulk upload error:', err);
+    console.error('Error details:', {
+      message: err.message,
+      stack: err.stack,
+      details: err.details,
+      hint: err.hint
+    });
+    res.status(500).json({ 
+      message: err.message,
+      details: err.details || 'No additional details available'
+    });
   }
 
 });

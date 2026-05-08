@@ -1,10 +1,12 @@
-import React from 'react';
-import { ProgramStatus } from '../../types';
+import React, { useState, useEffect } from 'react';
+import { ProgramStatus, ProgramTask } from '../../types';
+import * as SupabaseService from '../../services/supabase';
 import { PlusIcon, EyeIcon, PencilIcon, TrashIcon } from '../Icons';
 import { StatusBadge } from '../common/StatusBadge';
 import { ProgressBar } from '../common/ProgressBar';
 import { useTableSelection } from '../../hooks/useTableSelection';
 import { SelectionActionBar } from '../common/SelectionActionBar';
+import { useDataRefresh } from '../../hooks/useDataRefresh';
 
 interface LeadershipTask {
     id: string;
@@ -15,16 +17,66 @@ interface LeadershipTask {
     progress: number;
 }
 
-const leadershipDummyData: LeadershipTask[] = [
-    { id: '1', workToBeDone: 'Review Q3 Security Budget', description: 'Analyze spending and forecast for Q4.', timestamp: '2024-07-15T10:00:00Z', status: 'Completed', progress: 100 },
-    { id: '2', workToBeDone: 'Finalize Board Presentation on Cyber Risk', description: 'Consolidate metrics and key findings for the upcoming board meeting.', timestamp: '2024-07-20T14:30:00Z', status: 'InProgress', progress: 75 },
-    { id: '3', workToBeDone: 'Approve new IAM Vendor Contract', description: 'Legal and financial review of the proposed contract.', timestamp: '2024-07-22T11:00:00Z', status: 'InProgress', progress: 40 },
-    { id: '4', workToBeDone: 'Plan 2025 GRC Strategy Offsite', description: 'Set agenda, invite key stakeholders, and define objectives for the strategy session.', timestamp: '2024-08-01T09:00:00Z', status: 'Planned', progress: 10 },
-    { id: '5', workToBeDone: 'Address Audit Finding A-123', description: 'Develop a remediation plan for the critical finding from the external audit.', timestamp: '2024-07-18T16:00:00Z', status: 'Blocked', progress: 25 },
-];
+// Convert ProgramTask to LeadershipTask format
+const convertToLeadershipTask = (task: ProgramTask): LeadershipTask => ({
+    id: task.id,
+    workToBeDone: task.program_name,
+    description: task.description || '',
+    timestamp: task.last_updated,
+    status: task.status,
+    progress: task.progress_percent
+});
 
 export const LeadershipView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
-    const [items, setItems] = React.useState(leadershipDummyData);
+    const [items, setItems] = useState<LeadershipTask[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    // Fetch escalated tasks from database
+    const fetchEscalatedTasks = async () => {
+        try {
+            setLoading(true);
+            setError(null);
+            console.log('🔍 DEBUG: LeadershipView - Fetching all tasks from database');
+            const allTasks = await SupabaseService.getTasks();
+            console.log('🔍 DEBUG: LeadershipView - Total tasks fetched:', allTasks.length);
+            console.log('🔍 DEBUG: LeadershipView - All tasks:', allTasks.map(t => ({ id: t.id, name: t.program_name, status: t.status })));
+            
+            const escalatedTasks = allTasks
+                .filter(task => task.status === 'Escalated')
+                .map(convertToLeadershipTask);
+            console.log('🔍 DEBUG: LeadershipView - Escalated tasks found:', escalatedTasks.length);
+            console.log('🔍 DEBUG: LeadershipView - Escalated tasks:', escalatedTasks.map(t => ({ id: t.id, name: t.workToBeDone, status: t.status })));
+            
+            setItems(escalatedTasks);
+            return escalatedTasks;
+        } catch (err: any) {
+            console.log('🔍 DEBUG: LeadershipView - Error fetching tasks:', err);
+            setError(err.message || 'Failed to load escalated items');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Use data refresh hook
+    const { data: tasksData, loading: tasksLoading, error: tasksError, refresh } = useDataRefresh(
+        fetchEscalatedTasks, 
+        [], 
+        isActive
+    );
+
+    // Sync local state with hook state
+    useEffect(() => {
+        if (tasksData) {
+            // tasksData is already filtered and converted to LeadershipTask format
+            setItems(tasksData as LeadershipTask[]);
+        }
+        if (tasksError) setError(tasksError);
+    }, [tasksData, tasksError]);
+
+    useEffect(() => {
+        setLoading(tasksLoading);
+    }, [tasksLoading]);
 
     const {
         selectedIds, isEditing, editValues, isConfirmingDelete, isSaving,
@@ -52,22 +104,44 @@ export const LeadershipView: React.FC<{ isActive?: boolean }> = ({ isActive = tr
         InProgress: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300',
         Completed: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
         Blocked: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300',
+        Escalated: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300',
     };
 
     return (
         <div>
             <div className="flex flex-col sm:flex-row justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4 sm:mb-0">Leadership Action Items</h2>
+                <div>
+                    <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-1">Escalated Items</h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Items escalated to CXO for attention</p>
+                </div>
                 <div className="flex space-x-2">
-                     <button className="flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700">
-                        <PlusIcon className="h-5 w-5 mr-2" /> Add Action Item
+                    <button 
+                        onClick={refresh}
+                        className="flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600"
+                    >
+                        Refresh
                     </button>
                 </div>
             </div>
 
+            {error && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300">
+                    {error}
+                </div>
+            )}
+
             <div className="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg dark:border-gray-700">
                 <div className="overflow-auto max-h-[calc(100vh-280px)]">
-                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    {loading ? (
+                        <div className="px-6 py-10 text-center text-gray-400 text-sm">
+                            Loading escalated items...
+                        </div>
+                    ) : items.length === 0 ? (
+                        <div className="px-6 py-10 text-center text-gray-400 text-sm">
+                            No escalated items found. Items escalated to CXO will appear here.
+                        </div>
+                    ) : (
+                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-800">
                             <tr>
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 w-10 px-4 py-3">
@@ -139,6 +213,7 @@ export const LeadershipView: React.FC<{ isActive?: boolean }> = ({ isActive = tr
                             ))}
                         </tbody>
                     </table>
+                    )}
                 </div>
             </div>
 

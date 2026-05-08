@@ -1,5 +1,5 @@
 
-export type ProgramStatus = 'Planned' | 'InProgress' | 'Completed' | 'Blocked';
+export type ProgramStatus = 'Planned' | 'InProgress' | 'Completed' | 'Blocked' | 'Escalated';
 
 export interface ProgramTask {
   id: string;
@@ -55,7 +55,7 @@ export type InternalControlUpdate = Partial<InternalControlCreate>;
 export type AssetCriticality = 'High' | 'Medium' | 'Low';
 export type AssetGovernedStatus = 'Governed' | 'Non-Governed';
 export type AssetExposure = 'Internal' | 'External' | 'DMZ';
-export type AssetCategory = 'Physical/Hardware' | 'Software' | 'Services/Infra' | 'Information';
+export type AssetCategory = 'User Endpoints' | 'Mobile Assets' | 'Network & Physical Security' | 'Virtual & On-Prem Servers' | 'Cloud Services & SaaS' | 'Identity & Access (M365)' | 'Personnel Matrix' | 'Software & SaaS Applications' | 'Information & Data Assets' | 'Physical/Hardware' | 'Software' | 'Services/Infra' | 'Information';
 export type AssetSource = 'Manual' | 'AI' | 'File Upload' | 'API';
 
 // Custom Field Types
@@ -367,7 +367,7 @@ export interface AllActivityLog {
 
 // --- Policy V2 Types (Markdown-first workflow) ---
 
-export type PolicyWorkflowStatus = 'draft' | 'to_review' | 'in_approval' | 'approved';
+export type PolicyWorkflowStatus = 'draft' | 'to_review' | 'in_approval' | 'approved' | 'reviewed';
 
 export interface PolicyV2 {
   policy_id: string;
@@ -404,7 +404,7 @@ export interface PolicyNotification {
   recipient_id: string;
   policy_id: string;
   policy_name: string;
-  type: 'approval_requested' | 'approved' | 'rejected';
+  type: 'approval_requested' | 'approved' | 'rejected' | 'reviewed';
   message: string;
   read: boolean;
   org_id: string;
@@ -459,7 +459,7 @@ export interface PolicyHistoryEntry {
 }
 
 // --- User Role and Multi-Tenancy Types ---
-export type UserRole = 'user' | 'admin' | 'tenant_admin';
+export type UserRole = 'user' | 'admin' | 'tenant_admin' | 'cxo';
 
 export interface Organization {
     id: string;

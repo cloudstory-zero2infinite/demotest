@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { SortUpIcon, SortDownIcon } from '../Icons';
 
 interface FilterDropdownProps {
   columnKey: string;
@@ -8,6 +9,9 @@ interface FilterDropdownProps {
   setColumnFilters: React.Dispatch<React.SetStateAction<Record<string, string[]>>>;
   onClose: () => void;
   triggerRect: DOMRect | null;
+  sortConfig?: { key: string; direction: 'ascending' | 'descending' } | null;
+  requestSort?: (key: string, direction: 'ascending' | 'descending') => void;
+  hasFilter?: boolean;
 }
 
 export const FilterDropdown: React.FC<FilterDropdownProps> = ({
@@ -16,7 +20,10 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
   columnFilters,
   setColumnFilters,
   onClose,
-  triggerRect
+  triggerRect,
+  sortConfig,
+  requestSort,
+  hasFilter = true
 }) => {
   // Extract unique values for the column
   const uniqueValues = useMemo(() => {
@@ -81,7 +88,31 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
       className="FilterDropdownCore w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg p-3" 
       onClick={e => e.stopPropagation()}
     >
-      <div className="mb-3 max-h-48 overflow-y-auto space-y-1">
+      <div className="mb-2 space-y-1">
+        <button 
+          onClick={() => { if(requestSort) requestSort(columnKey, 'ascending'); onClose(); }}
+          className={`w-full text-left px-2 py-1.5 text-sm rounded ${sortConfig?.key === columnKey && sortConfig.direction === 'ascending' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+        >
+          <div className="flex items-center">
+            <SortUpIcon className="h-4 w-4 mr-2" />
+            Sort Ascending
+          </div>
+        </button>
+        <button 
+          onClick={() => { if(requestSort) requestSort(columnKey, 'descending'); onClose(); }}
+          className={`w-full text-left px-2 py-1.5 text-sm rounded ${sortConfig?.key === columnKey && sortConfig.direction === 'descending' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+        >
+          <div className="flex items-center">
+            <SortDownIcon className="h-4 w-4 mr-2" />
+            Sort Descending
+          </div>
+        </button>
+      </div>
+
+      {hasFilter && (
+        <>
+          <div className="border-t border-gray-200 dark:border-gray-700 my-2"></div>
+          <div className="mb-3 max-h-48 overflow-y-auto space-y-1">
         {uniqueValues.map(val => (
           <label key={val} className="flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer p-1.5 hover:bg-gray-50 dark:hover:bg-gray-700 rounded transition-colors">
             <input
@@ -117,6 +148,8 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
           </button>
         </div>
       </div>
+      </>
+      )}
     </div>,
     document.body
   );

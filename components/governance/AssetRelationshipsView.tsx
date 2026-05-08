@@ -573,10 +573,12 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
 
 
-    const requestSort = (key: keyof AssetRelationship) => {
-
+    const requestSort = (key: keyof AssetRelationship, direction?: 'ascending' | 'descending') => {
+        if (direction) {
+            setSortConfig({ key, direction });
+            return;
+        }
         setSortConfig(prev => ({ key, direction: prev?.key === key && prev.direction === 'ascending' ? 'descending' : 'ascending' }));
-
     };
 
 
@@ -661,13 +663,9 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
                 }`}
             >
                 <div className="flex items-center">
-                    <button onClick={() => requestSort(columnKey as keyof AssetRelationship)} className="flex items-center text-left focus:outline-none flex-grow">
-                        {title}
-                        {getSortIconFor(columnKey as keyof AssetRelationship)}
-                    </button>
-                    {isFilterable && (
-                        <button
-                            onClick={(e) => {
+                    <button 
+                        onClick={(e) => {
+                            if (isFilterable) {
                                 e.stopPropagation();
                                 const rect = e.currentTarget.getBoundingClientRect();
                                 if (openFilterDropdown?.key === columnKey) {
@@ -675,13 +673,15 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
                                 } else {
                                     setOpenFilterDropdown({ key: columnKey, rect });
                                 }
-                            }}
-                            className={`ml-1 p-0.5 rounded transition-colors ${columnFilters[columnKey]?.length ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
-                            title="Filter"
-                        >
-                            <FunnelIcon className="h-3 w-3" />
-                        </button>
-                    )}
+                            } else {
+                                requestSort(columnKey as keyof AssetRelationship);
+                            }
+                        }} 
+                        className={`flex items-center text-left focus:outline-none flex-grow ${columnFilters[columnKey]?.length ? 'text-blue-600 font-semibold' : ''}`}
+                    >
+                        {title}
+                        {getSortIconFor(columnKey as keyof AssetRelationship)}
+                    </button>
                 </div>
                 {openFilterDropdown?.key === columnKey && isFilterable && (
                     <FilterDropdown
@@ -691,6 +691,9 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
                         setColumnFilters={setColumnFilters}
                         onClose={() => setOpenFilterDropdown(null)}
                         triggerRect={openFilterDropdown.rect}
+                        sortConfig={sortConfig}
+                        requestSort={requestSort as any}
+                        hasFilter={isFilterable}
                     />
                 )}
             </th>

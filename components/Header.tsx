@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { SunIcon, MoonIcon, BellIcon } from './Icons';
 import * as SupabaseService from '../services/supabase';
+import { UserRole } from '../types';
 
 declare const __APP_VERSION__: string;
-
-type UserRole = 'security-staff' | 'cxo';
 
 type UnifiedNotification = {
     id: string;
@@ -20,8 +19,8 @@ type UnifiedNotification = {
 };
 
 interface HeaderProps {
-    userRole: 'security-staff' | 'cxo';
-    setUserRole: (role: 'security-staff' | 'cxo') => void;
+    userRole: UserRole;
+    setUserRole: (role: UserRole) => void;
     isDarkMode: boolean;
     toggleDarkMode: () => void;
     onSignOut: () => void;
@@ -113,6 +112,9 @@ export const Header: React.FC<HeaderProps> = ({
                 SupabaseService.getControlNotifications(),
                 SupabaseService.getOrgNotifications(),
             ]);
+            console.log('[DEBUG] Fetched notifications:', { policy: policyNotifs.length, control: controlNotifs.length, org: orgNotifs.length });
+            if (policyNotifs.length > 0) console.log('[DEBUG] Policy notifications samples:', policyNotifs.slice(0, 3));
+            
             const unified: UnifiedNotification[] = [
                 ...policyNotifs.map(n => ({ id: n.id, message: n.message, read: n.read, created_at: n.created_at, source: 'policy' as const, type: n.type, policy_id: n.policy_id, policy_name: n.policy_name })),
                 ...controlNotifs.map(n => ({ id: n.id, message: n.message, read: n.read, created_at: n.created_at, source: 'control' as const, type: n.type, control_id: n.control_id, control_name: n.control_name })),
@@ -120,7 +122,9 @@ export const Header: React.FC<HeaderProps> = ({
             ];
             unified.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
             setNotifications(unified);
-        } catch { /* silently ignore */ }
+        } catch (err) { 
+            console.error('[DEBUG] fetchNotifications error:', err);
+        }
     }, []);
 
     useEffect(() => {
@@ -140,6 +144,16 @@ export const Header: React.FC<HeaderProps> = ({
     }, []);
 
     const unreadCount = notifications.filter(n => !n.read).length;
+
+    const handleMarkAllAsRead = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        try {
+            await SupabaseService.markAllNotificationsRead();
+            setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+        } catch (err) {
+            console.error('Failed to mark all notifications as read:', err);
+        }
+    };
 
     const handleNotificationClick = async (notif: UnifiedNotification) => {
         if (!notif.read) {
@@ -177,7 +191,7 @@ export const Header: React.FC<HeaderProps> = ({
 
     const notifTypeColor = (type: string) => {
         if (type === 'approval_requested' || type === 'review_requested') return 'text-yellow-500';
-        if (type === 'approved' || type === 'enforcement_approved') return 'text-green-500';
+        if (type === 'approved' || type === 'reviewed' || type === 'enforcement_approved') return 'text-green-500';
         if (type === 'join_request') return 'text-blue-500';
         if (type === 'policy_expired') return 'text-red-800 dark:text-red-400';
         return 'text-red-500';
@@ -232,14 +246,19 @@ export const Header: React.FC<HeaderProps> = ({
                     </div>
 
                     <div className="flex items-center space-x-2 sm:space-x-3">
+                        {/* Role selector commented out - users now have fixed roles based on their actual permissions */}
+                        {/*
                         <select
                             value={userRole}
                             onChange={(e) => setUserRole(e.target.value as UserRole)}
                             className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-1.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                         >
-                            <option value="security-staff">Security View</option>
+                            <option value="user">User View</option>
+                            <option value="admin">Admin View</option>
+                            <option value="tenant_admin">Tenant Admin View</option>
                             <option value="cxo">CXO View</option>
                         </select>
+                        */}
 
                         {/* AI Employee (coming soon) */}
                         <button
@@ -287,9 +306,19 @@ export const Header: React.FC<HeaderProps> = ({
                                 <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-50 overflow-hidden">
                                     <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
                                         <span className="text-sm font-semibold text-gray-900 dark:text-white">Notifications</span>
-                                        {unreadCount > 0 && (
-                                            <span className="text-xs text-blue-500 font-medium">{unreadCount} unread</span>
-                                        )}
+                                        <div className="flex items-center gap-3">
+                                            {unreadCount > 0 && (
+                                                <button
+                                                    onClick={handleMarkAllAsRead}
+                                                    className="text-[10px] text-blue-500 hover:text-blue-600 font-medium transition-colors"
+                                                >
+                                                    Mark all as Read
+                                                </button>
+                                            )}
+                                            {unreadCount > 0 && (
+                                                <span className="text-xs text-blue-500 font-medium">{unreadCount} unread</span>
+                                            )}
+                                        </div>
                                     </div>
                                     <div className="max-h-80 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
                                         {notifications.length === 0 ? (

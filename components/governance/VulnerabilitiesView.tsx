@@ -775,18 +775,17 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
 
     const paginatedVulnerabilities = filteredAndSortedVulnerabilities.slice(startIndex, endIndex);
 
-    const requestSort = (key: keyof Vulnerability) => {
-
-        let direction: 'ascending' | 'descending' = 'ascending';
-
-        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
-
-            direction = 'descending';
-
+    const requestSort = (key: keyof Vulnerability, direction?: 'ascending' | 'descending') => {
+        if (direction) {
+            setSortConfig({ key, direction });
+            return;
         }
 
-        setSortConfig({ key, direction });
-
+        let newDirection: 'ascending' | 'descending' = 'ascending';
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
+            newDirection = 'descending';
+        }
+        setSortConfig({ key, direction: newDirection });
     };
 
     const renderFilterableHeader = (columnKey: string, title: string) => {
@@ -1355,13 +1354,9 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
                                             className={`relative sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300 ${dragOverColumn === colKey ? 'border-l-4 border-l-blue-500' : ''}`}
                                         >
                                             <div className="flex items-center">
-                                                <button onClick={() => requestSort(colKey as keyof Vulnerability)} className="flex items-center text-left focus:outline-none flex-grow">
-                                                    {title}
-                                                    {getSortIconFor(colKey as keyof Vulnerability)}
-                                                </button>
-                                                {shouldShowFilter && (
-                                                    <button
-                                                        onClick={(e) => {
+                                                <button 
+                                                    onClick={(e) => {
+                                                        if (shouldShowFilter) {
                                                             e.stopPropagation();
                                                             const rect = e.currentTarget.getBoundingClientRect();
                                                             if (openFilterDropdown?.key === colKey) {
@@ -1369,13 +1364,15 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
                                                             } else {
                                                                 setOpenFilterDropdown({ key: colKey, rect });
                                                             }
-                                                        }}
-                                                        className={`ml-1 p-0.5 rounded transition-colors ${columnFilters[colKey]?.length ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
-                                                        title="Filter"
-                                                    >
-                                                        <FunnelIcon className="h-3 w-3" />
-                                                    </button>
-                                                )}
+                                                        } else {
+                                                            requestSort(colKey as keyof Vulnerability);
+                                                        }
+                                                    }} 
+                                                    className={`flex items-center text-left focus:outline-none flex-grow ${columnFilters[colKey]?.length ? 'text-blue-600 font-semibold' : ''}`}
+                                                >
+                                                    {title}
+                                                    {getSortIconFor(colKey as keyof Vulnerability)}
+                                                </button>
                                             </div>
                                             {openFilterDropdown?.key === colKey && shouldShowFilter && (
                                                 <FilterDropdown
@@ -1385,6 +1382,9 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
                                                     setColumnFilters={setColumnFilters}
                                                     onClose={() => setOpenFilterDropdown(null)}
                                                     triggerRect={openFilterDropdown.rect}
+                                                    sortConfig={sortConfig}
+                                                    requestSort={requestSort as any}
+                                                    hasFilter={shouldShowFilter}
                                                 />
                                             )}
                                         </th>

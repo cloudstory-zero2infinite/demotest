@@ -920,6 +920,8 @@ router.post('/:id/submit-enforcement', requireAuth, upload.array('files', 20), a
 
         actor_name: req.user?.email || req.userId,
 
+        user_email: req.user?.email || req.userId,
+
         requested_status,
 
         reviewer_name,
@@ -1104,6 +1106,8 @@ router.post('/:id/approve-enforcement', requireAuth, async (req, res) => {
 
         actor_name: actorName,
 
+        user_email: req.user?.email || actorName,
+
         approved_status: review.requested_status,
 
         comment: comment || null,
@@ -1257,6 +1261,8 @@ router.post('/:id/reject-enforcement', requireAuth, async (req, res) => {
       event_data: {
 
         actor_name: actorName,
+
+        user_email: req.user?.email || actorName,
 
         rejected_status: review.requested_status,
 

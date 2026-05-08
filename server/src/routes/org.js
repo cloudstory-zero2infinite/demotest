@@ -121,6 +121,35 @@ router.put('/notifications/:notifId/read', requireAuth, async (req, res) => {
   }
 });
 
+// ── PUT /notifications/read-all ──────────────────────────────────────────
+router.put('/notifications/read-all', requireAuth, async (req, res) => {
+  try {
+    const { userId, orgId } = req;
+    
+    // Mark all as read across all notification tables
+    const tables = ['org_notifications', 'policy_notifications', 'control_notifications'];
+    
+    const results = await Promise.all(tables.map(table => 
+      supabaseAdmin
+        .from(table)
+        .update({ read: true })
+        .eq('recipient_id', userId)
+        .eq('org_id', orgId)
+        .eq('read', false)
+    ));
+
+    const errors = results.filter(r => r.error).map(r => r.error);
+    if (errors.length > 0) {
+      console.error('[notifications/read-all] Errors:', errors);
+      throw new Error('Failed to mark some notifications as read');
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // POST onboard a user to the org (used by admin from org management UI)
 router.post('/onboard', requireAuth, async (req, res) => {
   try {
@@ -140,6 +169,29 @@ router.post('/onboard', requireAuth, async (req, res) => {
       .rpc('get_user_id_by_email', { email_input: email })
       .single();
 
+    // Check if user already exists in org_onboarding
+    const { data: existing } = await supabaseAdmin
+      .from('org_onboarding')
+      .select('id, org_id, email')
+      .eq('email', email.toLowerCase())
+      .maybeSingle();
+
+    if (existing) {
+      if (existing.org_id === orgId) {
+        return res.status(400).json({ message: 'This user is already a member of your organisation.' });
+      }
+      // User exists in another org. Return success to allow the invite step.
+      // We don't insert a new record due to the unique email constraint.
+      return res.status(200).json({ 
+        id: existing.id, 
+        org_id: orgId, // Return current orgId so frontend thinks they are added here
+        email: email.toLowerCase(),
+        role: role,
+        alreadyInAnotherOrg: true,
+        message: 'User is associated with another organisation. Invitation will still be sent.' 
+      });
+    }
+
     const payload = {
       org_id: orgId,
       email: email.toLowerCase(),
@@ -157,6 +209,92 @@ router.post('/onboard', requireAuth, async (req, res) => {
     if (error) throw error;
     res.status(201).json(data);
   } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/org/invite — send invitation email(s) via Supabase Auth Admin
+router.post('/invite', requireAuth, async (req, res) => {
+  try {
+    if (!['admin', 'tenant_admin'].includes(req.userRole)) {
+      return res.status(403).json({ message: 'Only admins can invite members.' });
+    }
+
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: 'Email is required.' });
+
+    // 1. Check if the user already belongs to ANOTHER organization (Active status only)
+    const { data: otherOrgAssociation } = await supabaseAdmin
+      .from('org_onboarding')
+      .select('org_id')
+      .eq('email', email.toLowerCase())
+      .eq('status', 'active')
+      .neq('org_id', req.orgId)
+      .maybeSingle();
+
+    if (otherOrgAssociation) {
+      // CASE 1: User is already active in another organization
+      // We send a Magic Link as the invitation via Supabase
+      await supabaseAdmin.auth.signInWithOtp({
+        email: email,
+        options: {
+          emailRedirectTo: `${req.headers.origin}/#/`,
+        },
+      });
+      return res.json({ success: true, alreadyRegistered: true, user: { email } });
+    }
+
+    // CASE 2: User is not part of any other active organization
+    // We try the standard Supabase "Invite user" email template first.
+    // To satisfy the requirement for "Invite User" template on existing users,
+    // we attempt a "Clean Invite" ONLY if they have zero history in our database.
+    try {
+      // Check if user has ANY record in our system (active, pending, or inactive)
+      const { count } = await supabaseAdmin
+        .from('org_onboarding')
+        .select('*', { count: 'exact', head: true })
+        .eq('email', email.toLowerCase());
+
+      if (count === 0) {
+        // No history in our app -> Safe to attempt Clean Invite
+        const { data: authUser } = await supabaseAdmin.auth.admin.getUserByEmail(email);
+        if (authUser?.user) {
+          // Attempt deletion. If it fails (due to external FKs), we just proceed.
+          try {
+            await supabaseAdmin.auth.admin.deleteUser(authUser.user.id);
+            // Delay for propagation
+            await new Promise(resolve => setTimeout(resolve, 800));
+          } catch (dErr) {
+            console.warn('[invite] Could not delete user for clean invite:', dErr.message);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[invite] Clean invite check failed:', err.message);
+    }
+
+    // Now call the standard Invite method
+    const { data, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+      redirectTo: `${req.headers.origin}/#/`,
+    });
+
+    if (inviteError) {
+      if (inviteError.message.includes('already been registered')) {
+        // Fallback to Magic Link if we can't use the Invite template
+        await supabaseAdmin.auth.signInWithOtp({
+          email: email,
+          options: {
+            emailRedirectTo: `${req.headers.origin}/#/`,
+          },
+        });
+        return res.json({ success: true, alreadyRegistered: true, user: { email } });
+      }
+      throw inviteError;
+    }
+
+    res.json({ success: true, user: data.user });
+  } catch (err) {
+    console.error('[invite] unexpected error:', err);
     res.status(500).json({ message: err.message });
   }
 });
@@ -442,6 +580,50 @@ router.delete('/remove-member/:id', requireAuth, async (req, res) => {
     if (error) throw error;
 
     res.status(204).send();
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// PUT /api/org/update-role/:id — update a member's role
+router.put('/update-role/:id', requireAuth, async (req, res) => {
+  try {
+    if (!['admin', 'tenant_admin'].includes(req.userRole)) {
+      return res.status(403).json({ message: 'Only admins can update roles.' });
+    }
+
+    const { id } = req.params;
+    const { role } = req.body;
+
+    if (!['user', 'admin', 'cxo'].includes(role)) {
+      return res.status(400).json({ message: 'Invalid role.' });
+    }
+
+    // Guard: cannot change your own role to something else if you are the only tenant_admin
+    // (Wait, tenant_admin can't be changed anyway by this route usually, but let's be safe)
+    
+    const { data: target } = await supabaseAdmin
+      .from('org_onboarding')
+      .select('role, user_id')
+      .eq('id', id)
+      .eq('org_id', req.orgId)
+      .single();
+
+    if (!target) return res.status(404).json({ message: 'Member not found.' });
+    if (target.role === 'tenant_admin' && req.userRole !== 'tenant_admin') {
+      return res.status(403).json({ message: 'Only tenant admins can modify other tenant admins.' });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('org_onboarding')
+      .update({ role })
+      .eq('id', id)
+      .eq('org_id', req.orgId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json(data);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

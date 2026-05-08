@@ -31,19 +31,27 @@ const PROSE_STYLE = `
 .policy-prose strong{font-weight:700}
 .policy-prose img{max-width:100%;height:auto;border-radius:.375rem;box-shadow:0 1px 3px 0 rgba(0,0,0,.1),0 1px 2px 0 rgba(0,0,0,.06);margin:.5rem 0}
 .policy-prose img[src$="#thumbnail"]{max-width:200px;max-height:200px;object-fit:cover}
+
+/* Dark mode overrides */
+.dark .policy-prose th,.dark .policy-prose td{border-color:#374151}
+.dark .policy-prose th{background:#1f2937;color:#f3f4f6}
+.dark .policy-prose code{background:#1f2937;color:#e5e7eb}
+.dark .policy-prose blockquote{background:#1e3a8a20;border-left-color:#3b82f6;color:#bfdbfe}
+.dark .policy-prose hr{border-top-color:#374151}
 `;
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 const STATUS_META: Record<string, { label: string; border: string; badge: string; dot: string }> = {
     draft:       { label: 'Draft',       border: 'border-l-blue-500',   badge: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',       dot: 'bg-blue-500' },
-    to_review:   { label: 'To Review',   border: 'border-l-purple-500', badge: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300', dot: 'bg-purple-500' },
+    to_review:   { label: 'In Review',   border: 'border-l-purple-500', badge: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300', dot: 'bg-purple-500' },
     in_approval: { label: 'In Approval', border: 'border-l-yellow-500', badge: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300', dot: 'bg-yellow-500' },
     approved:    { label: 'Approved',    border: 'border-l-green-500',  badge: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',     dot: 'bg-green-500' },
+    reviewed:    { label: 'Reviewed',    border: 'border-l-blue-500',   badge: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',         dot: 'bg-blue-500' },
     expired:     { label: 'Expired',     border: 'border-l-red-900',    badge: 'bg-red-200 text-red-900 dark:bg-red-900/40 dark:text-red-200',             dot: 'bg-red-900' },
 };
 
 const isExpired = (p: PolicyV2) =>
-    p.policy_status === 'approved' && !!p.refresh_date && new Date(p.refresh_date) < new Date();
+    (p.policy_status === 'approved' || p.policy_status === 'reviewed') && !!p.refresh_date && new Date(p.refresh_date) < new Date();
 
 const effectiveStatus = (p: PolicyV2) => (isExpired(p) ? 'expired' : p.policy_status);
 
@@ -63,8 +71,10 @@ const ACTION_LABELS: Record<string, string> = {
     policy_created:                'Policy created',
     policy_status_changed:         'Status changed',
     policy_content_updated:        'Content updated',
+    policy_submitted_for_review:   'Submitted for review',
     policy_submitted_for_approval: 'Submitted for approval',
     policy_approved:               'Approved',
+    policy_reviewed:               'Reviewed',
     policy_rejected:               'Rejected',
     policy_deleted:                'Policy deleted',
 };
@@ -73,8 +83,10 @@ const ACTION_COLORS: Record<string, string> = {
     policy_created:                'bg-blue-500',
     policy_status_changed:         'bg-purple-500',
     policy_content_updated:        'bg-gray-400',
+    policy_submitted_for_review:   'bg-orange-400',
     policy_submitted_for_approval: 'bg-yellow-500',
     policy_approved:               'bg-green-500',
+    policy_reviewed:               'bg-blue-500',
     policy_rejected:               'bg-red-500',
     policy_deleted:                'bg-red-700',
 };
@@ -143,12 +155,14 @@ const HistoryModal: React.FC<{ policy: PolicyV2; onClose: () => void }> = ({ pol
     );
 };
 
-// ─── ApproverModal ────────────────────────────────────────────────────────────
-interface ApproverModalProps {
+// ─── UserSelectionModal ─────────────────────────────────────────────────────────
+interface UserSelectionModalProps {
+    title?: string;
+    buttonText?: string;
     onClose: () => void;
-    onConfirm: (approver: { approver_id?: string; approver_name: string; approver_email: string }) => void;
+    onConfirm: (user: { user_id?: string; user_name: string; user_email: string }) => void;
 }
-const ApproverModal: React.FC<ApproverModalProps> = ({ onClose, onConfirm }) => {
+const UserSelectionModal: React.FC<UserSelectionModalProps> = ({ title = 'Select User', buttonText = 'Select', onClose, onConfirm }) => {
     const [search, setSearch] = useState('');
     const [members, setMembers] = useState<any[]>([]);
     const [selected, setSelected] = useState<any | null>(null);
@@ -168,7 +182,7 @@ const ApproverModal: React.FC<ApproverModalProps> = ({ onClose, onConfirm }) => 
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700">
-                    <h2 className="text-base font-semibold text-gray-900 dark:text-white">Select Approver</h2>
+                    <h2 className="text-base font-semibold text-gray-900 dark:text-white">{title}</h2>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl">&times;</button>
                 </div>
                 <div className="p-6 space-y-4">
@@ -198,7 +212,7 @@ const ApproverModal: React.FC<ApproverModalProps> = ({ onClose, onConfirm }) => 
                     </div>
                     {selected && (
                         <div className="rounded-md bg-blue-50 dark:bg-blue-900/20 px-3 py-2 text-sm text-blue-700 dark:text-blue-300">
-                            Approver: <span className="font-medium">{selected.email}</span>
+                            Selected: <span className="font-medium">{selected.email}</span>
                         </div>
                     )}
                     <div className="flex justify-end gap-3 pt-2">
@@ -206,13 +220,13 @@ const ApproverModal: React.FC<ApproverModalProps> = ({ onClose, onConfirm }) => 
                         <button
                             disabled={!selected}
                             onClick={() => selected && onConfirm({
-                                approver_id: selected.user_id || undefined,
-                                approver_name: selected.email,
-                                approver_email: selected.email,
+                                user_id: selected.user_id || undefined,
+                                user_name: selected.email,
+                                user_email: selected.email,
                             })}
                             className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                         >
-                            Send for Approval
+                            {buttonText}
                         </button>
                     </div>
                 </div>
@@ -241,7 +255,7 @@ const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUse
     const html = useMemo(() => renderMarkdown(policy.markdown || ''), [policy.markdown]);
 
     useEffect(() => {
-        if (policy.policy_status === 'in_approval') {
+        if (policy.policy_status === 'in_approval' || policy.policy_status === 'to_review') {
             SupabaseService.getPolicyApproval(policy.policy_id).then(setPendingApproval);
         }
     }, [policy.policy_id, policy.policy_status]);
@@ -254,7 +268,11 @@ const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUse
     const handleApprove = async () => {
         setSaving(true);
         try {
-            await SupabaseService.approvePolicy(policy.policy_id, comment || undefined);
+            if (policy.policy_status === 'to_review') {
+                await SupabaseService.reviewPolicy(policy.policy_id, comment || undefined);
+            } else {
+                await SupabaseService.approvePolicy(policy.policy_id, comment || undefined);
+            }
             onApproved();
             onClose();
         } catch (err: any) { alert(err.message); }
@@ -311,7 +329,9 @@ const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUse
                 {isApprover && (
                     <div className="flex-shrink-0 px-6 py-4 border-t dark:border-gray-700 bg-yellow-50 dark:bg-yellow-900/10">
                         <p className="text-sm font-medium text-yellow-700 dark:text-yellow-300 mb-3">
-                            Your approval is requested for this policy.
+                            {policy.policy_status === 'to_review' 
+                                ? 'Your review is requested for this policy.' 
+                                : 'Your approval is requested for this policy.'}
                         </p>
                         {showRejectInput ? (
                             <div className="space-y-3">
@@ -343,8 +363,16 @@ const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUse
                                     className="flex-1 rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
                                 />
                                 <div className="flex flex-col gap-2">
-                                    <button onClick={handleApprove} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:bg-gray-300">
-                                        {saving ? '...' : 'Approve'}
+                                    <button 
+                                        onClick={handleApprove} 
+                                        disabled={saving} 
+                                        className={`px-4 py-1.5 text-sm font-medium text-white rounded-md transition-colors disabled:bg-gray-300 ${
+                                            policy.policy_status === 'to_review' 
+                                                ? 'bg-blue-600 hover:bg-blue-700' 
+                                                : 'bg-green-600 hover:bg-green-700'
+                                        }`}
+                                    >
+                                        {saving ? '...' : (policy.policy_status === 'to_review' ? 'Complete Review' : 'Approve')}
                                     </button>
                                     <button onClick={() => setShowRejectInput(true)} className="px-4 py-1.5 text-sm font-medium text-white bg-red-500 rounded-md hover:bg-red-600">
                                         Reject
@@ -371,6 +399,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
     const [status, setStatus] = useState<PolicyWorkflowStatus>(policy?.policy_status || 'draft');
     const [saving, setSaving] = useState(false);
     const [showApprover, setShowApprover] = useState(false);
+    const [showReviewer, setShowReviewer] = useState(false);
     const [uploading, setUploading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     
@@ -409,7 +438,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
     }, [markdown, imageMap]);
     
     const isEdit = !!policy;
-    const isApproved = isEdit && policy?.policy_status === 'approved';
+    const isApproved = isEdit && (policy?.policy_status === 'approved' || policy?.policy_status === 'reviewed');
     const isPolicyExpired = isEdit && policy ? isExpired(policy) : false;
     const isFrozen = isApproved || isPolicyExpired;
 
@@ -440,7 +469,12 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
         setShowApprover(true);
     };
 
-    const handleApproverConfirm = async (approver: { approver_id?: string; approver_name: string; approver_email: string }) => {
+    const handleSendForReview = () => {
+        if (!markdown.trim()) { alert('Please add some content first.'); return; }
+        setShowReviewer(true);
+    };
+
+    const handleApproverConfirm = async (user: { user_id?: string; user_name: string; user_email: string }) => {
         setShowApprover(false);
         setSaving(true);
         try {
@@ -451,7 +485,36 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
             } else {
                 await SupabaseService.updatePolicy(policy!.policy_id, { markdown });
             }
-            await SupabaseService.submitPolicyForApproval(policyId!, approver);
+            await SupabaseService.submitPolicyForApproval(policyId!, {
+                approver_id: user.user_id,
+                approver_name: user.user_name,
+                approver_email: user.user_email
+            });
+            onSaved();
+            onClose();
+        } catch (err: any) {
+            alert(err.message);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleReviewerConfirm = async (user: { user_id?: string; user_name: string; user_email: string }) => {
+        setShowReviewer(false);
+        setSaving(true);
+        try {
+            let policyId = policy?.policy_id;
+            if (!isEdit) {
+                const created = await SupabaseService.addPolicy(markdown, 'draft');
+                policyId = created.policy_id;
+            } else {
+                await SupabaseService.updatePolicy(policy!.policy_id, { markdown });
+            }
+            await SupabaseService.submitPolicyForReview(policyId!, {
+                reviewer_id: user.user_id,
+                reviewer_name: user.user_name,
+                reviewer_email: user.user_email
+            });
             onSaved();
             onClose();
         } catch (err: any) {
@@ -679,8 +742,9 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
                                 className="text-xs border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1 dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                             >
                                 <option value="draft">Draft</option>
-                                <option value="to_review">To Review</option>
+                                <option value="to_review">In Review</option>
                                 <option value="in_approval">In Approval</option>
+                                <option value="reviewed">Reviewed</option>
                                 <option value="approved">Approved</option>
                             </select>
                         </div>
@@ -689,14 +753,26 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
                                 <button onClick={handleSave} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300">
                                     {saving ? 'Updating...' : 'Update Status'}
                                 </button>
-                            ) : !isFrozen && (
+                            ) : (
                                 <>
-                                    <button onClick={handleSave} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300">
-                                        {saving ? 'Saving...' : 'Save'}
-                                    </button>
-                                    <button onClick={handleSendForApproval} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-300">
-                                        Send for Approval
-                                    </button>
+                                    {!isFrozen && (
+                                        <>
+                                            <button onClick={handleSave} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300">
+                                                {saving ? 'Saving...' : 'Save'}
+                                            </button>
+                                            <button onClick={handleSendForReview} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-orange-500 rounded-md hover:bg-orange-600 disabled:bg-gray-300">
+                                                Send for Review
+                                            </button>
+                                            <button onClick={handleSendForApproval} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-300">
+                                                Send for Approval
+                                            </button>
+                                        </>
+                                    )}
+                                    {isFrozen && status === 'reviewed' && (
+                                        <button onClick={handleSendForApproval} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-300">
+                                            Send for Approval
+                                        </button>
+                                    )}
                                 </>
                             )}
                             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none ml-1">&times;</button>
@@ -755,7 +831,10 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
             </div>
 
             {showApprover && (
-                <ApproverModal onClose={() => setShowApprover(false)} onConfirm={handleApproverConfirm} />
+                <UserSelectionModal title="Select Approver" buttonText="Send for Approval" onClose={() => setShowApprover(false)} onConfirm={handleApproverConfirm} />
+            )}
+            {showReviewer && (
+                <UserSelectionModal title="Select Reviewer" buttonText="Send for Review" onClose={() => setShowReviewer(false)} onConfirm={handleReviewerConfirm} />
             )}
         </>
     );
