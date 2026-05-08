@@ -288,8 +288,8 @@ export const DashboardTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
                     <FrameworkComplianceGrid data={frameworkComplianceData} />
                 </div>
             </div>
-            {/* Row 3: Scoring Trend */}
-            <div className="col-span-1 md:col-span-1 lg:col-span-1 max-w-lg mx-auto">
+            {/* Row 3: Scoring Trend + Mapping Chart */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 <ScoringTrendCard 
                     assets={currentStats.assets}
                     controls={currentStats.controlRegistry}
@@ -297,14 +297,12 @@ export const DashboardTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
                     tasks={currentStats.tasks}
                     policies={currentStats.policies}
                 />
+                <SankeyMappingCard
+                    data={sankeyData}
+                    frameworkNames={frameworkNames}
+                    internalControlNames={internalControlNames}
+                />
             </div>
-
-            {/* Row 4: Sankey */}
-            <SankeyMappingCard
-                data={sankeyData}
-                frameworkNames={frameworkNames}
-                internalControlNames={internalControlNames}
-            />
         </div>
     );
 };

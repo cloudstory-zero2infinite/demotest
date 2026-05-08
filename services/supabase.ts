@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate } from '../types';
+import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate } from '../types';
 
 
 
@@ -112,23 +112,7 @@ const apiRequest = async <T>(path: string, options: RequestInit = {}): Promise<T
 
     const err = await response.json().catch(() => ({ message: response.statusText }));
 
-    console.error('API Request Error:', {
-      status: response.status,
-      statusText: response.statusText,
-      error: err
-    });
-
-    let msg = err.message || `Request failed with status ${response.status}`;
-
-    if (Array.isArray(err.details) && err.details.length > 0) {
-
-      const extra = err.details.map((d: { name?: string; message?: string }) => d.name || d.message).filter(Boolean).join('; ');
-
-      if (extra) msg = `${msg} - ${extra}`;
-
-    }
-
-    throw new Error(msg);
+    throw new Error(err.message || `Request failed with status ${response.status}`);
 
   }
 
@@ -178,19 +162,6 @@ export const getOrgMe = async (): Promise<OrgMeResponse | null> => {
   }
 };
 
-export interface ScoringSnapshot {
-  id: string;
-  org_id: string;
-  score: number;
-  total_assets: number;
-  total_vulnerabilities: number;
-  total_controls: number;
-  total_tasks: number;
-  total_policies: number;
-  recorded_at: string;
-  snapshot_date: string;
-}
-
 export const getScoringTrend = async (range: string = '1week'): Promise<ScoringSnapshot[]> => {
   try {
     return await apiRequest<ScoringSnapshot[]>(`/api/compliance/scoring-trend?range=${range}`);
@@ -199,7 +170,6 @@ export const getScoringTrend = async (range: string = '1week'): Promise<ScoringS
     return [];
   }
 };
-
 
 
 
@@ -265,10 +235,22 @@ export const getOrgNotifications = async (): Promise<OrgNotification[]> => {
 
 
 
-export const markOrgNotificationRead = async (id: string): Promise<void> => {
+export const markAllNotificationsRead = async (): Promise<void> => {
+  return apiRequest<void>('/api/org/notifications/read-all', { method: 'PUT' });
+};
 
-  return apiRequest<void>(`/api/org/notifications/${id}/read`, { method: 'PUT' });
+export const updateMemberRole = async (id: number, role: string): Promise<any> => {
+  return apiRequest(`/api/org/update-role/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ role }),
+  });
+};
 
+export const inviteMember = async (email: string): Promise<any> => {
+  return apiRequest('/api/org/invite', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
 };
 
 
@@ -482,23 +464,25 @@ export const bulkAddTasks = async (tasks: ProgramTaskCreate[]): Promise<ProgramT
 
 
 export const updateTask = async (id: string, updates: ProgramTaskUpdate): Promise<ProgramTask> => {
-
-  return apiRequest<ProgramTask>(`/api/program/${id}`, {
-
-    method: 'PUT',
-
-    body: JSON.stringify(updates),
-
-  });
-
+    console.log('🔍 DEBUG: updateTask API call - ID:', id, 'updates:', updates);
+    console.log('🔍 DEBUG: updateTask API call - Status being sent:', updates.status);
+    try {
+        const result = await apiRequest<ProgramTask>(`/api/program/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(updates),
+        });
+        console.log('🔍 DEBUG: updateTask API call - SUCCESS - Result:', result);
+        return result;
+    } catch (error) {
+        console.log('🔍 DEBUG: updateTask API call - ERROR:', error);
+        throw error;
+    }
 };
 
 
 
 export const deleteTask = async (id: string): Promise<void> => {
-
-  return apiRequest<void>(`/api/program/${id}`, { method: 'DELETE' });
-
+    return apiRequest<void>(`/api/program/${id}`, { method: 'DELETE' });
 };
 
 
@@ -751,7 +735,14 @@ export const bulkAddAssets = async (assets: AssetCreate[]): Promise<Asset[]> => 
 
     }
 
-    return result.data || [];
+    if (Array.isArray(result.data) && result.data.length > 0) {
+      return result.data;
+    }
+    // Fast bulk routes may skip returning rows to reduce response size.
+    if (typeof result.inserted === 'number' && result.inserted > 0) {
+      return Array.from({ length: result.inserted }, () => ({}) as Asset);
+    }
+    return [];
 
   }
 
@@ -814,35 +805,70 @@ export const deletePolicy = async (id: string): Promise<void> => {
 
 
 export const submitPolicyForApproval = async (
-
   id: string,
-
   approver: { approver_id?: string; approver_name: string; approver_email: string }
-
 ): Promise<void> => {
+  console.log('🔍 DEBUG: Policy Approval - Submitting policy for approval:', id, 'approver:', approver);
+  try {
+    const response = await apiRequest<void>(`/api/policies/${id}/submit-approval`, {
+      method: 'POST',
+      body: JSON.stringify(approver),
+    });
+    console.log('🔍 DEBUG: Policy Approval - API Response:', response);
+    console.log('🔍 DEBUG: Policy Approval - Successfully submitted for approval');
+  } catch (error) {
+    console.log('🔍 DEBUG: Policy Approval - Error submitting for approval:', error);
+    throw error;
+  }
+};
 
-  return apiRequest<void>(`/api/policies/${id}/submit-approval`, {
+export const submitPolicyForReview = async (
+    id: string,
+    reviewer: { reviewer_id?: string; reviewer_name: string; reviewer_email: string }
+): Promise<void> => {
+    console.log('🔍 DEBUG: Policy Review - Submitting policy for review:', id, 'reviewer:', reviewer);
+    try {
+        const response = await apiRequest<void>(`/api/policies/${id}/submit-review`, {
+            method: 'POST',
+            body: JSON.stringify(reviewer),
+        });
+        console.log('🔍 DEBUG: Policy Review - API Response:', response);
+        console.log('🔍 DEBUG: Policy Review - Successfully submitted for review');
+    } catch (error) {
+        console.log('🔍 DEBUG: Policy Review - Error submitting for review:', error);
+        throw error;
+    }
+};
 
-    method: 'POST',
-
-    body: JSON.stringify(approver),
-
-  });
-
+export const reviewPolicy = async (id: string, comment?: string): Promise<void> => {
+    console.log('🔍 DEBUG: Policy Review - Completing review:', id, 'comment:', comment);
+    try {
+        await apiRequest<void>(`/api/policies/${id}/review`, {
+            method: 'POST',
+            body: JSON.stringify({ comment }),
+        });
+        console.log('🔍 DEBUG: Policy Review - Successfully completed review');
+    } catch (error) {
+        console.log('🔍 DEBUG: Policy Review - Error completing review:', error);
+        throw error;
+    }
 };
 
 
 
 export const approvePolicy = async (id: string, comment?: string): Promise<void> => {
-
-  return apiRequest<void>(`/api/policies/${id}/approve`, {
-
-    method: 'POST',
-
-    body: JSON.stringify({ comment }),
-
-  });
-
+    console.log('🔍 DEBUG: Policy Approval - Approving policy:', id, 'comment:', comment);
+    console.log(' DEBUG: Policy Approval - Approving policy:', id, 'comment:', comment);
+    try {
+        await apiRequest<void>(`/api/policies/${id}/approve`, {
+            method: 'POST',
+            body: JSON.stringify({ comment }),
+        });
+        console.log(' DEBUG: Policy Approval - Successfully approved');
+    } catch (error) {
+        console.log(' DEBUG: Policy Approval - Error approving:', error);
+        throw error;
+    }
 };
 
 
@@ -917,30 +943,11 @@ export const deleteControlRegistry = async (id: string): Promise<void> => {
 
 
 
-export const bulkAddControlRegistry = async (controls: ControlRegistryCreate[]): Promise<ControlRegistry[]> => {
-
-  return apiRequest<ControlRegistry[]>('/api/control-registry/bulk', {
-
-    method: 'POST',
-
-    body: JSON.stringify(controls),
-
-  });
-
-};
-
-
-
 export const deleteControlRegistryBulk = async (ids: string[]): Promise<{ deleted: number; total: number; errors: number; errorDetails?: any[] }> => {
-
   return apiRequest<{ deleted: number; total: number; errors: number; errorDetails?: any[] }>('/api/control-registry/bulk', {
-
     method: 'DELETE',
-
     body: JSON.stringify({ ids }),
-
   });
-
 };
 
 
@@ -1169,16 +1176,22 @@ export const updateCapability = async (id: string, updates: CapabilityUpdate): P
 
 
 
-export const deleteCapability = async (id: string): Promise<void> => {
+export const deleteCapabilitiesBulk = async (ids: string[]): Promise<void> => {
+  const batchSize = 500;
 
-  return apiRequest<void>(`/api/capabilities/${id}`, { method: 'DELETE' });
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const batch = ids.slice(i, i + batchSize);
 
+    await apiRequest<void>('/api/capabilities/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ ids: batch }),
+    });
+  }
 };
 
 
 
 export const bulkAddCapabilities = async (capabilities: CapabilityCreate[]): Promise<{ data: Capability[]; inserted: number; total: number; errors: number; errorDetails?: any[] }> => {
-
   console.log(`[frontend] Starting bulk upload of ${capabilities.length} capabilities`);
   
   // Process capabilities individually to match server approach and prevent timeouts
@@ -1218,28 +1231,6 @@ export const bulkAddCapabilities = async (capabilities: CapabilityCreate[]): Pro
       }]
     };
   }
-};
-
-
-
-export const deleteCapabilitiesBulk = async (ids: string[]): Promise<void> => {
-
-  const batchSize = 500;
-
-  for (let i = 0; i < ids.length; i += batchSize) {
-
-    const batch = ids.slice(i, i + batchSize);
-
-    await apiRequest<void>('/api/capabilities/bulk-delete', {
-
-      method: 'POST',
-
-      body: JSON.stringify({ ids: batch }),
-
-    });
-
-  }
-
 };
 
 
@@ -1339,10 +1330,7 @@ export const bulkImportVulnerabilities = async (rows: VulnerabilityCreate[]): Pr
   });
 };
 
-
-
 export const deleteVulnerabilitiesBulk = async (ids: string[]): Promise<void> => {
-
   console.log('[frontend] Sending bulk delete request with IDs:', ids.length);
   
   // Split IDs into batches of 100 to avoid payload size issues
@@ -1813,27 +1801,10 @@ export const updateAssetRelationship = async (id: string, relationship: any): Pr
 
 
 
-export const deleteAssetRelationship = async (id: string): Promise<boolean> => {
-  try {
-    await apiRequest(`/api/assets/relationships/${id}`, {
-      method: 'DELETE',
-    });
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-
-
 export const bulkAddAssetRelationships = async (relationships: AssetRelationshipCreate[]): Promise<{ data: any[]; inserted: number; total: number; skipped: number; errors: number; errorDetails?: any[] }> => {
-
   const result = await apiRequest<{ data: any[]; inserted: number; total: number; skipped: number; errors: number; errorDetails?: any[] }>('/api/assets/relationships/bulk', {
-
     method: 'POST',
-
     body: JSON.stringify(relationships),
-
   });
 
   // Handle both simple array response and chunked response format
@@ -1862,13 +1833,9 @@ export const bulkAddAssetRelationships = async (relationships: AssetRelationship
     skipped: 0,
     errors: 0
   };
-
 };
 
-
-
 export const deleteAssetRelationshipsBulk = async (ids: string[]): Promise<{ deleted: number; total: number; errors: number; errorDetails?: any[] }> => {
-
   console.log(`[frontend] Starting bulk delete of ${ids.length} asset relationships`);
   
   // Split IDs into batches to avoid payload size issues
@@ -1984,155 +1951,128 @@ export const deleteOrgContact = async (id: string): Promise<void> =>
 
 
 
+// --- Scoring and Analytics ---
+
+// --- Custom Fields Management ---
+
+export interface AssetType {
+  id: string;
+  name: string;
+  fields: string[];
+}
+
+export const getAssetTypes = async (): Promise<AssetType[]> => {
+  try {
+    return await apiRequest<AssetType[]>('/api/asset-types');
+  } catch {
+    return [];
+  }
+};
+
+export const createAssetType = async (name: string, fields: any[]): Promise<AssetType> => {
+  return apiRequest<AssetType>('/api/asset-types', {
+    method: 'POST',
+    body: JSON.stringify({ name, fields }),
+  });
+};
+
+export const saveAssetTypes = async (assetTypes: AssetType[]): Promise<void> => {
+  return apiRequest<void>('/api/asset-types', {
+    method: 'POST',
+    body: JSON.stringify(assetTypes),
+  });
+};
+
+export interface CustomField {
+  id: string;
+  org_id: string;
+  module_name: string;
+  field_name: string;
+  field_label: string;
+  field_type: 'text' | 'number' | 'date' | 'boolean' | 'select';
+  field_options: string[] | null;
+  is_required: boolean;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CustomFieldCreate {
+  field_name: string;
+  field_label: string;
+  field_type: 'text' | 'number' | 'date' | 'boolean' | 'select';
+  field_options?: string[] | null;
+  is_required?: boolean;
+  display_order?: number;
+}
+
+export interface CustomFieldUpdate {
+  field_label?: string;
+  field_type?: 'text' | 'number' | 'date' | 'boolean' | 'select';
+  field_options?: string[] | null;
+  is_required?: boolean;
+  display_order?: number;
+  is_active?: boolean;
+}
+
+export const getCustomFields = async (moduleName: string): Promise<CustomField[]> => {
+  try {
+    return await apiRequest<CustomField[]>(`/api/custom-fields/${moduleName}`);
+  } catch {
+    return [];
+  }
+};
+
+export const createCustomField = async (moduleName: string, field: CustomFieldCreate): Promise<CustomField> => {
+  return apiRequest<CustomField>(`/api/custom-fields/${moduleName}`, {
+    method: 'POST',
+    body: JSON.stringify(field),
+  });
+};
+
+export const updateCustomField = async (moduleName: string, fieldId: string, updates: CustomFieldUpdate): Promise<CustomField> => {
+  return apiRequest<CustomField>(`/api/custom-fields/${moduleName}/${fieldId}`, {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
+};
+
 // --- Asset Custom Fields ---
 
 export const getAssetCustomFields = async (): Promise<AssetCustomField[]> =>
-
   apiRequest<AssetCustomField[]>('/api/asset-custom-fields');
 
-
-
 export const createAssetCustomField = async (field: AssetCustomFieldCreate): Promise<AssetCustomField> =>
-
   apiRequest<AssetCustomField>('/api/asset-custom-fields', {
-
     method: 'POST',
-
     body: JSON.stringify(field),
-
   });
-
-
 
 export const updateAssetCustomField = async (id: string, updates: AssetCustomFieldUpdate): Promise<AssetCustomField> =>
-
   apiRequest<AssetCustomField>(`/api/asset-custom-fields/${id}`, {
-
     method: 'PUT',
-
     body: JSON.stringify(updates),
-
   });
-
-
 
 export const deleteAssetCustomField = async (id: string): Promise<void> =>
-
   apiRequest(`/api/asset-custom-fields/${id}`, { method: 'DELETE' });
 
-
-
 export const getAssetCustomFieldValues = async (assetId: string): Promise<any[]> =>
-
   apiRequest<any[]>(`/api/asset-custom-fields/values/${assetId}`);
 
-
-
 export const setAssetCustomFieldValues = async (assetId: string, fieldValues: { field_id: string; field_value: string | null }[]): Promise<any[]> =>
-
   apiRequest<any[]>('/api/asset-custom-fields/values', {
-
     method: 'POST',
-
     body: JSON.stringify({ asset_id: assetId, field_values: fieldValues }),
-
   });
-
-
-
-// --- Reusable Custom Fields for Any Module ---
-
-export interface CustomField {
-
-  id: string;
-
-  org_id: string;
-
-  module_name: string;
-
-  field_name: string;
-
-  field_label: string;
-
-  field_type: 'text' | 'number' | 'date' | 'select' | 'boolean';
-
-  field_options?: string[] | null;
-
-  is_required: boolean;
-
-  display_order: number;
-
-  is_active: boolean;
-
-  created_at: string;
-
-  updated_at: string;
-
-}
-
-
-
-export interface CustomFieldCreate {
-
-  field_name: string;
-
-  field_label: string;
-
-  field_type: 'text' | 'number' | 'date' | 'select' | 'boolean';
-
-  field_options?: string[] | null;
-
-  is_required?: boolean;
-
-  display_order?: number;
-
-}
-
-
-
-export const getCustomFields = async (moduleName: string): Promise<CustomField[]> =>
-
-  apiRequest<CustomField[]>(`/api/custom-fields/${moduleName}`);
-
-
-
-export const createCustomField = async (moduleName: string, field: CustomFieldCreate): Promise<CustomField> =>
-
-  apiRequest<CustomField>(`/api/custom-fields/${moduleName}`, {
-
-    method: 'POST',
-
-    body: JSON.stringify(field),
-
-  });
-
-
-
-export const updateCustomField = async (moduleName: string, fieldId: string, updates: Partial<CustomFieldCreate> & { is_active?: boolean }): Promise<CustomField> =>
-
-  apiRequest<CustomField>(`/api/custom-fields/${moduleName}/${fieldId}`, {
-
-    method: 'PUT',
-
-    body: JSON.stringify(updates),
-
-  });
-
-
-
-export const deleteCustomField = async (moduleName: string, fieldId: string): Promise<void> =>
-
-  apiRequest(`/api/custom-fields/${moduleName}/${fieldId}`, { method: 'DELETE' });
-
-
 
 export const reorderCustomFields = async (moduleName: string, fieldIds: string[]): Promise<void> =>
-
   apiRequest(`/api/custom-fields/${moduleName}/reorder`, {
-
     method: 'PUT',
-
     body: JSON.stringify({ fieldIds }),
-
   });
+
+export const deleteCustomField = async (moduleName: string, fieldId: string): Promise<void> =>
+  apiRequest(`/api/custom-fields/${moduleName}/${fieldId}`, { method: 'DELETE' });
 

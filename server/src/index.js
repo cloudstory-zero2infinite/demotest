@@ -218,6 +218,8 @@ import assetCustomFieldsRouter from "./routes/asset-custom-fields.js";
 
 import { customFieldsRouter } from "./routes/custom-fields.js";
 
+import { assetTypesRouter } from "./routes/asset-types.js";
+
 import { checkAllExpiredPolicies } from "./jobs/policy-expiry.js";
 import { scoringRouter } from "./routes/scoring.js";
 
@@ -274,6 +276,8 @@ app.use("/api/assets", assetsRouter);
 app.use("/api/asset-custom-fields", assetCustomFieldsRouter);
 
 app.use("/api/custom-fields", customFieldsRouter);
+
+app.use("/api/asset-types", assetTypesRouter);
 
 app.use("/api/policies", policiesRouter);
 

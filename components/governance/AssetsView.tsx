@@ -96,6 +96,17 @@ interface AssetModalProps {
 
 
 
+    selectedAssetType?: string | null;
+
+
+
+    customAssetTypes?: { id: string; name: string; fields: string[] }[];
+
+    assets?: Asset[];
+    orgName?: string;
+
+
+
 }
 
 
@@ -104,17 +115,23 @@ interface AssetModalProps {
 
 
 
+interface AssetTag {
+    id: string;
+    name: string;
+    fieldCount: number;
+    assetCount: number;
+    createdAt: string;
+}
+
 const MANDATORY_LABEL = <span className="text-red-500 ml-0.5">*</span>;
 
 
 
-const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetToEdit, mode, onEdit, onDelete, customFields = [], onShowColumnManagement }) => {
-
-
+const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetToEdit, mode, onEdit, onDelete, customFields = [], onShowColumnManagement, selectedAssetType, customAssetTypes = [], assets = [], orgName = '' }) => {
 
     const [formData, setFormData] = useState<Partial<AssetCreate>>({});
-
     const [isSaving, setIsSaving] = useState(false);
+    const [formAssetTypeId, setFormAssetTypeId] = useState<string | null>(null);
 
 
 
@@ -127,36 +144,56 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
 
     useEffect(() => {
-
-
-
         if (assetToEdit) {
-
-
-
             const { asset_id, name, asset_owner, business_unit, physical_location, criticality, details, governed_status, vulnerability_count, exposure, category, ip_address, mac_id, source } = assetToEdit;
-
-
-
             setFormData({ asset_id, name, asset_owner, business_unit, physical_location, criticality, details, governed_status, vulnerability_count, exposure, category, ip_address, mac_id, source });
 
-
-
+            const normalizeFieldName = (n: string) => n.toLowerCase().replace(/[^a-z0-9]/g, '_');
+            const standardKeys = new Set(['asset_id', 'name', 'asset_owner', 'business_unit', 'physical_location', 'criticality', 'category', 'details', 'governed_status', 'exposure', 'ip_address', 'mac_id', 'vulnerability_count', 'source', 'owner']);
+            const match = customAssetTypes.find(type => {
+                const customFieldsOnly = type.fields.filter(f => !standardKeys.has(f) && !standardKeys.has(normalizeFieldName(f)));
+                if (customFieldsOnly.length === 0) return false;
+                return customFieldsOnly.every(field => Object.keys(assetToEdit.custom_fields || {}).includes(normalizeFieldName(field)));
+            });
+            setFormAssetTypeId(match ? match.id : (selectedAssetType || null));
         } else {
+            setFormAssetTypeId(selectedAssetType || null);
+            const defaultCategory = 'Information';
+            
+            // Generate Asset ID: AST-organisation 1st 2 letters-number
+            const orgLetters = (orgName || 'Org').replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase() || 'OR';
+            const prefix = `AST-${orgLetters}-`;
+            let maxNum = 1000;
+            if (assets && assets.length > 0) {
+                assets.forEach(asset => {
+                    if (asset.asset_id && asset.asset_id.startsWith(prefix)) {
+                        const numStr = asset.asset_id.replace(prefix, '');
+                        const num = parseInt(numStr, 10);
+                        if (!isNaN(num) && num > maxNum) {
+                            maxNum = num;
+                        }
+                    }
+                });
+            }
+            const generatedAssetId = `${prefix}${maxNum + 1}`;
 
-
-
-            // asset_id is intentionally omitted — DB trigger auto-generates it
-
-            setFormData({ name: '', asset_owner: '', business_unit: '', physical_location: '', criticality: 'Low', category: 'Physical/Hardware', exposure: 'Internal', governed_status: 'Non-Governed', vulnerability_count: 0, details: '', ip_address: '', mac_id: '' });
-
-
-
+            setFormData({ 
+                asset_id: generatedAssetId,
+                name: '', 
+                asset_owner: '', 
+                business_unit: '', 
+                physical_location: '', 
+                criticality: 'Low', 
+                category: defaultCategory, 
+                exposure: 'Internal', 
+                governed_status: 'Non-Governed', 
+                vulnerability_count: 0, 
+                details: '', 
+                ip_address: '', 
+                mac_id: '' 
+            });
         }
-
-
-
-    }, [assetToEdit, isOpen, mode]);
+    }, [assetToEdit, isOpen, mode, selectedAssetType, customAssetTypes, assets, orgName]);
 
 
 
@@ -229,8 +266,16 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
             // governed_status and nn_controls are auto-computed by DB triggers — strip them
 
             const { governed_status, nn_controls, ...payload } = formData as any;
-
-            await onSave({ ...payload, source: 'Manual' } as AssetCreate | AssetUpdate);
+            
+            const currentAssetType = formAssetTypeId ? customAssetTypes.find(t => t.id === formAssetTypeId) : null;
+            const assetTypeName = currentAssetType ? currentAssetType.name : 'standard';
+            
+            const custom_fields = {
+                ...(payload.custom_fields || {}),
+                type: assetTypeName
+            };
+            
+            await onSave({ ...payload, custom_fields, source: 'Manual' } as AssetCreate | AssetUpdate);
 
         } finally {
 
@@ -249,6 +294,55 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
 
     const title = mode === 'add' ? 'Add New Asset' : mode === 'edit' ? 'Edit Asset' : 'View Asset';
+
+    const currentAssetType = formAssetTypeId ? customAssetTypes.find(t => t.id === formAssetTypeId) : null;
+    const normalizeFieldName = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const isFieldAllowed = (fieldName: string) => {
+        const cleanFieldName = fieldName.startsWith('custom_field_') 
+            ? fieldName.replace('custom_field_', '') 
+            : fieldName;
+            
+        // Standard fields of all assets
+        const allStandardFields = new Set([
+            'asset_id', 
+            'name', 
+            'category', 
+            'criticality', 
+            'asset_owner', 
+            'business_unit', 
+            'exposure', 
+            'governed_status', 
+            'details',
+            'source',
+            'nn_controls',
+            'vulnerability_count',
+            'ip_address',
+            'mac_id',
+            'physical_location'
+        ]);
+        
+        const isStandard = allStandardFields.has(cleanFieldName) || allStandardFields.has(normalizeFieldName(cleanFieldName));
+        
+        if (!currentAssetType) {
+            // Standard default asset profile: ONLY show standard fields (hide custom fields)
+            return isStandard;
+        }
+        
+        // Dynamic asset type profile:
+        // 1. Always show asset_id and name
+        if (cleanFieldName === 'asset_id' || cleanFieldName === 'name' || normalizeFieldName(cleanFieldName) === 'asset_id' || normalizeFieldName(cleanFieldName) === 'name') {
+            return true;
+        }
+        
+        // 2. For other standard fields, show them ONLY if they are explicitly in the profile's fields list
+        if (isStandard) {
+            const profileFields = new Set((currentAssetType.fields || []).map(normalizeFieldName));
+            return profileFields.has(cleanFieldName) || profileFields.has(normalizeFieldName(cleanFieldName));
+        }
+        
+        // 3. For custom fields, always show them (since they represent the fields they want to create/have created)
+        return true;
+    };
 
 
 
@@ -288,7 +382,22 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
             <form onSubmit={handleSubmit} className="space-y-4">
 
-
+                {mode === 'add' && customAssetTypes.length > 0 && (
+                    <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800 rounded-md p-4">
+                        <label className="block text-sm font-medium text-purple-800 dark:text-purple-300">Select Asset Profile</label>
+                        <select 
+                            value={formAssetTypeId || ''}
+                            onChange={e => setFormAssetTypeId(e.target.value || null)}
+                            className="mt-1 block w-full rounded-md border-purple-300 shadow-sm sm:text-sm focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        >
+                            <option value="">-- Standard Asset (Show All System Fields) --</option>
+                            {customAssetTypes.map(t => (
+                                <option key={t.id} value={t.id}>{t.name}</option>
+                            ))}
+                        </select>
+                        <p className="mt-1 text-xs text-purple-600 dark:text-purple-400">Selecting a profile will filter the form to show only relevant fields.</p>
+                    </div>
+                )}
 
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
@@ -297,242 +406,155 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
                     {/* ── Mandatory fields ── */}
 
                     {/* Asset ID: auto-generated on create, read-only on edit/view */}
-
-                    {mode !== 'add' && (
-
+                    {isFieldAllowed('asset_id') && (
                         <div>
-
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asset ID</label>
-
                             <div className="mt-1 px-3 py-2 rounded-md bg-gray-100 dark:bg-gray-600 text-sm font-mono text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-500 flex items-center gap-2">
-
-                                {formData.asset_id}
-
+                                {formData.asset_id || <span className="text-gray-400 dark:text-gray-500 italic">Pending...</span>}
                                 <span className="text-xs text-gray-400 dark:text-gray-500 font-sans">(auto-generated)</span>
-
                             </div>
-
                         </div>
+                    )}
 
+                    {isFieldAllowed('name') && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asset Name {MANDATORY_LABEL}</label>
+                            <input type="text" name="name" value={formData.name || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        </div>
+                    )}
+
+                    {isFieldAllowed('criticality') && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Classification {MANDATORY_LABEL}</label>
+                            <select name="criticality" value={formData.criticality} onChange={handleChange} disabled={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                                <option>Low</option><option>Medium</option><option>High</option>
+                            </select>
+                        </div>
                     )}
 
 
 
-                    <div>
+                    {isFieldAllowed('category') && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Type {MANDATORY_LABEL}</label>
+                            <select name="category" value={formData.category} onChange={handleChange} disabled={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                                <option value="Physical/Hardware">Physical/Hardware</option>
+                                <option value="Software">Software</option>
+                                <option value="Services/Infra">Services/Infra</option>
+                                <option value="Information">Information</option>
+                            </select>
+                        </div>
+                    )}
 
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asset Name {MANDATORY_LABEL}</label>
+                    {isFieldAllowed('asset_owner') && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Owner {MANDATORY_LABEL}</label>
+                            <input type="text" name="asset_owner" value={formData.asset_owner || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        </div>
+                    )}
 
-                        <input type="text" name="name" value={formData.name || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                    {isFieldAllowed('business_unit') && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Business Unit {MANDATORY_LABEL}</label>
+                            <input type="text" name="business_unit" value={formData.business_unit || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        </div>
+                    )}
 
-                    </div>
+                    {isFieldAllowed('ip_address') && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">IP Address {MANDATORY_LABEL}</label>
+                            <input type="text" name="ip_address" value={formData.ip_address || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="e.g., 192.168.1.1" />
+                        </div>
+                    )}
 
+                    {isFieldAllowed('mac_id') && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">UID / Mac ID {MANDATORY_LABEL}</label>
+                            <input type="text" name="mac_id" value={formData.mac_id || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="e.g., 00:1A:2B:3C:4D:5E" />
+                        </div>
+                    )}
 
-
-                    <div>
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Classification {MANDATORY_LABEL}</label>
-
-                        <select name="criticality" value={formData.criticality} onChange={handleChange} disabled={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-
-                            <option>Low</option><option>Medium</option><option>High</option>
-
-                        </select>
-
-                    </div>
-
-
-
-                    <div>
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Type {MANDATORY_LABEL}</label>
-
-                        <select name="category" value={formData.category} onChange={handleChange} disabled={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-
-                            <option value="Physical/Hardware">Physical/Hardware</option>
-
-                            <option value="Software">Software</option>
-
-                            <option value="Services/Infra">Services/Infra</option>
-
-                            <option value="Information">Information</option>
-
-                        </select>
-
-                    </div>
-
-
-
-                    <div>
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Owner {MANDATORY_LABEL}</label>
-
-                        <input type="text" name="asset_owner" value={formData.asset_owner || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-
-                    </div>
-
-
-
-                    <div>
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Business Unit {MANDATORY_LABEL}</label>
-
-                        <input type="text" name="business_unit" value={formData.business_unit || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-
-                    </div>
-
-
-
-                    <div>
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">IP Address {MANDATORY_LABEL}</label>
-
-                        <input type="text" name="ip_address" value={formData.ip_address || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="e.g., 192.168.1.1" />
-
-                    </div>
-
-
-
-                    <div>
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">UID / Mac ID {MANDATORY_LABEL}</label>
-
-                        <input type="text" name="mac_id" value={formData.mac_id || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="e.g., 00:1A:2B:3C:4D:5E" />
-
-                    </div>
-
-
-
-                    <div className="md:col-span-2">
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asset Description {MANDATORY_LABEL}</label>
-
-                        <textarea name="details" value={formData.details || ''} onChange={handleChange} readOnly={isViewMode} rows={3} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
-
-                    </div>
+                    {isFieldAllowed('details') && (
+                        <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asset Description {MANDATORY_LABEL}</label>
+                            <textarea name="details" value={formData.details || ''} onChange={handleChange} readOnly={isViewMode} rows={3} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
+                        </div>
+                    )}
 
 
 
                     {/* ── Optional fields ── */}
-
-                    <div>
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Physical Location</label>
-
-                        <input type="text" name="physical_location" value={formData.physical_location || ''} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="e.g., Server Room A, Building 2" />
-
-                    </div>
-
-
-
-                    <div>
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Exposure</label>
-
-                        <select name="exposure" value={formData.exposure} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-
-                            <option>Internal</option><option>External</option><option>DMZ</option>
-
-                        </select>
-
-                    </div>
-
-
-
-                    <div>
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Governed Status</label>
-
-                        <div className={`mt-1 px-3 py-2 rounded-md text-sm font-medium border ${
-
-                            formData.governed_status === 'Governed'
-
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800'
-
-                                : 'bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:border-gray-600'
-
-                        }`}>
-
-                            {formData.governed_status || 'Non-Governed'}
-
-                            <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(auto-computed)</span>
-
-                        </div>
-
-                    </div>
-
-
-
-                    <div>
-
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Vulnerability Count</label>
-
-                        <input type="number" name="vulnerability_count" value={formData.vulnerability_count || 0} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-
-                    </div>
-
-
-
-                    {/* Source: read-only, auto-set by system */}
-
-                    {(isViewMode || mode === 'edit') && formData.source && (
-
+                    {isFieldAllowed('physical_location') && (
                         <div>
-
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Source</label>
-
-                            <div className="mt-1 px-3 py-2 rounded-md bg-gray-100 dark:bg-gray-600 text-sm text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-500">
-
-                                {formData.source}
-
-                            </div>
-
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Physical Location</label>
+                            <input type="text" name="physical_location" value={formData.physical_location || ''} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="e.g., Server Room A, Building 2" />
                         </div>
-
                     )}
 
+                    {isFieldAllowed('exposure') && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Exposure</label>
+                            <select name="exposure" value={formData.exposure} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                                <option>Internal</option><option>External</option><option>DMZ</option>
+                            </select>
+                        </div>
+                    )}
 
+                    {isFieldAllowed('governed_status') && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Governed Status</label>
+                            <div className={`mt-1 px-3 py-2 rounded-md text-sm font-medium border ${
+                                formData.governed_status === 'Governed'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800'
+                                    : 'bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:border-gray-600'
+                            }`}>
+                                {formData.governed_status || 'Non-Governed'}
+                                <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(auto-computed)</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {isFieldAllowed('vulnerability_count') && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Vulnerability Count</label>
+                            <input type="number" name="vulnerability_count" value={formData.vulnerability_count || 0} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        </div>
+                    )}
+
+                    {/* Source: read-only, auto-set by system */}
+                    {isFieldAllowed('source') && (isViewMode || mode === 'edit') && formData.source && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Source</label>
+                            <div className="mt-1 px-3 py-2 rounded-md bg-gray-100 dark:bg-gray-600 text-sm text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-500">
+                                {formData.source}
+                            </div>
+                        </div>
+                    )}
 
                     {/* NN Controls: read-only, auto-assigned by DB trigger */}
-
-                    {assetToEdit?.nn_controls && assetToEdit.nn_controls.length > 0 && (
-
+                    {isFieldAllowed('nn_controls') && assetToEdit?.nn_controls && assetToEdit.nn_controls.length > 0 && (
                         <div className="md:col-span-2">
-
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-
                                 NN Controls
-
                                 <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">({assetToEdit.nn_controls.length} assigned)</span>
-
                             </label>
-
                             <div className="mt-1 max-h-40 overflow-y-auto rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 p-2">
-
                                 <div className="flex flex-wrap gap-1.5">
-
                                     {assetToEdit.nn_controls.map(c => (
-
                                         <span key={c.ctl_id} className="inline-flex items-center px-2 py-1 rounded text-xs font-mono bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800" title={c.ctl_name}>
-
                                             {c.ctl_id}
-
                                         </span>
-
                                     ))}
-
                                 </div>
-
                             </div>
-
                         </div>
-
                     )}
 
 
 
                     {/* Custom Fields Section */}
 
-                    {!isViewMode && (
+                    {currentAssetType && (
 
                         <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
 
@@ -559,37 +581,21 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
                             
 
                             {/* Display existing custom fields for this asset */}
-
-                            {customFields.length > 0 ? (
-
+                            {customFields.filter(f => isFieldAllowed(`custom_field_${f.field_name}`) || isFieldAllowed(f.field_label) || isFieldAllowed(f.field_name)).length > 0 ? (
                                 <CustomFieldsForm
-
-                                    customFields={customFields}
-
+                                    customFields={customFields.filter(f => isFieldAllowed(`custom_field_${f.field_name}`) || isFieldAllowed(f.field_label) || isFieldAllowed(f.field_name))}
                                     values={formData.custom_fields || {}}
-
                                     onChange={(fieldName, value) => {
-
                                         setFormData(prev => ({
-
                                             ...prev,
-
                                             custom_fields: {
-
                                                 ...(prev.custom_fields || {}),
-
                                                 [fieldName]: value
-
                                             }
-
                                         }));
-
                                     }}
-
                                     readonly={isViewMode}
-
                                 />
-
                             ) : (
 
                                 <div className="text-center py-8 text-gray-500 dark:text-gray-400">
@@ -744,11 +750,12 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
     const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | 'import' | 'mapping' | null; asset?: Asset | null }>({ type: null });
 
-
-
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-
+    // Custom Asset Types
+    const [customAssetTypes, setCustomAssetTypes] = useState<{ id: string; name: string; fields: string[] }[]>([]);
+    const [selectedAssetType, setSelectedAssetType] = useState<string | null>(null);
+    const [orgName, setOrgName] = useState<string>('');
 
     const [filter, setFilter] = useState('');
 
@@ -765,6 +772,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
     const [importData, setImportData] = useState<{ newAssets: AssetCreate[]; updatedAssets: { id: string; updates: AssetUpdate }[]; unchangedAssets: Asset[]; duplicates: string[] }>({ newAssets: [], updatedAssets: [], unchangedAssets: [], duplicates: [] });
 
     const [newFieldsToCreate, setNewFieldsToCreate] = useState<any[]>([]);
+    const [newAssetTypeName, setNewAssetTypeName] = useState<string | null>(null);
 
     const [pendingImportData, setPendingImportData] = useState<any[]>([]);
     const [importHeaders, setImportHeaders] = useState<string[]>([]);
@@ -822,9 +830,11 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                     if (!combinedOrder.includes(col)) combinedOrder.push(col);
                 });
 
-                // Remove any columns that no longer exist (except defaults)
+                // Keep defaults, current custom fields, and ANY custom field if we are still on the initial empty load
                 const finalOrder = combinedOrder.filter(col => 
-                    defaultColumns.includes(col) || customFieldKeys.includes(col)
+                    defaultColumns.includes(col) || 
+                    customFieldKeys.includes(col) || 
+                    (customFields.length === 0 && col.startsWith('custom_field_'))
                 );
 
                 setColumnOrder(finalOrder);
@@ -836,6 +846,60 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
             setColumnOrder([...defaultColumns, ...customFieldKeys]);
         }
     }, [customFields, defaultColumns]);
+
+    // Compute visible columns based on selected asset type
+    const visibleColumns = useMemo(() => {
+        if (!selectedAssetType) {
+            // For All Assets pill: Only display the specified standard fields. Remove all custom fields!
+            return [
+                'business_unit',
+                'asset_id',
+                'name',
+                'type',
+                'criticality',
+                'source',
+                'governed_status',
+                'nn_controls'
+            ];
+        }
+        
+        const assetType = customAssetTypes.find(t => t.id === selectedAssetType);
+        if (!assetType) {
+            return [
+                'business_unit',
+                'asset_id',
+                'name',
+                'type',
+                'criticality',
+                'source',
+                'governed_status',
+                'nn_controls'
+            ];
+        }
+
+        const standardKeys = new Set([
+            'asset_id', 'name', 'asset_owner', 'business_unit', 'physical_location', 
+            'criticality', 'category', 'details', 'governed_status', 'exposure', 
+            'ip_address', 'mac_id', 'vulnerability_count', 'source', 'owner', 'type'
+        ]);
+
+        const normalizeFieldName = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+        // Custom asset types should show ONLY asset_id, name, and their specific custom-defined fields
+        const allowedKeys = new Set([
+            'asset_id', 
+            'name', 
+            ...assetType.fields.map(f => {
+                const normalized = normalizeFieldName(f);
+                if (standardKeys.has(f)) return f;
+                if (standardKeys.has(normalized)) return normalized;
+                return `custom_field_${normalized}`;
+            })
+        ]);
+
+        const orderedFields = columnOrder.filter(col => allowedKeys.has(col) && col !== 'asset_id' && col !== 'name');
+        return ['asset_id', 'name', ...orderedFields];
+    }, [columnOrder, selectedAssetType, customAssetTypes]);
 
     // Save column order when it changes
     useEffect(() => {
@@ -999,32 +1063,24 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
 
-            const [assetsData, relationshipsData] = await Promise.all([
+            const [assetsData, relationshipsData, customTypesData] = await Promise.all([
 
                 SupabaseService.getAssets(),
 
                 SupabaseService.getAssetRelationships(),
+                
+                SupabaseService.getAssetTypes()
 
-            ]);
-
-
-
-            setAssets(assetsData);
-
-            setRelationships(relationshipsData);
-
-            
-
-            // Also fetch custom fields
-
-            await fetchCustomFields();
+        ]);
 
 
+
+        setAssets(assetsData);
+        setRelationships(relationshipsData);
+        setCustomAssetTypes(customTypesData);
 
         } catch (e) {
-
             setError("Failed to load assets.");
-
         } finally {
 
             setLoading(false);
@@ -1036,6 +1092,20 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
     useUnifiedRefresh(isActive, fetchAssets);
+
+    useEffect(() => {
+        const fetchOrg = async () => {
+            try {
+                const me = await SupabaseService.getOrgMe();
+                if (me && me.orgName) {
+                    setOrgName(me.orgName);
+                }
+            } catch (err) {
+                console.error('Failed to fetch org details', err);
+            }
+        };
+        fetchOrg();
+    }, []);
 
     // Reset to page 1 when filter changes or items per page changes
     useEffect(() => {
@@ -1064,6 +1134,26 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                 });
             }
         });
+
+        if (selectedAssetType) {
+            const assetType = customAssetTypes.find(t => t.id === selectedAssetType);
+            if (assetType && assetType.fields.length > 0) {
+                const standardKeys = new Set([
+                    'asset_id', 'name', 'asset_owner', 'business_unit', 'physical_location', 
+                    'criticality', 'category', 'details', 'governed_status', 'exposure', 
+                    'ip_address', 'mac_id', 'vulnerability_count', 'source', 'owner'
+                ]);
+                const normalizeFieldName = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+                
+                filteredItems = filteredItems.filter(item => {
+                    // Identified by having all those custom fields
+                    // Standard fields are ignored for identification purposes because all assets have them
+                    const customFieldsOnly = assetType.fields.filter(f => !standardKeys.has(f) && !standardKeys.has(normalizeFieldName(f)));
+                    if (customFieldsOnly.length === 0) return true; // Can't uniquely identify if no custom fields
+                    return customFieldsOnly.every(field => Object.keys(item.custom_fields || {}).includes(normalizeFieldName(field)));
+                });
+            }
+        }
 
         if (filter) {
 
@@ -1193,7 +1283,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
 
-    }, [assets, filter, sortConfig, columnFilters]);
+    }, [assets, filter, sortConfig, columnFilters, selectedAssetType, customAssetTypes]);
 
     // Pagination: Get current page items
 
@@ -1815,6 +1905,33 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
 
+    const getAssetType = (item: Asset): string => {
+        if (item.custom_fields && item.custom_fields.type) {
+            return item.custom_fields.type;
+        }
+        
+        const standardKeys = new Set([
+            'asset_id', 'name', 'asset_owner', 'business_unit', 'physical_location', 
+            'criticality', 'category', 'details', 'governed_status', 'exposure', 
+            'ip_address', 'mac_id', 'vulnerability_count', 'source', 'owner'
+        ]);
+        const normalizeFieldName = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+        for (const type of customAssetTypes) {
+            const customFieldsOnly = type.fields.filter(f => !standardKeys.has(f) && !standardKeys.has(normalizeFieldName(f)));
+            if (customFieldsOnly.length > 0) {
+                const matches = customFieldsOnly.every(field => 
+                    Object.keys(item.custom_fields || {}).includes(normalizeFieldName(field))
+                );
+                if (matches) {
+                    return type.name;
+                }
+            }
+        }
+        
+        return 'standard';
+    };
+
     const getRelatedAssetsForAsset = (asset: Asset) => {
 
 
@@ -1863,42 +1980,39 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
     };
 
     const handleExportCSV = () => {
-        // Build headers with custom fields
-        const baseHeaders = ['asset_id', 'name', 'criticality', 'details', 'governed_status', 'vulnerability_count', 'exposure', 'category', 'asset_owner', 'business_unit', 'physical_location', 'ip_address', 'mac_id', 'source'];
-        const customFieldHeaders = customFields.map(field => field.field_label);
-        const headers = [...baseHeaders, ...customFieldHeaders];
+        // Build headers based on visibleColumns and selectedAssetType
+        let columnsToExport = visibleColumns;
+        
+        // Compute headers for the export
+        const headers: string[] = [];
+        columnsToExport.forEach(colKey => {
+            if (colKey.startsWith('custom_field_')) {
+                const fieldName = colKey.replace('custom_field_', '');
+                const customField = customFields.find(f => f.field_name === fieldName);
+                if (customField) {
+                    headers.push(customField.field_label);
+                } else {
+                    headers.push(fieldName);
+                }
+            } else {
+                headers.push(colKey);
+            }
+        });
 
         const csvContent = [
-
             headers.join(','),
-
             ...filteredAndSortedAssets.map(asset => {
-
-                // Base asset data
-                const baseData = [
-                    asset.asset_id,
-                    `"${(asset.name || '').replace(/"/g, '""')}"`,
-                    asset.criticality || '',
-                    `"${(asset.details || '').replace(/"/g, '""')}"`,
-                    asset.governed_status || '',
-                    asset.vulnerability_count || 0,
-                    asset.exposure || '',
-                    asset.category || '',
-                    asset.asset_owner || '',
-                    asset.business_unit || '',
-                    asset.physical_location || '',
-                    asset.ip_address || '',
-                    asset.mac_id || '',
-                    asset.source || ''
-                ];
-
-                // Custom fields data
-                const customFieldsData = customFields.map(field => {
-                    const value = asset.custom_fields?.[field.field_name] || '';
-                    return `"${String(value).replace(/"/g, '""')}"`;
+                const rowData = columnsToExport.map(colKey => {
+                    if (colKey.startsWith('custom_field_')) {
+                        const fieldName = colKey.replace('custom_field_', '');
+                        const value = asset.custom_fields?.[fieldName] || '';
+                        return `"${String(value).replace(/"/g, '""')}"`;
+                    } else {
+                        const value = asset[colKey as keyof Asset] ?? '';
+                        return `"${String(value).replace(/"/g, '""')}"`;
+                    }
                 });
-
-                return [...baseData, ...customFieldsData].join(',');
+                return rowData.join(',');
             })
         ].join('\n');
 
@@ -1911,7 +2025,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
         document.body.removeChild(link);
     };
 
-    const prepareImportData = (records: any[]) => {
+    const prepareImportData = (records: any[], assetTypeName?: string) => {
         // Define valid asset categories
         const validCategories = ['Physical/Hardware', 'Software', 'Services/Infra', 'Information'];
         
@@ -1920,6 +2034,13 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
             if (!category) return 'Information'; // Default category
             
             const normalized = category.trim();
+            
+            // Check custom types (but we don't return custom names to prevent DB constraint violation on standard category field)
+            const customMatch = customAssetTypes.find(t => t.name.toLowerCase() === normalized.toLowerCase());
+            if (customMatch) {
+                // If it matches a custom type, we still need a valid standard category for the DB
+                return 'Information'; 
+            }
             
             // Exact match
             if (validCategories.includes(normalized)) {
@@ -1963,7 +2084,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                 source: 'File Upload' // Force source to be File Upload for all CSV imports
             };
             
-            const existing = assets.find(a => a.asset_id === record.asset_id);
+            const existing = record.asset_id ? assets.find(a => a.asset_id === record.asset_id) : undefined;
             if (existing) {
                 updatedAssets.push({ id: existing.id, updates: normalizedRecord });
             } else {
@@ -1971,8 +2092,9 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
             }
         });
 
-        setImportData({ newAssets, updatedAssets, unchangedAssets: [], duplicates: [] });
-        setModalState({ type: 'import' });
+        const importDataResult = { newAssets, updatedAssets, unchangedAssets: [], duplicates: [] };
+        setImportData(importDataResult);
+        return importDataResult;
     };
 
     const handleImportCSV = (event: ChangeEvent<HTMLInputElement>) => {
@@ -1999,15 +2121,97 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
         if (event.target) event.target.value = '';
     };
 
-    const handleConfirmMapping = (mapping: ColumnMapping[]) => {
+    const handleConfirmMapping = async (mapping: ColumnMapping[], assetTypeName?: string) => {
         try {
             const { records, newFields } = applyManualMapping(mapping, rawRows, customFields);
             
+            // Set the dynamic type attribute in custom_fields
+            records.forEach((record: any) => {
+                const standardKeys = new Set([
+                    'asset_id', 'name', 'asset_owner', 'business_unit', 'physical_location', 
+                    'criticality', 'category', 'details', 'governed_status', 'exposure', 
+                    'ip_address', 'mac_id', 'vulnerability_count', 'source', 'owner'
+                ]);
+                const normalizeFieldName = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+                let matchedType = assetTypeName || 'standard';
+                if (!assetTypeName) {
+                    for (const type of customAssetTypes) {
+                        const customFieldsOnly = type.fields.filter(f => !standardKeys.has(f) && !standardKeys.has(normalizeFieldName(f)));
+                        if (customFieldsOnly.length > 0) {
+                            const matches = customFieldsOnly.every(field => 
+                                Object.keys(record.custom_fields || {}).includes(normalizeFieldName(field))
+                            );
+                            if (matches) {
+                                matchedType = type.name;
+                                break;
+                            }
+                        }
+                    }
+                }
+                record.custom_fields = {
+                    ...(record.custom_fields || {}),
+                    type: matchedType
+                };
+            });
+
             // Store new fields to be created
             setNewFieldsToCreate(newFields);
             
+            if (assetTypeName) {
+                setNewAssetTypeName(assetTypeName);
+                
+                // Collect all custom fields that are part of this asset type
+                const allCustomFields: { name: string; type: string }[] = [];
+                
+                mapping.forEach(m => {
+                    if (m.type === 'ignore' || m.mappedField === 'ignore') return;
+                    
+                    let fieldType = 'text';
+                    if (m.type === 'standard') {
+                        // Standard fields usually act like text or select. We'll default to text.
+                        fieldType = 'text';
+                    } else if (m.type === 'new') {
+                        const newF = newFields.find(f => f.field_name === m.mappedField);
+                        if (newF) fieldType = newF.field_type;
+                    } else {
+                        // For 'custom' or existing fields
+                        // If it starts with custom_field_, extract the actual field name
+                        let actualFieldName = m.mappedField;
+                        if (actualFieldName.startsWith('custom_field_')) {
+                            actualFieldName = actualFieldName.replace('custom_field_', '');
+                        }
+                        
+                        const extF = customFields.find(f => f.field_name === actualFieldName);
+                        if (extF) fieldType = extF.field_type;
+                        
+                        // We must send the actual field name, not the 'custom_field_' prefixed version
+                        if (m.mappedField !== actualFieldName) {
+                            m.mappedField = actualFieldName;
+                        }
+                    }
+                    
+                    allCustomFields.push({ name: m.mappedField, type: fieldType });
+                });
+                
+                try {
+                    await SupabaseService.createAssetType(assetTypeName, allCustomFields);
+                } catch (typeErr) {
+                    console.error("Failed to create asset type", typeErr);
+                }
+                
+                // Note: We no longer force category = assetTypeName because it violates the assets_category_check constraint.
+                // The custom asset type is instead identified by its custom fields.
+            }
+            
             // Prepare import data (duplicate check, etc)
-            prepareImportData(records);
+            const generatedImportData = prepareImportData(records, assetTypeName);
+            
+            if (assetTypeName) {
+                await handleConfirmImport(generatedImportData, newFields);
+            } else {
+                setModalState({ type: 'import' });
+            }
         } catch (err) {
             setError('Failed to process mapping. Please try again.');
         }
@@ -2016,31 +2220,34 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
     const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
     const editSelectCls = "border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-4";
 
-    const handleConfirmImport = async () => {
+    const handleConfirmImport = async (overrideImportData?: any, overrideNewFields?: any[]) => {
+        const dataToImport = overrideImportData || importData;
+        const fieldsToCreate = overrideNewFields || newFieldsToCreate;
+
         try {
             setIsImporting(true);
             
             // First, create any new custom fields
-            if (newFieldsToCreate.length > 0) {
-                for (const field of newFieldsToCreate) {
+            if (fieldsToCreate.length > 0) {
+                for (const field of fieldsToCreate) {
                     await SupabaseService.createCustomField('assets', field);
                 }
                 // Refresh custom fields after creating new ones
                 await fetchCustomFields();
             }
             
-            const total = importData.newAssets.length + importData.updatedAssets.length;
+            const total = dataToImport.newAssets.length + dataToImport.updatedAssets.length;
             setTotalToImport(total);
             setImportedCount(0);
             
             // Use bulk import for new assets
-            if (importData.newAssets.length > 0) {
-                await SupabaseService.bulkAddAssets(importData.newAssets);
-                setImportedCount(importData.newAssets.length);
+            if (dataToImport.newAssets.length > 0) {
+                await SupabaseService.bulkAddAssets(dataToImport.newAssets);
+                setImportedCount(dataToImport.newAssets.length);
             }
 
             // Handle updates individually (bulk update not available)
-            for (const { id, updates } of importData.updatedAssets) {
+            for (const { id, updates } of dataToImport.updatedAssets) {
                 await SupabaseService.updateAsset(id, updates);
                 setImportedCount(prev => prev + 1);
             }
@@ -2058,7 +2265,31 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
     return (
         <div>
             <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
-                <div className="w-full sm:w-1/3">
+                <div className="w-full sm:w-1/3 flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => {
+                                setFilter('');
+                                setSelectedAssetType(null);
+                            }}
+                            className="px-3 py-1 text-sm font-medium rounded-full bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-200 transition-colors"
+                        >
+                            All Assets
+                        </button>
+                        {customAssetTypes.map(type => (
+                            <button
+                                key={type.id}
+                                onClick={() => setSelectedAssetType(type.id === selectedAssetType ? null : type.id)}
+                                className={`px-3 py-1 text-sm font-medium rounded-full transition-colors ${
+                                    selectedAssetType === type.id
+                                        ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
+                                        : 'bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200'
+                                }`}
+                            >
+                                {type.name}
+                            </button>
+                        ))}
+                    </div>
                     <input
                         type="text"
                         placeholder="Filter assets..."
@@ -2124,17 +2355,19 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                                         </button>
                                     </div>
                                 </th>
-                                {columnOrder.map(colKey => {
+                                {visibleColumns.map(colKey => {
                                     const customField = customFields.find(f => `custom_field_${f.field_name}` === colKey);
                                     const title = customField 
                                         ? customField.field_label + (customField.is_required ? " *" : "")
                                         : colKey === 'asset_id' ? 'Asset ID'
                                         : colKey === 'name' ? 'Name'
+                                        : colKey === 'type' ? 'Type'
                                         : colKey === 'criticality' ? 'Criticality'
                                         : colKey === 'business_unit' ? 'Business Unit'
                                         : colKey === 'governed_status' ? 'Governed'
                                         : colKey === 'nn_controls' ? 'NN Controls'
                                         : colKey === 'source' ? 'Source'
+                                        : colKey.startsWith('custom_field_') ? colKey.replace('custom_field_', '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
                                         : colKey;
                                     return renderFilterableHeader(colKey, title);
                                 })}
@@ -2235,9 +2468,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
                                     </td>
 
-
-
-                                    {columnOrder.map(colKey => {
+                                    {visibleColumns.map(colKey => {
                                         if (colKey === 'asset_id') {
                                             return (
                                                 <td key={colKey} className="px-6 py-4 whitespace-nowrap text-sm font-mono font-semibold">
@@ -2295,8 +2526,8 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                                                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
                                                                 {asset.nn_controls.length}
                                                             </span>
-                                                            <span className="text-xs text-gray-400 dark:text-gray-500 truncate max-w-[120px]" title={asset.nn_controls.map(c => c.ctl_id).join(', ')}>
-                                                                controls
+                                                            <span className="text-xs text-gray-400 dark:text-gray-500 truncate max-w-[80px]" title={asset.nn_controls.map(c => c.ctl_id).join(', ')}>
+                                                                {asset.nn_controls.length === 1 ? 'control' : 'controls'}
                                                             </span>
                                                         </div>
                                                     ) : (
@@ -2309,6 +2540,20 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                                             return (
                                                 <td key={colKey} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                                     {displaySource(asset.source)}
+                                                </td>
+                                            );
+                                        }
+                                        if (colKey === 'type') {
+                                            const typeLabel = getAssetType(asset);
+                                            return (
+                                                <td key={colKey} className="px-6 py-4 whitespace-nowrap text-sm">
+                                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                                        typeLabel === 'standard'
+                                                            ? 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300'
+                                                            : 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300'
+                                                    }`}>
+                                                        {typeLabel}
+                                                    </span>
                                                 </td>
                                             );
                                         }
@@ -2421,13 +2666,11 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
                 customFields={customFields}
-
-
-
                 onShowColumnManagement={() => setShowColumnManagement(true)}
-
-
-
+                selectedAssetType={selectedAssetType}
+                customAssetTypes={customAssetTypes}
+                assets={assets}
+                orgName={orgName}
             />
 
 
@@ -2652,9 +2895,10 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                 <ImportConfirmationModal
                     isOpen={modalState.type === 'import'}
                     onClose={closeModal}
-                    onConfirm={handleConfirmImport}
+                    onConfirm={() => handleConfirmImport()}
                     newFields={newFieldsToCreate}
                     moduleName="Assets"
+                    assetTypeName={newAssetTypeName || undefined}
                 />
             ) : (
                 <Modal isOpen={modalState.type === 'import'} onClose={closeModal} title="Import CSV Preview">
@@ -2704,7 +2948,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
                     <div className="mt-6 flex justify-end space-x-3">
                         <button onClick={closeModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
-                        <button onClick={handleConfirmImport} disabled={importData.newAssets.length === 0 && importData.updatedAssets.length === 0} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed">
+                        <button onClick={() => handleConfirmImport()} disabled={importData.newAssets.length === 0 && importData.updatedAssets.length === 0} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed">
                             {importData.newAssets.length > 0 && importData.updatedAssets.length > 0 
                                 ? `Add ${importData.newAssets.length} & Update ${importData.updatedAssets.length} Assets`
                                 : importData.newAssets.length > 0 
@@ -2724,6 +2968,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                 moduleName="Assets"
                 systemFields={SYSTEM_FIELDS_CONFIG.assets}
                 existingCustomFields={customFields}
+                currentAssetType={selectedAssetType ? customAssetTypes.find(t => t.id === selectedAssetType) : null}
             />
 
             {bulkProgress.status === 'idle' && (

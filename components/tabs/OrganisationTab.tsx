@@ -7,6 +7,7 @@ import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
 import { PlatformAdminTab } from '../admin/PlatformAdminTab';
 import { ViewOrganizationTab } from '../org/ViewOrganizationTab';
 import { OrgSettingsTab } from '../org/OrgSettingsTab';
+import { parseCSVLine } from '../../utils/csvParser';
 
 interface ContactModalProps {
     isOpen: boolean;
@@ -315,7 +316,7 @@ interface OrganisationTabProps {
 type OrgSubTabId = 'tenant_admin' | 'view_org' | 'settings';
 
 export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, isActive = true }) => {
-    const isPlatformAdmin = userRole === 'tenant_admin' || userRole === 'admin';
+    const isPlatformAdmin = userRole === 'tenant_admin' || userRole === 'admin' || userRole === 'cxo';
     const defaultTab: OrgSubTabId = isPlatformAdmin ? 'tenant_admin' : 'view_org';
     const [activeSubTab, setActiveSubTab] = useState<OrgSubTabId>(defaultTab);
     const [mountedTabs, setMountedTabs] = useState<Set<OrgSubTabId>>(new Set([defaultTab]));

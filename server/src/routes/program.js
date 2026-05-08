@@ -4,9 +4,10 @@ import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
 
-// Derive status from progress_percent (unless Blocked)
+// Derive status from progress_percent (unless Blocked or Escalated)
 function deriveStatus(progress, currentStatus) {
   if (currentStatus === 'Blocked') return 'Blocked';
+  if (currentStatus === 'Escalated') return 'Escalated';
   if (progress === 0 || progress === undefined || progress === null) return 'Planned';
   if (progress >= 100) return 'Completed';
   return 'InProgress';
@@ -15,11 +16,17 @@ function deriveStatus(progress, currentStatus) {
 // GET all program tasks for the org
 router.get('/', requireAuth, async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('program')
       .select('*')
-      .eq('org_id', req.orgId)
-      .order('last_updated', { ascending: false });
+      .eq('org_id', req.orgId);
+
+    // Enforce CXO filtering: only see escalated items
+    if (req.userRole === 'cxo') {
+      query = query.eq('status', 'Escalated');
+    }
+
+    const { data, error } = await query.order('last_updated', { ascending: false });
     if (error) throw error;
     res.json(data || []);
   } catch (err) {

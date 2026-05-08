@@ -9,6 +9,45 @@ function logActivity(payload) {
   supabaseAdmin.from('all_activity_log').insert(payload).then(() => {});
 }
 
+async function notifyAdmins(orgId, excludeUserId, notificationData) {
+  try {
+    const { data: admins, error } = await supabaseAdmin
+      .from('org_onboarding')
+      .select('user_id')
+      .eq('org_id', orgId)
+      .in('role', ['admin', 'tenant_admin'])
+      .not('user_id', 'is', null);
+
+    if (error) {
+      console.error('[notifyAdmins] Error fetching admins:', error);
+      return;
+    }
+
+    console.log(`[notifyAdmins] Found ${admins?.length || 0} admins in org ${orgId}`);
+
+    if (admins && admins.length > 0) {
+      const notifications = admins
+        .filter(a => a.user_id !== excludeUserId)
+        .map(a => ({
+          ...notificationData,
+          recipient_id: a.user_id,
+          org_id: orgId,
+        }));
+      
+      if (notifications.length > 0) {
+        console.log(`[notifyAdmins] Inserting ${notifications.length} notifications`);
+        console.log(`[notifyAdmins] Payload:`, JSON.stringify(notifications));
+        const { error: insError } = await supabaseAdmin.from('policy_notifications').insert(notifications);
+        if (insError) console.error('[notifyAdmins] Error inserting notifications:', insError);
+      } else {
+        console.log('[notifyAdmins] No recipients after filtering excluded user');
+      }
+    }
+  } catch (err) {
+    console.error('[notifyAdmins] Catch-all error:', err);
+  }
+}
+
 // ── Utility: extract metadata from markdown ────────────────────────────────
 function extractMetadata(markdown) {
   if (!markdown) return {};
@@ -78,10 +117,9 @@ async function generatePolicyId(orgId) {
 async function checkAndExpirePolicies(orgId) {
   const now = new Date().toISOString().split('T')[0];
   const { data: expired } = await supabaseAdmin
-    .from('policy_documents')
-    .select('policy_id, name, user_id')
+    .select('policy_id, name, user_id, policy_status')
     .eq('org_id', orgId)
-    .eq('policy_status', 'approved')
+    .in('policy_status', ['approved', 'reviewed'])
     .lt('refresh_date', now);
 
   if (!expired || expired.length === 0) return;
@@ -91,7 +129,7 @@ async function checkAndExpirePolicies(orgId) {
       .from('policy_documents')
       .update({ policy_status: 'to_review', updated_at: new Date().toISOString() })
       .eq('policy_id', policy.policy_id)
-      .eq('policy_status', 'approved'); // idempotency guard
+      .in('policy_status', ['approved', 'reviewed']); // idempotency guard
 
     // Only log & notify if the row was actually transitioned
     if (count === 0) continue;
@@ -105,9 +143,10 @@ async function checkAndExpirePolicies(orgId) {
       org_id: orgId,
       severity: 'warning',
       event_data: {
-        message: `Policy "${policy.name}" has expired and moved to To Review`,
-        from_status: 'approved',
+        message: `Policy "${policy.name}" has expired and moved to In Review`,
+        from_status: policy.policy_status,
         to_status: 'to_review',
+        user_email: 'System',
       },
     });
 
@@ -145,12 +184,39 @@ router.get('/', requireAuth, async (req, res) => {
 // ── GET /notifications  ─ MUST be before /:id ─────────────────────────────
 router.get('/notifications', requireAuth, async (req, res) => {
   try {
+    console.log(`[DEBUG] GET /notifications for user: ${req.userId}, org: ${req.orgId}`);
     const { data, error } = await supabaseAdmin
       .from('policy_notifications')
       .select('*')
       .eq('recipient_id', req.userId)
       .eq('org_id', req.orgId)
       .order('created_at', { ascending: false });
+    
+    if (error) {
+      console.error('[DEBUG] Error fetching notifications:', error);
+      throw error;
+    }
+    
+    console.log(`[DEBUG] Found ${data?.length || 0} notifications for user ${req.userId}`);
+    if (data && data.length > 0) {
+      console.log(`[DEBUG] Notifications content:`, JSON.stringify(data.slice(0, 5)));
+    }
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Debug endpoint to see ALL notifications for the org
+router.get('/notifications-all-debug', requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('policy_notifications')
+      .select('*')
+      .eq('org_id', req.orgId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    
     if (error) throw error;
     res.json(data || []);
   } catch (err) {
@@ -273,6 +339,7 @@ router.post('/', requireAuth, async (req, res) => {
       severity: 'info',
       event_data: {
         actor_name: actorName,
+        user_email: req.user?.email || actorName,
         from_status: null,
         to_status: policy_status,
       },
@@ -291,11 +358,16 @@ router.put('/:id', requireAuth, async (req, res) => {
     const meta = markdown !== undefined ? extractMetadata(markdown) : {};
     const actorName = req.user?.email || req.userId;
 
-    const { data: current } = await supabaseAdmin
+    const { data: current, error: currentError } = await supabaseAdmin
       .from('policy_documents')
-      .select('policy_status, name')
+      .select('policy_status, name, next_review_date')
       .eq('policy_id', req.params.id)
+      .eq('org_id', req.orgId)
       .single();
+
+    if (currentError) {
+      return res.status(404).json({ message: 'Policy not found' });
+    }
 
     const updatePayload = {
       ...(markdown !== undefined ? {
@@ -305,8 +377,8 @@ router.put('/:id', requireAuth, async (req, res) => {
         version: meta.version || 'V1.0',
         document_type: meta.document_type || null,
         owner_name: meta.owner_name || null,
-        refresh_date: meta.refresh_date || null,
-        next_review_date: meta.refresh_date || undefined,
+        refresh_date: meta.refresh_date || current?.next_review_date || null,
+        next_review_date: meta.refresh_date || current?.next_review_date || new Date().toISOString().split('T')[0],
       } : {}),
       ...(policy_status ? { policy_status } : {}),
       updated_at: new Date().toISOString(),
@@ -319,7 +391,11 @@ router.put('/:id', requireAuth, async (req, res) => {
       .eq('org_id', req.orgId)
       .select()
       .single();
-    if (error) throw error;
+    
+    if (error) {
+      console.error('[PUT /api/policies/:id] Update error:', error);
+      throw error;
+    }
 
     const action = (policy_status && current?.policy_status !== policy_status)
       ? 'policy_status_changed'
@@ -335,6 +411,7 @@ router.put('/:id', requireAuth, async (req, res) => {
       severity: 'info',
       event_data: {
         actor_name: actorName,
+        user_email: req.user?.email || actorName,
         from_status: current?.policy_status,
         to_status: policy_status || current?.policy_status,
       },
@@ -342,6 +419,7 @@ router.put('/:id', requireAuth, async (req, res) => {
 
     res.json(data);
   } catch (err) {
+    console.error('[PUT /api/policies/:id] Catch-all error:', err);
     res.status(500).json({ message: err.message });
   }
 });
@@ -370,7 +448,10 @@ router.delete('/:id', requireAuth, async (req, res) => {
       user_id: req.userId,
       org_id: req.orgId,
       severity: 'warning',
-      event_data: { actor_name: req.user?.email || req.userId },
+      event_data: { 
+        actor_name: req.user?.email || req.userId,
+        user_email: req.user?.email || req.userId,
+      },
     });
 
     res.status(204).send();
@@ -437,11 +518,92 @@ router.post('/:id/submit-approval', requireAuth, async (req, res) => {
       severity: 'info',
       event_data: {
         actor_name: actorName,
+        user_email: req.user?.email || actorName,
         from_status: prevStatus,
         to_status: 'in_approval',
         comment: `Sent to ${approver_name} (${approver_email}) for approval`,
         approver_name,
         approver_email,
+      },
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── POST /:id/submit-review ───────────────────────────────────────────────
+router.post('/:id/submit-review', requireAuth, async (req, res) => {
+  try {
+    const { reviewer_id, reviewer_name, reviewer_email } = req.body;
+    const policyId = req.params.id;
+    const actorName = req.user?.email || req.userId;
+
+    const { data: policy } = await supabaseAdmin
+      .from('policy_documents')
+      .select('name, policy_status')
+      .eq('policy_id', policyId)
+      .single();
+
+    if (!policy) return res.status(404).json({ message: 'Policy not found' });
+    const prevStatus = policy.policy_status;
+
+    await supabaseAdmin
+      .from('policy_approvals')
+      .update({ status: 'rejected', comment: 'Superseded by new review submission' })
+      .eq('policy_id', policyId)
+      .eq('status', 'pending');
+
+    await supabaseAdmin.from('policy_approvals').insert({
+      policy_id: policyId,
+      requested_by: req.userId,
+      approver_id: reviewer_id || null,
+      approver_name: reviewer_name,
+      approver_email: reviewer_email,
+      status: 'pending',
+      org_id: req.orgId,
+    });
+
+    await supabaseAdmin
+      .from('policy_documents')
+      .update({ policy_status: 'to_review', updated_at: new Date().toISOString() })
+      .eq('policy_id', policyId);
+
+    if (reviewer_id) {
+      console.log(`[DEBUG] Submitting notification for reviewer: ${reviewer_id}`);
+      const { data: notifData, error: notifError } = await supabaseAdmin.from('policy_notifications').insert({
+        recipient_id: reviewer_id,
+        policy_id: policyId,
+        policy_name: policy.name,
+        type: 'approval_requested', // Use allowed type for DB constraint
+        message: `${actorName} has requested you to review policy "${policy.name}"`,
+        org_id: req.orgId,
+      }).select();
+      
+      if (notifError) {
+        console.error('[DEBUG] Error inserting review notification:', notifError);
+      } else {
+        console.log('[DEBUG] Review notification inserted successfully:', notifData);
+      }
+    }
+
+    logActivity({
+      action: 'policy_submitted_for_review',
+      module: 'Policy',
+      entity_id: policyId,
+      entity_name: policy.name,
+      user_id: req.userId,
+      org_id: req.orgId,
+      severity: 'info',
+      event_data: {
+        actor_name: actorName,
+        user_email: req.user?.email || actorName,
+        from_status: prevStatus,
+        to_status: 'to_review',
+        comment: `Sent to ${reviewer_name} (${reviewer_email}) for review`,
+        approver_name: reviewer_name,
+        approver_email: reviewer_email,
       },
     });
 
@@ -484,10 +646,15 @@ router.post('/:id/approve', requireAuth, async (req, res) => {
       .eq('policy_id', policyId)
       .eq('status', 'pending');
 
-    await supabaseAdmin
+    const { data: updateData, error: updateError } = await supabaseAdmin
       .from('policy_documents')
       .update({ policy_status: 'approved', refresh_date: refreshDateStr, updated_at: new Date().toISOString() })
       .eq('policy_id', policyId);
+    
+    if (updateError) {
+      console.error('[POST /api/policies/:id/approve] Update error:', updateError);
+      throw updateError;
+    }
 
     if (policy.user_id && policy.user_id !== req.userId) {
       await supabaseAdmin.from('policy_notifications').insert({
@@ -500,6 +667,14 @@ router.post('/:id/approve', requireAuth, async (req, res) => {
       });
     }
 
+    // Notify other admins
+    notifyAdmins(req.orgId, req.userId, {
+      policy_id: policyId,
+      policy_name: policy.name,
+      type: 'approved',
+      message: `Policy "${policy.name}" has been fully approved by ${actorName}`,
+    }).catch(() => {});
+
     logActivity({
       action: 'policy_approved',
       module: 'Policy',
@@ -510,6 +685,7 @@ router.post('/:id/approve', requireAuth, async (req, res) => {
       severity: 'info',
       event_data: {
         actor_name: actorName,
+        user_email: req.user?.email || actorName,
         from_status: prevStatus,
         to_status: 'approved',
         comment: comment || null,
@@ -518,6 +694,117 @@ router.post('/:id/approve', requireAuth, async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
+    console.error('[POST /api/policies/:id/approve] Catch-all error:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── POST /:id/review ──────────────────────────────────────────────────────
+router.post('/:id/review', requireAuth, async (req, res) => {
+  try {
+    const policyId = req.params.id;
+    const { comment } = req.body;
+    const actorName = req.user?.email || req.userId;
+
+    const { data: policy } = await supabaseAdmin
+      .from('policy_documents')
+      .select('name, policy_status, user_id')
+      .eq('policy_id', policyId)
+      .single();
+
+    if (!policy) return res.status(404).json({ message: 'Policy not found' });
+    const prevStatus = policy.policy_status;
+
+    // Calculate refresh_date from org settings
+    const { data: settings } = await supabaseAdmin
+      .from('org_settings')
+      .select('policy_refresh_months')
+      .eq('org_id', req.orgId)
+      .maybeSingle();
+    const months = settings?.policy_refresh_months || 3;
+    const refreshDate = new Date();
+    refreshDate.setMonth(refreshDate.getMonth() + months);
+    const refreshDateStr = refreshDate.toISOString().split('T')[0];
+
+    // Find who requested this review before we update the record
+    const { data: pendingApproval } = await supabaseAdmin
+      .from('policy_approvals')
+      .select('requested_by')
+      .eq('policy_id', policyId)
+      .eq('status', 'pending')
+      .maybeSingle();
+
+    console.log('[DEBUG] Found pending review record:', pendingApproval);
+
+    await supabaseAdmin
+      .from('policy_approvals')
+      .update({ status: 'approved', comment: comment || null, updated_at: new Date().toISOString() })
+      .eq('policy_id', policyId)
+      .eq('status', 'pending');
+
+    const { data: updateData, error: updateError } = await supabaseAdmin
+      .from('policy_documents')
+      .update({ policy_status: 'reviewed', refresh_date: refreshDateStr, updated_at: new Date().toISOString() })
+      .eq('policy_id', policyId);
+    
+    if (updateError) {
+      console.error('[POST /api/policies/:id/review] Update error:', updateError);
+      throw updateError;
+    }
+
+    if (policy.user_id && policy.user_id !== req.userId) {
+      console.log(`[DEBUG] Notifying owner: ${policy.user_id}`);
+      await supabaseAdmin.from('policy_notifications').insert({
+        recipient_id: policy.user_id,
+        policy_id: policyId,
+        policy_name: policy.name,
+        type: 'approved', // Use allowed type for DB constraint
+        message: `${actorName} reviewed policy "${policy.name}"`,
+        org_id: req.orgId,
+      });
+    }
+
+    // Notify the person who requested the review
+    if (pendingApproval?.requested_by && pendingApproval.requested_by !== req.userId && pendingApproval.requested_by !== policy.user_id) {
+      console.log(`[DEBUG] Notifying requester: ${pendingApproval.requested_by}`);
+      await supabaseAdmin.from('policy_notifications').insert({
+        recipient_id: pendingApproval.requested_by,
+        policy_id: policyId,
+        policy_name: policy.name,
+        type: 'approved', // Use allowed type for DB constraint
+        message: `${actorName} has completed the review you requested for policy "${policy.name}"`,
+        org_id: req.orgId,
+      });
+    }
+
+    // Notify admins that a policy is ready for approval
+    notifyAdmins(req.orgId, req.userId, {
+      policy_id: policyId,
+      policy_name: policy.name,
+      type: 'approved', // Use allowed type for DB constraint
+      message: `Policy "${policy.name}" has been reviewed by ${actorName} and is ready for approval`,
+    }).catch(() => {});
+
+    logActivity({
+      action: 'policy_reviewed',
+      module: 'Policy',
+      entity_id: policyId,
+      entity_name: policy.name,
+      user_id: req.userId,
+      org_id: req.orgId,
+      severity: 'info',
+      event_data: {
+        actor_name: actorName,
+        user_email: req.user?.email || actorName,
+        from_status: prevStatus,
+        to_status: 'reviewed',
+        comment: comment || null,
+      },
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[POST /api/policies/:id/review] Catch-all error:', err);
     res.status(500).json({ message: err.message });
   }
 });

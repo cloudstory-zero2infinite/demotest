@@ -90,7 +90,7 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                     </div>
                 </div>
                 <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
-                    Approved policies will automatically expire and move to "To Review" status after this period.
+                    Approved policies will automatically expire and move to "In Review" status after this period.
                 </p>
             </div>
 

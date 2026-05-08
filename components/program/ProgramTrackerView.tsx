@@ -197,7 +197,7 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
         }
     }, [taskToEdit, isOpen, mode]);
 
-    const isBlocked = formData.status === 'Blocked';
+    const isEscalated = formData.status === 'Escalated';
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
@@ -209,23 +209,34 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
         }
     };
 
-    const toggleBlocked = () => {
+    const toggleEscalated = () => {
+        console.log('🔍 DEBUG: toggleEscalated called');
         setFormData(prev => {
-            if (prev.status === 'Blocked') {
-                return { ...prev, status: deriveStatus(prev.progress_percent || 0) };
+            console.log('🔍 DEBUG: Current form status before toggle:', prev.status);
+            if (prev.status === 'Escalated') {
+                console.log('🔍 DEBUG: Removing escalation, deriving status from progress:', prev.progress_percent);
+                const newStatus = deriveStatus(prev.progress_percent || 0);
+                console.log('🔍 DEBUG: New derived status:', newStatus);
+                return { ...prev, status: newStatus };
             }
-            return { ...prev, status: 'Blocked' as ProgramStatus };
+            console.log('🔍 DEBUG: Setting status to Escalated');
+            return { ...prev, status: 'Escalated' as ProgramStatus };
         });
     };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        console.log('🔍 DEBUG: Form submission started');
+        console.log('🔍 DEBUG: Current form data:', formData);
+        
         // Clean empty strings to null for nullable DB fields
         const cleaned = {
             ...formData,
             due_date: formData.due_date || null,
             assignee: formData.assignee || null,
         };
+        console.log('🔍 DEBUG: Cleaned form data:', cleaned);
+        console.log('🔍 DEBUG: Calling onSave with status:', cleaned.status);
         onSave(cleaned);
     };
 
@@ -268,25 +279,25 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
                         <div className="mt-1 flex items-center gap-3">
                             <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
-                                formData.status === 'Blocked' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300' :
+                                formData.status === 'Escalated' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300' :
                                 formData.status === 'Completed' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' :
                                 formData.status === 'InProgress' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300' :
                                 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
                             }`}>{formData.status || 'Planned'}</span>
                             {!isViewMode && (
-                                <button type="button" onClick={toggleBlocked} className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
-                                    isBlocked
-                                        ? 'border-green-300 text-green-700 hover:bg-green-50 dark:border-green-600 dark:text-green-300 dark:hover:bg-green-900/30'
-                                        : 'border-red-300 text-red-700 hover:bg-red-50 dark:border-red-600 dark:text-red-300 dark:hover:bg-red-900/30'
+                                <button type="button" onClick={toggleEscalated} className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors $$
+                                    isEscalated
+                                        ? 'border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-900/30'
+                                        : 'border-purple-300 text-purple-700 hover:bg-purple-50 dark:border-purple-600 dark:text-purple-300 dark:hover:bg-purple-900/30'
                                 }`}>
-                                    {isBlocked ? 'Unblock' : 'Block'}
+                                    {isEscalated ? 'Remove Escalation' : 'Escalate to CXO'}
                                 </button>
                             )}
                         </div>
                     </div>
                      <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Progress (%)</label>
-                        <input type="range" name="progress_percent" min="0" max="100" value={formData.progress_percent || 0} onChange={handleChange} disabled={isViewMode || isBlocked} className="mt-1 block w-full" />
+                        <input type="range" name="progress_percent" min="0" max="100" value={formData.progress_percent || 0} onChange={handleChange} disabled={isViewMode || isEscalated} className="mt-1 block w-full" />
                         <span className="text-sm dark:text-gray-300">{formData.progress_percent || 0}%</span>
                     </div>
                     <div>
@@ -364,7 +375,7 @@ const HistoryModal: React.FC<{ task: ProgramTask; onClose: () => void }> = ({ ta
     );
 };
 
-export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
+export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: boolean }> = ({ isActive = true, hideEscalated = false }) => {
     const [tasks, setTasks] = useState<ProgramTask[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
@@ -384,7 +395,12 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
     const editSelectCls = "border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
 
     const fetchTasks = useCallback(async () => {
+        console.log('🔍 DEBUG: fetchTasks called - fetching fresh data from database');
         const data = await SupabaseService.getTasks();
+        console.log('🔍 DEBUG: fetchTasks response:', data);
+        console.log('🔍 DEBUG: Number of tasks fetched:', data.length);
+        const escalatedTasks = data.filter(t => t.status === 'Escalated');
+        console.log('🔍 DEBUG: Escalated tasks in database:', escalatedTasks.length, escalatedTasks.map(t => ({ id: t.id, name: t.program_name, status: t.status })));
         setTasks(data);
         return data;
     }, []);
@@ -526,7 +542,17 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
                     const cleanDueDate = due_date ? due_date.trim() : null;
                     const cleanAssignee = assignee ? sanitizeInput(assignee.trim()) : null;
                     const progress = Number(progress_percent) || 0;
-                    const cleanStatus = (status && sanitizeInput(status.trim()) === 'Blocked') ? 'Blocked' as ProgramStatus : deriveStatus(progress);
+                    const cleanStatus = (() => {
+                        console.log('🔍 DEBUG: cleanStatus function called with status:', status, 'progress:', progress);
+                        if (status && (sanitizeInput(status.trim()) === 'Blocked' || sanitizeInput(status.trim()) === 'Escalated')) {
+                            const finalStatus = sanitizeInput(status.trim()) as ProgramStatus;
+                            console.log('🔍 DEBUG: Preserving special status:', finalStatus);
+                            return finalStatus;
+                        }
+                        const derivedStatus = deriveStatus(progress);
+                        console.log('🔍 DEBUG: Using derived status:', derivedStatus);
+                        return derivedStatus;
+                    })();
 
                     return {
                         program_name: cleanProgramName,
@@ -671,6 +697,10 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
 
     const filteredAndSortedTasks = useMemo(() => {
         let items = [...tasks];
+        
+        // Note: Don't hide escalated items - user wants to see escalated status in Program tab
+        // Escalated items should be visible but with proper status display
+        
         if (filter) {
             const q = filter.toLowerCase();
             items = items.filter(t =>
@@ -693,7 +723,7 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
             });
         }
         return items;
-    }, [tasks, filter, sortConfig]);
+    }, [tasks, filter, sortConfig, hideEscalated]);
 
     const requestSort = (key: keyof ProgramTask) => {
         let direction: 'ascending' | 'descending' = 'ascending';
@@ -726,6 +756,24 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
         link.href = URL.createObjectURL(blob);
         link.download = `program-milestones-${new Date().toISOString().split('T')[0]}.csv`;
         link.click();
+    };
+
+    const handleSave = async (updates: ProgramTaskUpdate) => {
+        console.log('🔍 DEBUG: handleSave called with updates:', updates);
+        try {
+            setIsSaving(true);
+            setError(null);
+            console.log('🔍 DEBUG: Calling updateTask with ID:', task.id, 'updates:', updates);
+            const updateResult = await SupabaseService.updateTask(task.id as string, updates);
+            console.log('🔍 DEBUG: updateTask completed, result:', updateResult);
+            console.log('🔍 DEBUG: updateTask completed, calling fetchTasks');
+            fetchTasks();
+        } catch (error) {
+            console.log('🔍 DEBUG: Save failed with error:', error);
+            setError('Failed to save changes.');
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     const handleSaveAll = async () => {
@@ -761,11 +809,12 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean }> = ({ isActive 
         }
     };
 
-    const programStatusStyles: Record<ProgramStatus, string> = {
+    const programStatusStyles = {
         Planned: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
         InProgress: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300',
         Completed: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
         Blocked: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300',
+        Escalated: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300',
     };
 
     return (

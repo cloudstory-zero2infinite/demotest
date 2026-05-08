@@ -99,7 +99,10 @@ interface CapabilityMultiSelectProps {
 
 
 
-const CapabilityMultiSelect: React.FC<CapabilityMultiSelectProps> = ({ values, onChange, capabilities, readOnly, onCapabilityCreated }) => {
+const CapabilityMultiSelect: React.FC<CapabilityMultiSelectProps> = ({ values = [], onChange, capabilities, readOnly, onCapabilityCreated }) => {
+    // Ensure values is always an array
+    const safeValues = Array.isArray(values) ? values : [];
+
 
 
 
@@ -163,23 +166,12 @@ const CapabilityMultiSelect: React.FC<CapabilityMultiSelectProps> = ({ values, o
 
 
 
-        if (values.includes(val)) {
-
-
-
-            onChange(values.filter(v => v !== val));
-
-
-
+        if (safeValues.includes(val)) {
+            onChange(safeValues.filter(v => v !== val));
         } else {
-
-
-
-            onChange([...values, val]);
-
-
-
+            onChange([...safeValues, val]);
         }
+
 
 
 
@@ -271,7 +263,7 @@ const CapabilityMultiSelect: React.FC<CapabilityMultiSelectProps> = ({ values, o
 
 
 
-            onChange([...values, created.capab_name]);
+            onChange([...safeValues, created.capab_name]);
 
 
 
@@ -308,41 +300,14 @@ const CapabilityMultiSelect: React.FC<CapabilityMultiSelectProps> = ({ values, o
 
 
     if (readOnly) {
-
-
-
         return (
-
-
-
             <div className="mt-1 flex flex-wrap gap-1.5 min-h-[38px] items-center px-2 py-1.5 rounded-md border bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-sm">
-
-
-
-                {values.length === 0 && <span className="text-gray-400 text-sm">—</span>}
-
-
-
-                {values.map((v, i) => (
-
-
-
+                {safeValues.length === 0 && <span className="text-gray-400 text-sm">—</span>}
+                {safeValues.map((v, i) => (
                     <span key={i} className="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">{v}</span>
-
-
-
                 ))}
-
-
-
             </div>
-
-
-
         );
-
-
-
     }
 
 
@@ -379,27 +344,13 @@ const CapabilityMultiSelect: React.FC<CapabilityMultiSelectProps> = ({ values, o
 
 
 
-                {values.map((v, i) => (
-
-
-
+                {safeValues.map((v, i) => (
                     <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">
-
-
-
                         {v}
-
-
-
                         <button type="button" onClick={(e) => { e.stopPropagation(); toggleValue(v); }} className="hover:text-purple-600 dark:hover:text-purple-200 leading-none">&times;</button>
-
-
-
                     </span>
-
-
-
                 ))}
+
 
 
 
@@ -427,7 +378,8 @@ const CapabilityMultiSelect: React.FC<CapabilityMultiSelectProps> = ({ values, o
 
 
 
-                    placeholder={values.length === 0 ? 'Type to search capabilities...' : ''}
+                    placeholder={safeValues.length === 0 ? 'Type to search capabilities...' : ''}
+
 
 
 
@@ -467,7 +419,8 @@ const CapabilityMultiSelect: React.FC<CapabilityMultiSelectProps> = ({ values, o
 
 
 
-                                checked={values.includes(cap.capab_name)}
+                                checked={safeValues.includes(cap.capab_name)}
+
 
 
 
@@ -2147,7 +2100,7 @@ interface ControlModalProps {
 
 
 
-    onRequestEnforcement?: (control: ControlRegistry, requestedStatus: 'Enforced' | 'NotEnforced') => void;
+    onRequestEnforcement?: (control: ControlRegistry, requestedStatus: ControlStatus, pendingData?: any) => void;
 
 
 
@@ -2316,21 +2269,27 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
 
     // System types (NN, Regulatory, Standard): only status, controlled by, other details are editable
-
-
-
+    // For NN/Custom controls: only status, controlled by, other details, and evidence files are editable
+    // All other fields are system generated and should not be editable
+    const isNNType = mode === 'edit' && controlToEdit?.ctl_type === 'NN';
+    const isCustomType = mode === 'edit' && controlToEdit?.ctl_type === 'Custom';
     const isSystemType = mode === 'edit' && SYSTEM_CTL_TYPES.includes(controlToEdit?.ctl_type as ControlType);
 
+    // For NN or Custom controls: freeze all fields except status, controlled by, other details, and evidence files
+    const isNNFieldFrozen = isNNType || isCustomType;
+    
+    // For other system types (Regulatory, Standard): freeze all fields (existing behavior)
+    const isOtherSystemFieldFrozen = isSystemType && !isNNType;
+    
+    const isSystemFieldFrozen = isFieldFrozen || isOtherSystemFieldFrozen;
 
 
-    const isSystemFieldFrozen = isFieldFrozen || isSystemType;
 
 
-
-
-        useEffect(() => {
-        if (isOpen && customFields.length > 0) {
+    useEffect(() => {
+        if (isOpen) {
             if (controlToEdit) {
+                // Initialize custom fields data with current values or defaults
                 const customFieldsData: Record<string, any> = {};
                 customFields.forEach(field => {
                     customFieldsData[field.field_name] = controlToEdit.custom_fields?.[field.field_name] || '';
@@ -2349,6 +2308,7 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
                     custom_fields: customFieldsData,
                 });
             } else {
+                // Initialize custom fields data for new control
                 const customFieldsData: Record<string, any> = {};
                 customFields.forEach(field => {
                     customFieldsData[field.field_name] = '';
@@ -2484,6 +2444,26 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
 
 
+        }
+
+        // If it's an NN or Custom control and editable fields (status, controlled by, other details) have changed,
+        // we must trigger the evidence submission flow (Peer Review).
+        if ((isNNType || isCustomType) && controlToEdit) {
+            const hasEditableChanges = 
+                formData.ctl_status !== controlToEdit.ctl_status ||
+                JSON.stringify(formData.ctld_by) !== JSON.stringify(controlToEdit.ctld_by || []) ||
+                formData.ctl_other_details !== (controlToEdit.ctl_other_details || '');
+
+            if (hasEditableChanges && onRequestEnforcement) {
+                // Trigger enforcement modal but also pass the pending form data
+                // We use the current status as requested status if it didn't change
+                const reqStatus = (formData.ctl_status === 'Enforced' || formData.ctl_status === 'NotEnforced') 
+                    ? formData.ctl_status 
+                    : (controlToEdit.ctl_status === 'Enforced' ? 'Enforced' : 'NotEnforced');
+                
+                onRequestEnforcement(controlToEdit, reqStatus as any, formData);
+                return;
+            }
         }
 
 
@@ -2684,11 +2664,11 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
 
 
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Control Name {MANDATORY_LABEL}</label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Control Name {MANDATORY_LABEL}{isNNFieldFrozen && mode === 'edit' && <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(system generated)</span>}</label>
 
 
 
-                        <input type="text" name="ctl_name" value={formData.ctl_name} onChange={handleChange} readOnly={isView || isSystemFieldFrozen} required placeholder="e.g. Encrypt Data on End-User Devices" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        <input type="text" name="ctl_name" value={formData.ctl_name} onChange={handleChange} readOnly={isView || isSystemFieldFrozen || isNNFieldFrozen} required placeholder="e.g. Encrypt Data on End-User Devices" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:bg-gray-50 dark:disabled:bg-gray-800" />
 
 
 
@@ -2724,11 +2704,11 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
 
 
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Control Type {MANDATORY_LABEL}</label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Control Type {MANDATORY_LABEL}{isNNFieldFrozen && mode === 'edit' && <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(system generated)</span>}</label>
 
 
 
-                        <select name="ctl_type" value={formData.ctl_type} onChange={handleChange} disabled={isView || isSystemFieldFrozen} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                        <select name="ctl_type" value={formData.ctl_type} onChange={handleChange} disabled={isView || isSystemFieldFrozen || isNNFieldFrozen} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
 
 
 
@@ -2764,11 +2744,11 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
 
 
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Enforcement Type {MANDATORY_LABEL}</label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Enforcement Type {MANDATORY_LABEL}{isNNFieldFrozen && mode === 'edit' && <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(system generated)</span>}</label>
 
 
 
-                        <select name="enforcement_type" value={formData.enforcement_type} onChange={handleChange} disabled={isView || isSystemFieldFrozen} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                        <select name="enforcement_type" value={formData.enforcement_type} onChange={handleChange} disabled={isView || isSystemFieldFrozen || isNNFieldFrozen} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
 
 
 
@@ -2804,7 +2784,7 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
 
 
-                        <CapabilityMultiSelect values={formData.ctld_by} onChange={vals => setFormData(prev => ({ ...prev, ctld_by: vals }))} capabilities={capabilities} readOnly={isView || isFieldFrozen} onCapabilityCreated={onCapabilityCreated} />
+                        <CapabilityMultiSelect values={formData.ctld_by} onChange={vals => setFormData(prev => ({ ...prev, ctld_by: vals }))} capabilities={capabilities} readOnly={isView || isFieldFrozen || isOtherSystemFieldFrozen} onCapabilityCreated={onCapabilityCreated} />
 
 
 
@@ -2816,11 +2796,11 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
 
 
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description{isNNFieldFrozen && mode === 'edit' && <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(system generated)</span>}</label>
 
 
 
-                        <textarea name="ctl_description" value={formData.ctl_description} onChange={handleChange} readOnly={isView || isSystemFieldFrozen} rows={2} placeholder="Short description of the control" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        <textarea name="ctl_description" value={formData.ctl_description} onChange={handleChange} readOnly={isView || isSystemFieldFrozen || isNNFieldFrozen} rows={2} placeholder="Short description of the control" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
 
 
 
@@ -2832,11 +2812,11 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
 
 
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reference Framework</label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reference Framework{isNNFieldFrozen && mode === 'edit' && <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(system generated)</span>}</label>
 
 
 
-                        <input type="text" name="ctl_ref_fw" value={formData.ctl_ref_fw} onChange={handleChange} readOnly={isView || isSystemFieldFrozen} placeholder="e.g. ISO 27001, NIST CSF" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        <input type="text" name="ctl_ref_fw" value={formData.ctl_ref_fw} onChange={handleChange} readOnly={isView || isSystemFieldFrozen || isNNFieldFrozen} placeholder="e.g. ISO 27001, NIST CSF" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
 
 
 
@@ -2852,7 +2832,7 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
 
 
-                        <input type="text" name="ctl_other_details" value={formData.ctl_other_details} onChange={handleChange} readOnly={isView || isFieldFrozen} placeholder="Additional notes" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        <input type="text" name="ctl_other_details" value={formData.ctl_other_details} onChange={handleChange} readOnly={isView || isFieldFrozen || isOtherSystemFieldFrozen} placeholder="Additional notes" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
 
 
 
@@ -3362,7 +3342,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
     const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
     const [openFilterDropdown, setOpenFilterDropdown] = useState<{key: string, rect: DOMRect} | null>(null);
 
-    const [enforcementModal, setEnforcementModal] = useState<{ isOpen: boolean; control: ControlRegistry | null; requestedStatus: 'Enforced' | 'NotEnforced' }>({ isOpen: false, control: null, requestedStatus: 'Enforced' });
+    const [enforcementModal, setEnforcementModal] = useState<{ isOpen: boolean; control: ControlRegistry | null; requestedStatus: 'Enforced' | 'NotEnforced'; pendingData?: any }>({ isOpen: false, control: null, requestedStatus: 'Enforced' });
 
 
 
@@ -3845,22 +3825,17 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-    const requestSort = (key: keyof ControlRegistry) => {
+    const requestSort = (key: keyof ControlRegistry, direction?: 'ascending' | 'descending') => {
+        if (direction) {
+            setSortConfig({ key, direction });
+            return;
+        }
 
-
-
-        let direction: 'ascending' | 'descending' = 'ascending';
-
-
-
-        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') direction = 'descending';
-
-
-
-        setSortConfig({ key, direction });
-
-
-
+        let newDirection: 'ascending' | 'descending' = 'ascending';
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
+            newDirection = 'descending';
+        }
+        setSortConfig({ key, direction: newDirection });
     };
 
 
@@ -4671,10 +4646,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <div className="flex items-center">
-                                        <button onClick={() => requestSort('ctl_status')} className="flex items-center text-left focus:outline-none flex-grow">
-                                            Status {getSortIconFor('ctl_status')}
-                                        </button>
-                                        <button
+                                        <button 
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 const rect = e.currentTarget.getBoundingClientRect();
@@ -4683,11 +4655,10 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                                                 } else {
                                                     setOpenFilterDropdown({ key: 'ctl_status', rect });
                                                 }
-                                            }}
-                                            className={`ml-1 p-0.5 rounded transition-colors ${columnFilters['ctl_status']?.length ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
-                                            title="Filter"
+                                            }} 
+                                            className={`flex items-center text-left focus:outline-none flex-grow ${columnFilters['ctl_status']?.length ? 'text-blue-600 font-semibold' : ''}`}
                                         >
-                                            <FunnelIcon className="h-3 w-3" />
+                                            Status {getSortIconFor('ctl_status')}
                                         </button>
                                     </div>
                                     {openFilterDropdown?.key === 'ctl_status' && (
@@ -4698,16 +4669,16 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                                             setColumnFilters={setColumnFilters}
                                             onClose={() => setOpenFilterDropdown(null)}
                                             triggerRect={openFilterDropdown.rect}
+                                            sortConfig={sortConfig}
+                                            requestSort={requestSort as any}
+                                            hasFilter={true}
                                         />
                                     )}
                                 </th>
 
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <div className="flex items-center">
-                                        <button onClick={() => requestSort('ctl_type')} className="flex items-center text-left focus:outline-none flex-grow">
-                                            Type {getSortIconFor('ctl_type')}
-                                        </button>
-                                        <button
+                                        <button 
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 const rect = e.currentTarget.getBoundingClientRect();
@@ -4716,11 +4687,10 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                                                 } else {
                                                     setOpenFilterDropdown({ key: 'ctl_type', rect });
                                                 }
-                                            }}
-                                            className={`ml-1 p-0.5 rounded transition-colors ${columnFilters['ctl_type']?.length ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
-                                            title="Filter"
+                                            }} 
+                                            className={`flex items-center text-left focus:outline-none flex-grow ${columnFilters['ctl_type']?.length ? 'text-blue-600 font-semibold' : ''}`}
                                         >
-                                            <FunnelIcon className="h-3 w-3" />
+                                            Type {getSortIconFor('ctl_type')}
                                         </button>
                                     </div>
                                     {openFilterDropdown?.key === 'ctl_type' && (
@@ -4731,16 +4701,16 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                                             setColumnFilters={setColumnFilters}
                                             onClose={() => setOpenFilterDropdown(null)}
                                             triggerRect={openFilterDropdown.rect}
+                                            sortConfig={sortConfig}
+                                            requestSort={requestSort as any}
+                                            hasFilter={true}
                                         />
                                     )}
                                 </th>
 
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                     <div className="flex items-center">
-                                        <button onClick={() => requestSort('enforcement_type')} className="flex items-center text-left focus:outline-none flex-grow">
-                                            Enforcement {getSortIconFor('enforcement_type')}
-                                        </button>
-                                        <button
+                                        <button 
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 const rect = e.currentTarget.getBoundingClientRect();
@@ -4749,11 +4719,10 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                                                 } else {
                                                     setOpenFilterDropdown({ key: 'enforcement_type', rect });
                                                 }
-                                            }}
-                                            className={`ml-1 p-0.5 rounded transition-colors ${columnFilters['enforcement_type']?.length ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
-                                            title="Filter"
+                                            }} 
+                                            className={`flex items-center text-left focus:outline-none flex-grow ${columnFilters['enforcement_type']?.length ? 'text-blue-600 font-semibold' : ''}`}
                                         >
-                                            <FunnelIcon className="h-3 w-3" />
+                                            Enforcement {getSortIconFor('enforcement_type')}
                                         </button>
                                     </div>
                                     {openFilterDropdown?.key === 'enforcement_type' && (
@@ -4764,6 +4733,9 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                                             setColumnFilters={setColumnFilters}
                                             onClose={() => setOpenFilterDropdown(null)}
                                             triggerRect={openFilterDropdown.rect}
+                                            sortConfig={sortConfig}
+                                            requestSort={requestSort as any}
+                                            hasFilter={true}
                                         />
                                     )}
                                 </th>
@@ -4780,13 +4752,9 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                                     return (
                                         <th key={field.id} scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                             <div className="flex items-center">
-                                                <span className="flex-grow">
-                                                    {field.field_label}
-                                                    {field.is_required && <span className="text-red-500 ml-1">*</span>}
-                                                </span>
-                                                {shouldShowFilter && (
-                                                    <button
-                                                        onClick={(e) => {
+                                                <button 
+                                                    onClick={(e) => {
+                                                        if (shouldShowFilter) {
                                                             e.stopPropagation();
                                                             const rect = e.currentTarget.getBoundingClientRect();
                                                             if (openFilterDropdown?.key === colKey) {
@@ -4794,13 +4762,16 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                                                             } else {
                                                                 setOpenFilterDropdown({ key: colKey, rect });
                                                             }
-                                                        }}
-                                                        className={`ml-1 p-0.5 rounded transition-colors ${columnFilters[colKey]?.length ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
-                                                        title="Filter"
-                                                    >
-                                                        <FunnelIcon className="h-3 w-3" />
-                                                    </button>
-                                                )}
+                                                        } else {
+                                                            requestSort(colKey as keyof ControlRegistry);
+                                                        }
+                                                    }} 
+                                                    className={`flex items-center text-left focus:outline-none flex-grow ${columnFilters[colKey]?.length ? 'text-blue-600 font-semibold' : ''}`}
+                                                >
+                                                    {field.field_label}
+                                                    {field.is_required && <span className="text-red-500 ml-1">*</span>}
+                                                    {getSortIconFor(colKey as keyof ControlRegistry)}
+                                                </button>
                                             </div>
                                             {openFilterDropdown?.key === colKey && shouldShowFilter && (
                                                 <FilterDropdown
@@ -4810,6 +4781,9 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                                                     setColumnFilters={setColumnFilters}
                                                     onClose={() => setOpenFilterDropdown(null)}
                                                     triggerRect={openFilterDropdown.rect}
+                                                    sortConfig={sortConfig}
+                                                    requestSort={requestSort as any}
+                                                    hasFilter={shouldShowFilter}
                                                 />
                                             )}
                                         </th>
@@ -5448,7 +5422,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                onRequestEnforcement={(ctl, status) => {
+                onRequestEnforcement={(ctl, status, pendingData) => {
 
 
 
@@ -5456,7 +5430,12 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                    setEnforcementModal({ isOpen: true, control: ctl, requestedStatus: status });
+                    setEnforcementModal({ 
+                        isOpen: true, 
+                        control: ctl, 
+                        requestedStatus: (status === 'Enforced' || status === 'NotEnforced') ? status : (ctl.ctl_status === 'Enforced' ? 'Enforced' : 'NotEnforced'),
+                        pendingData 
+                    });
 
 
 
@@ -5504,7 +5483,22 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                onSubmit={fetchControls}
+                onSubmit={async () => {
+                    if (enforcementModal.pendingData && enforcementModal.control) {
+                        try {
+                            // Save the pending changes for NN control
+                            // Force status to In-Review so it matches the enforcement flow
+                            const dataToSave = { 
+                                ...enforcementModal.pendingData, 
+                                ctl_status: 'In-Review' 
+                            };
+                            await SupabaseService.updateControlRegistry(enforcementModal.control.id, dataToSave);
+                        } catch (e) {
+                            console.error('Failed to save pending NN changes:', e);
+                        }
+                    }
+                    fetchControls();
+                }}
 
 
 

@@ -155,19 +155,26 @@ export const ScoringTrendCard: React.FC<ScoringTrendCardProps> = ({
           const lastSnapshotDate = history[history.length - 1].snapshot_date;
           const todayStr = new Date().toISOString().split('T')[0];
           
-          if (lastSnapshotDate !== todayStr) {
-            finalData.push({
-              date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-              assets: totalAssets,
-              controls: totalControls,
-              tasks: tasks.length,
-              policies: policies.length,
-              securityScore: securityScore,
-              vulnerabilities: totalVulnerabilities
-            });
+          // Live data point for today
+          const livePoint = {
+            date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            assets: totalAssets,
+            controls: totalControls,
+            tasks: tasks.length,
+            policies: policies.length,
+            securityScore: securityScore,
+            vulnerabilities: totalVulnerabilities
+          };
+
+          if (lastSnapshotDate === todayStr) {
+            // Replace the last snapshot with live data for better UX consistency
+            finalData[finalData.length - 1] = livePoint;
+          } else {
+            // Append live data as the latest point
+            finalData.push(livePoint);
           }
         } else {
-
+          // No history, just show today's live data
           finalData = [{
             date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
             assets: totalAssets,
@@ -302,15 +309,6 @@ export const ScoringTrendCard: React.FC<ScoringTrendCardProps> = ({
             <Legend 
               wrapperStyle={{ fontSize: '12px' }}
               iconType="line"
-            />
-            <Line
-              type="monotone"
-              dataKey="assets"
-              stroke="#10b981"
-              strokeWidth={2}
-              strokeDasharray="5 5"
-              dot={false}
-              name="Assets"
             />
             <Line
               type="monotone"
