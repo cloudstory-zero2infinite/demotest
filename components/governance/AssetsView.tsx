@@ -297,6 +297,90 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
     const currentAssetType = formAssetTypeId ? customAssetTypes.find(t => t.id === formAssetTypeId) : null;
     const normalizeFieldName = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+    const dynamicCustomFields = React.useMemo(() => {
+        if (!currentAssetType) return [];
+        
+        const allStandardFields = new Set([
+            'asset_id', 
+            'name', 
+            'category', 
+            'criticality', 
+            'asset_owner', 
+            'business_unit', 
+            'exposure', 
+            'governed_status', 
+            'details',
+            'source',
+            'nn_controls',
+            'vulnerability_count',
+            'ip_address',
+            'mac_id',
+            'physical_location'
+        ]);
+
+        const list: CustomField[] = [];
+        
+        if (currentAssetType.fieldsConfig && Array.isArray(currentAssetType.fieldsConfig)) {
+            currentAssetType.fieldsConfig.forEach((f, idx) => {
+                if (!f || !f.name) return;
+                const normName = normalizeFieldName(f.name);
+                if (allStandardFields.has(f.name) || allStandardFields.has(normName)) {
+                    return;
+                }
+                
+                list.push({
+                    id: `dynamic_${f.name}`,
+                    org_id: '',
+                    module_name: 'assets',
+                    field_name: f.name,
+                    field_label: f.name.split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+                    field_type: (f.type as any) || 'text',
+                    field_options: f.options || null,
+                    is_required: false,
+                    display_order: idx,
+                    is_active: true,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                });
+            });
+        } else if (currentAssetType.fields && Array.isArray(currentAssetType.fields)) {
+            currentAssetType.fields.forEach((fieldName, idx) => {
+                if (!fieldName || typeof fieldName !== 'string') return;
+                const normName = normalizeFieldName(fieldName);
+                if (allStandardFields.has(fieldName) || allStandardFields.has(normName)) {
+                    return;
+                }
+                
+                list.push({
+                    id: `dynamic_${fieldName}`,
+                    org_id: '',
+                    module_name: 'assets',
+                    field_name: fieldName,
+                    field_label: fieldName.split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+                    field_type: 'text',
+                    field_options: null,
+                    is_required: false,
+                    display_order: idx,
+                    is_active: true,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                });
+            });
+        }
+        
+        return list;
+    }, [currentAssetType]);
+
+    const mergedCustomFields = React.useMemo(() => {
+        const merged = [...customFields];
+        dynamicCustomFields.forEach(df => {
+            if (!merged.some(gf => gf.field_name === df.field_name)) {
+                merged.push(df);
+            }
+        });
+        return merged;
+    }, [customFields, dynamicCustomFields]);
     const isFieldAllowed = (fieldName: string) => {
         const cleanFieldName = fieldName.startsWith('custom_field_') 
             ? fieldName.replace('custom_field_', '') 
@@ -340,8 +424,9 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
             return profileFields.has(cleanFieldName) || profileFields.has(normalizeFieldName(cleanFieldName));
         }
         
-        // 3. For custom fields, always show them (since they represent the fields they want to create/have created)
-        return true;
+        // 3. For custom fields, show them ONLY if they are explicitly in the profile's fields list
+        const profileFields = new Set((currentAssetType.fields || []).map(normalizeFieldName));
+        return profileFields.has(cleanFieldName) || profileFields.has(normalizeFieldName(cleanFieldName));
     };
 
 
@@ -554,7 +639,7 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
                     {/* Custom Fields Section */}
 
-                    {currentAssetType && (
+                    {true && (
 
                         <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
 
@@ -581,44 +666,38 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
                             
 
                             {/* Display existing custom fields for this asset */}
-                            {customFields.filter(f => isFieldAllowed(`custom_field_${f.field_name}`) || isFieldAllowed(f.field_label) || isFieldAllowed(f.field_name)).length > 0 ? (
-                                <CustomFieldsForm
-                                    customFields={customFields.filter(f => isFieldAllowed(`custom_field_${f.field_name}`) || isFieldAllowed(f.field_label) || isFieldAllowed(f.field_name))}
-                                    values={formData.custom_fields || {}}
-                                    onChange={(fieldName, value) => {
-                                        setFormData(prev => ({
-                                            ...prev,
-                                            custom_fields: {
-                                                ...(prev.custom_fields || {}),
-                                                [fieldName]: value
-                                            }
-                                        }));
-                                    }}
-                                    readonly={isViewMode}
-                                />
-                            ) : (
-
-                                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-
-                                    <p className="mb-2">No custom fields defined yet.</p>
-
-                                    <button
-
-                                        type="button"
-
-                                        onClick={() => onShowColumnManagement?.()}
-
-                                        className="text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 underline"
-
-                                    >
-
-                                        Add your first custom column
-
-                                    </button>
-
-                                </div>
-
-                            )}
+                            {(() => {
+                                const allowedCustomFields = currentAssetType
+                                    ? mergedCustomFields.filter(f => isFieldAllowed(`custom_field_${f.field_name}`) || isFieldAllowed(f.field_label) || isFieldAllowed(f.field_name))
+                                    : [];
+                                return allowedCustomFields.length > 0 ? (
+                                    <CustomFieldsForm
+                                        customFields={allowedCustomFields}
+                                        values={formData.custom_fields || {}}
+                                        onChange={(fieldName, value) => {
+                                            setFormData(prev => ({
+                                                ...prev,
+                                                custom_fields: {
+                                                    ...(prev.custom_fields || {}),
+                                                    [fieldName]: value
+                                                }
+                                            }));
+                                        }}
+                                        readonly={isViewMode}
+                                    />
+                                ) : (
+                                    <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                                        <p className="mb-2">No custom fields defined yet.</p>
+                                        <button
+                                            type="button"
+                                            onClick={() => onShowColumnManagement?.()}
+                                            className="text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 underline"
+                                        >
+                                            Add your first custom column
+                                        </button>
+                                    </div>
+                                );
+                            })()}
 
                         </div>
 
@@ -757,6 +836,37 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
     const [selectedAssetType, setSelectedAssetType] = useState<string | null>(null);
     const [orgName, setOrgName] = useState<string>('');
 
+    const getAssetType = useCallback((item: Asset): string => {
+        if (item.custom_fields && item.custom_fields.type) {
+            return item.custom_fields.type;
+        }
+        
+        const standardKeys = new Set([
+            'asset_id', 'name', 'asset_owner', 'business_unit', 'physical_location', 
+            'criticality', 'category', 'details', 'governed_status', 'exposure', 
+            'ip_address', 'mac_id', 'vulnerability_count', 'source', 'owner'
+        ]);
+        const normalizeFieldName = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+
+        for (const type of customAssetTypes) {
+            const customFieldsOnly = type.fields.filter(f => !standardKeys.has(f) && !standardKeys.has(normalizeFieldName(f)));
+            if (customFieldsOnly.length > 0) {
+                const matches = customFieldsOnly.every(field => 
+                    Object.keys(item.custom_fields || {}).includes(normalizeFieldName(field))
+                );
+                if (matches) {
+                    return type.name;
+                }
+            }
+        }
+        
+        return 'standard';
+    }, [customAssetTypes]);
+
+    const hasStandardAssets = useMemo(() => {
+        return assets.some(asset => getAssetType(asset) === 'standard');
+    }, [assets, getAssetType]);
+
     const [filter, setFilter] = useState('');
 
 
@@ -849,8 +959,8 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
     // Compute visible columns based on selected asset type
     const visibleColumns = useMemo(() => {
-        if (!selectedAssetType) {
-            // For All Assets pill: Only display the specified standard fields. Remove all custom fields!
+        if (!selectedAssetType || selectedAssetType === 'standard') {
+            // For All Assets pill or Standard pill: Only display the specified standard fields. Remove all custom fields!
             return [
                 'business_unit',
                 'asset_id',
@@ -1135,7 +1245,9 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
             }
         });
 
-        if (selectedAssetType) {
+        if (selectedAssetType === 'standard') {
+            filteredItems = filteredItems.filter(item => getAssetType(item) === 'standard');
+        } else if (selectedAssetType) {
             const assetType = customAssetTypes.find(t => t.id === selectedAssetType);
             if (assetType && assetType.fields.length > 0) {
                 const standardKeys = new Set([
@@ -1283,7 +1395,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
 
-    }, [assets, filter, sortConfig, columnFilters, selectedAssetType, customAssetTypes]);
+    }, [assets, filter, sortConfig, columnFilters, selectedAssetType, customAssetTypes, getAssetType]);
 
     // Pagination: Get current page items
 
@@ -1905,32 +2017,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
 
-    const getAssetType = (item: Asset): string => {
-        if (item.custom_fields && item.custom_fields.type) {
-            return item.custom_fields.type;
-        }
-        
-        const standardKeys = new Set([
-            'asset_id', 'name', 'asset_owner', 'business_unit', 'physical_location', 
-            'criticality', 'category', 'details', 'governed_status', 'exposure', 
-            'ip_address', 'mac_id', 'vulnerability_count', 'source', 'owner'
-        ]);
-        const normalizeFieldName = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '_');
-
-        for (const type of customAssetTypes) {
-            const customFieldsOnly = type.fields.filter(f => !standardKeys.has(f) && !standardKeys.has(normalizeFieldName(f)));
-            if (customFieldsOnly.length > 0) {
-                const matches = customFieldsOnly.every(field => 
-                    Object.keys(item.custom_fields || {}).includes(normalizeFieldName(field))
-                );
-                if (matches) {
-                    return type.name;
-                }
-            }
-        }
-        
-        return 'standard';
-    };
+    // getAssetType helper is defined above using useCallback
 
     const getRelatedAssetsForAsset = (asset: Asset) => {
 
@@ -2272,10 +2359,26 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                                 setFilter('');
                                 setSelectedAssetType(null);
                             }}
-                            className="px-3 py-1 text-sm font-medium rounded-full bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-200 transition-colors"
+                            className={`px-3 py-1 text-sm font-medium rounded-full transition-colors ${
+                                !selectedAssetType
+                                    ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                                    : 'bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200'
+                            }`}
                         >
                             All Assets
                         </button>
+                        {hasStandardAssets && (
+                            <button
+                                onClick={() => setSelectedAssetType(selectedAssetType === 'standard' ? null : 'standard')}
+                                className={`px-3 py-1 text-sm font-medium rounded-full transition-colors ${
+                                    selectedAssetType === 'standard'
+                                        ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
+                                        : 'bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200'
+                                }`}
+                            >
+                                Standard
+                            </button>
+                        )}
                         {customAssetTypes.map(type => (
                             <button
                                 key={type.id}

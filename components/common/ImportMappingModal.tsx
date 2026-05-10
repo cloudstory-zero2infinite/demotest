@@ -38,10 +38,30 @@ export const ImportMappingModal: React.FC<ImportMappingModalProps> = ({
 
   const isFieldAllowed = (fieldName: string) => {
     if (!currentAssetType) return true;
-    const allowed = new Set([
-      'asset_id', 'name', 'category',
-      ...currentAssetType.fields.map(compactKey)
+    
+    const allStandardFields = new Set([
+      'asset_id', 
+      'name', 
+      'category', 
+      'criticality', 
+      'asset_owner', 
+      'business_unit', 
+      'exposure', 
+      'governed_status', 
+      'details',
+      'source',
+      'nn_controls',
+      'vulnerability_count',
+      'ip_address',
+      'mac_id',
+      'physical_location'
     ]);
+
+    const cleanFieldName = fieldName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const isStandard = allStandardFields.has(fieldName.toLowerCase()) || allStandardFields.has(cleanFieldName);
+    if (isStandard) return true;
+
+    const allowed = new Set(currentAssetType.fields.map(compactKey));
     return allowed.has(compactKey(fieldName));
   };
 
@@ -84,6 +104,21 @@ export const ImportMappingModal: React.FC<ImportMappingModalProps> = ({
               return { csvHeader: header, mappedField: 'ignore', type: 'ignore' };
           }
           return { csvHeader: header, mappedField: customMatch.field_name, type: 'custom' };
+        }
+
+        if (currentAssetType && Array.isArray(currentAssetType.fields)) {
+          const profileMatch = currentAssetType.fields.find(f => {
+            if (!f) return false;
+            const normF = f.toLowerCase().replace(/[^a-z0-9]/g, '_');
+            return (
+              f.toLowerCase() === cleanHeader ||
+              normF === cleanHeader ||
+              compactKey(f) === headerCompact
+            );
+          });
+          if (profileMatch) {
+            return { csvHeader: header, mappedField: profileMatch, type: 'custom' };
+          }
         }
 
         if (currentAssetType) {
@@ -212,6 +247,22 @@ export const ImportMappingModal: React.FC<ImportMappingModalProps> = ({
                                     {field.field_label} {isFieldUsed(field.field_name, mapping.csvHeader) ? '(Already mapped)' : ''}
                                   </option>
                                 ))}
+                              </optgroup>
+                            )}
+                            {currentAssetType && Array.isArray(currentAssetType.fields) && currentAssetType.fields.length > 0 && (
+                              <optgroup label="Profile Fields">
+                                {currentAssetType.fields.map(field => {
+                                  const label = field.split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                                  return (
+                                    <option
+                                      key={field}
+                                      value={field}
+                                      disabled={isFieldUsed(field, mapping.csvHeader)}
+                                    >
+                                      {label} {isFieldUsed(field, mapping.csvHeader) ? '(Already mapped)' : ''}
+                                    </option>
+                                  );
+                                })}
                               </optgroup>
                             )}
                             <optgroup label="Other Actions">

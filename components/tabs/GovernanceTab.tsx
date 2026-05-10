@@ -27,7 +27,7 @@ interface GovernanceTabProps {
 
     onExternalSubTabConsumed?: () => void;
 
-    activeGovernanceSubTab?: 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry' | 'due_diligence';
+    activeGovernanceSubTab?: 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry';
 
 }
 
@@ -47,7 +47,7 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
 
 }) => {
 
-    type SubTab = 'controls' | 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry' | 'due_diligence';
+    type SubTab = 'controls' | 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry';
 
     const [activeSubTab, setActiveSubTab] = useState<SubTab>(activeGovernanceSubTab);
 
@@ -128,31 +128,33 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
 
 
     const subTabs: { id: SubTab; label: string }[] = [
-
-        // { id: 'controls', label: 'Internal Control Catalogue' },
-
         { id: 'assets', label: 'Assets' },
-
         { id: 'policies', label: 'Policy' },
-
         { id: 'vulnerability', label: 'Vulnerability' },
-
         { id: 'relationships', label: 'Asset Relationships' },
-
         { id: 'capabilities', label: 'Capability Register' },
-
         { id: 'control_registry', label: 'Control Registry' },
-        { id: 'due_diligence', label: 'Due Diligence' },
-
     ];
 
-
-
     return (
-
         <div className="px-4 py-6 sm:px-0">
-
-            {/* Tab navigation is now handled by the sidebar submenu */}
+            <div className="border-b border-gray-200 dark:border-gray-700">
+                <nav className="-mb-px flex space-x-8 overflow-x-auto scrollbar-none" aria-label="Tabs">
+                    {subTabs.map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => handleSubTabChange(tab.id)}
+                            className={`${
+                                activeSubTab === tab.id
+                                    ? 'border-blue-500 text-blue-600 dark:text-blue-400 border-b-2'
+                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-200'
+                            } whitespace-nowrap py-4 px-1 font-medium text-sm transition-colors duration-150`}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </nav>
+            </div>
 
             <div className="mt-6">
 
@@ -195,16 +197,6 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
                     <div className={activeSubTab === 'control_registry' ? '' : 'hidden'}>
 
                         <ControlRegistryView isActive={isActive && activeSubTab === 'control_registry'} autoOpenControlId={openControlId} onAutoOpenConsumed={() => setOpenControlId(null)} />
-
-                    </div>
-
-                )}
-
-                {mountedSubTabs.has('due_diligence') && (
-
-                    <div className={activeSubTab === 'due_diligence' ? '' : 'hidden'}>
-
-                        <DueDiligenceView isActive={isActive && activeSubTab === 'due_diligence'} />
 
                     </div>
 

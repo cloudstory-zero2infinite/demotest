@@ -158,25 +158,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             label: 'Governance', 
 
-            icon: <GovernanceIcon />,
-
-            children: [
-
-                { id: 'assets', label: 'Assets' },
-
-                { id: 'policies', label: 'Policy' },
-
-                { id: 'vulnerability', label: 'Vulnerability' },
-
-                { id: 'relationships', label: 'Asset Relationships' },
-
-                { id: 'capabilities', label: 'Capability Register' },
-
-                { id: 'control_registry', label: 'Control Registry' },
-
-                
-
-            ]
+            icon: <GovernanceIcon />
 
         },
 

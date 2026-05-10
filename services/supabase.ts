@@ -1959,6 +1959,7 @@ export interface AssetType {
   id: string;
   name: string;
   fields: string[];
+  fieldsConfig?: { name: string; type: string; options?: string[] }[];
 }
 
 export const getAssetTypes = async (): Promise<AssetType[]> => {

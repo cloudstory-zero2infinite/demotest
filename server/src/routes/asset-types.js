@@ -18,7 +18,8 @@ router.get('/', requireAuth, async (req, res) => {
       name: r.name,
       // Handle both the old format (array of strings) and the new format (array of objects)
       // For compatibility with the frontend that currently expects just names:
-      fields: Array.isArray(r.fields) ? r.fields.map(f => typeof f === 'string' ? f : f.name) : []
+      fields: Array.isArray(r.fields) ? r.fields.map(f => typeof f === 'string' ? f : f.name) : [],
+      fieldsConfig: Array.isArray(r.fields) ? r.fields : []
     }));
 
     res.json(assetTypes);
@@ -64,7 +65,8 @@ router.post('/', requireAuth, async (req, res) => {
     res.json({
       id: data.id,
       name: data.name,
-      fields: Array.isArray(data.fields) ? data.fields.map(f => typeof f === 'string' ? f : f.name) : []
+      fields: Array.isArray(data.fields) ? data.fields.map(f => typeof f === 'string' ? f : f.name) : [],
+      fieldsConfig: Array.isArray(data.fields) ? data.fields : []
     });
   } catch (err) {
     console.error('Error creating asset type:', err);
@@ -108,7 +110,8 @@ router.put('/:id', requireAuth, async (req, res) => {
     res.json({
       id: data.id,
       name: data.name,
-      fields: Array.isArray(data.fields) ? data.fields.map(f => typeof f === 'string' ? f : f.name) : []
+      fields: Array.isArray(data.fields) ? data.fields.map(f => typeof f === 'string' ? f : f.name) : [],
+      fieldsConfig: Array.isArray(data.fields) ? data.fields : []
     });
   } catch (err) {
     console.error('Error updating asset type:', err);
