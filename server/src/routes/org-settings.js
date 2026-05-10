@@ -59,11 +59,11 @@ router.get('/available-frameworks', requireAuth, async (req, res) => {
   }
 });
 
-// PUT /api/org-settings — update settings (admin/tenant_admin only)
+// PUT /api/org-settings — update settings (admin/tenant_admin/cxo only)
 router.put('/', requireAuth, async (req, res) => {
   try {
-    if (!['admin', 'tenant_admin'].includes(req.userRole)) {
-      return res.status(403).json({ message: 'Only admins can update organisation settings' });
+    if (!['admin', 'tenant_admin', 'cxo'].includes(req.userRole)) {
+      return res.status(403).json({ message: 'Only admins, tenant_admins, and CXOs can update organisation settings' });
     }
 
     const { policy_refresh_months, needed_framework } = req.body;

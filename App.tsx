@@ -41,16 +41,6 @@ const App: React.FC = () => {
 
   const [activeOrgSubTab, setActiveOrgSubTab] = useState<OrgSubTab>("view_org");
 
-  const [activeGovernanceSubTab, setActiveGovernanceSubTab] = useState<
-    | "assets"
-    | "policies"
-    | "vulnerability"
-    | "relationships"
-    | "capabilities"
-    | "control_registry"
-    | "due_diligence"
-  >("assets");
-
   const [governanceSubTab, setGovernanceSubTab] = useState<string | null>(null);
 
   const [governanceOpenItemId, setGovernanceOpenItemId] = useState<
@@ -136,7 +126,8 @@ const App: React.FC = () => {
   const handleNavigate = (tab: MainTab, subTab?: string, itemId?: string) => {
     setActiveTab(tab);
     if (tab === 'organisation' && subTab) setActiveOrgSubTab(subTab as OrgSubTab);
-    if (tab === 'governance') {
+    // Handle governance-related tabs
+    if (['assets', 'policies', 'vulnerability', 'relationships', 'capabilities', 'control_registry'].includes(tab)) {
       if (subTab) setGovernanceSubTab(subTab);
       setGovernanceOpenItemId(itemId || null);
     }
@@ -193,7 +184,11 @@ const App: React.FC = () => {
 
           setUserPhotoUrl(photo);
 
-          setIsNameModalOpen(false);
+          // setIsNameModalOpen(false);
+          // If it's an invitation, keep the modal open so they can set their password
+          if (!window.location.href.includes('type=invite')) {
+            setIsNameModalOpen(false);
+          }
 
           const me = await SupabaseService.getOrgMe();
 
@@ -299,7 +294,11 @@ const App: React.FC = () => {
 
                 setUserPhotoUrl(photo);
 
-                setIsNameModalOpen(false);
+                // setIsNameModalOpen(false);
+                // If it's an invitation, keep the modal open so they can set their password
+                if (!window.location.href.includes('type=invite')) {
+                  setIsNameModalOpen(false);
+                }
 
                 const me = await SupabaseService.getOrgMe();
 
@@ -566,7 +565,33 @@ const App: React.FC = () => {
           <ProgramTab userRole={userRole} isActive={activeTab === "program"} />
         </div>
 
-        <div className={activeTab === "governance" ? "" : "hidden"}><GovernanceTab isActive={activeTab === "governance"} externalSubTab={governanceSubTab} externalOpenItemId={governanceOpenItemId} onExternalSubTabConsumed={() => { setGovernanceSubTab(null); setGovernanceOpenItemId(null); }} /></div>
+        <div className={activeTab === "governance" ? "" : "hidden"}>
+          <GovernanceTab isActive={activeTab === "governance"} externalSubTab={governanceSubTab} externalOpenItemId={governanceOpenItemId} onExternalSubTabConsumed={() => { setGovernanceSubTab(null); setGovernanceOpenItemId(null); }} />
+        </div>
+
+        <div className={activeTab === "assets" ? "" : "hidden"}>
+          <GovernanceTab isActive={activeTab === "assets"} externalSubTab="assets" externalOpenItemId={governanceOpenItemId} onExternalSubTabConsumed={() => { setGovernanceSubTab(null); setGovernanceOpenItemId(null); }} />
+        </div>
+
+        <div className={activeTab === "policies" ? "" : "hidden"}>
+          <GovernanceTab isActive={activeTab === "policies"} externalSubTab="policies" externalOpenItemId={governanceOpenItemId} onExternalSubTabConsumed={() => { setGovernanceSubTab(null); setGovernanceOpenItemId(null); }} />
+        </div>
+
+        <div className={activeTab === "vulnerability" ? "" : "hidden"}>
+          <GovernanceTab isActive={activeTab === "vulnerability"} externalSubTab="vulnerability" externalOpenItemId={governanceOpenItemId} onExternalSubTabConsumed={() => { setGovernanceSubTab(null); setGovernanceOpenItemId(null); }} />
+        </div>
+
+        <div className={activeTab === "relationships" ? "" : "hidden"}>
+          <GovernanceTab isActive={activeTab === "relationships"} externalSubTab="relationships" externalOpenItemId={governanceOpenItemId} onExternalSubTabConsumed={() => { setGovernanceSubTab(null); setGovernanceOpenItemId(null); }} />
+        </div>
+
+        <div className={activeTab === "capabilities" ? "" : "hidden"}>
+          <GovernanceTab isActive={activeTab === "capabilities"} externalSubTab="capabilities" externalOpenItemId={governanceOpenItemId} onExternalSubTabConsumed={() => { setGovernanceSubTab(null); setGovernanceOpenItemId(null); }} />
+        </div>
+
+        <div className={activeTab === "control_registry" ? "" : "hidden"}>
+          <GovernanceTab isActive={activeTab === "control_registry"} externalSubTab="control_registry" externalOpenItemId={governanceOpenItemId} onExternalSubTabConsumed={() => { setGovernanceSubTab(null); setGovernanceOpenItemId(null); }} />
+        </div>
 
         <div className={activeTab === "compliance" ? "" : "hidden"}>
           <ComplianceTab isActive={activeTab === "compliance"} />
@@ -741,7 +766,6 @@ const App: React.FC = () => {
           <Sidebar
             activeTab={activeTab}
             activeOrgSubTab={activeOrgSubTab}
-            activeGovernanceSubTab={activeGovernanceSubTab}
             isOpen={sidebarOpen}
             onToggle={handleToggleSidebar}
             onNavigate={handleNavigate}

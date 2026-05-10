@@ -317,6 +317,9 @@ type OrgSubTabId = 'tenant_admin' | 'view_org' | 'settings';
 
 export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, isActive = true }) => {
     const isPlatformAdmin = userRole === 'tenant_admin' || userRole === 'admin' || userRole === 'cxo';
+    const canManageMembers = userRole === 'tenant_admin' || userRole === 'admin';
+    const canManageSettings = userRole === 'tenant_admin' || userRole === 'admin' || userRole === 'cxo';
+
     const defaultTab: OrgSubTabId = isPlatformAdmin ? 'tenant_admin' : 'view_org';
     const [activeSubTab, setActiveSubTab] = useState<OrgSubTabId>(defaultTab);
     const [mountedTabs, setMountedTabs] = useState<Set<OrgSubTabId>>(new Set([defaultTab]));
@@ -365,7 +368,7 @@ export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, isAc
             <div className="mt-6">
                 {mountedTabs.has('tenant_admin') && (
                     <div className={activeSubTab === 'tenant_admin' ? '' : 'hidden'}>
-                        <PlatformAdminTab isActive={isActive && activeSubTab === 'tenant_admin'} readOnly={!isPlatformAdmin} />
+                        <PlatformAdminTab isActive={isActive && activeSubTab === 'tenant_admin'} readOnly={!canManageMembers} />
                     </div>
                 )}
                 {mountedTabs.has('view_org') && (
@@ -375,7 +378,7 @@ export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, isAc
                 )}
                 {mountedTabs.has('settings') && (
                     <div className={activeSubTab === 'settings' ? '' : 'hidden'}>
-                        <OrgSettingsTab isActive={isActive && activeSubTab === 'settings'} readOnly={!isPlatformAdmin} />
+                        <OrgSettingsTab isActive={isActive && activeSubTab === 'settings'} readOnly={!canManageSettings} />
                     </div>
                 )}
             </div>
