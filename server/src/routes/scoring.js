@@ -27,12 +27,16 @@ router.get('/scoring-trend', requireAuth, async (req, res) => {
       case '1year': days = 365; break;
     }
 
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - days);
+    const cutoffStr = cutoffDate.toISOString().split('T')[0];
+
     const { data, error } = await supabaseAdmin
       .from('scoring_history')
       .select('*')
       .eq('org_id', orgId)
-      .order('snapshot_date', { ascending: true })
-      .limit(days);
+      .gte('snapshot_date', cutoffStr)
+      .order('snapshot_date', { ascending: true });
 
     if (error) throw error;
 
