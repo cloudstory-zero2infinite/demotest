@@ -184,7 +184,6 @@ const App: React.FC = () => {
 
           setUserPhotoUrl(photo);
 
-          // setIsNameModalOpen(false);
           // If it's an invitation, keep the modal open so they can set their password
           if (!window.location.href.includes('type=invite')) {
             setIsNameModalOpen(false);
@@ -294,7 +293,6 @@ const App: React.FC = () => {
 
                 setUserPhotoUrl(photo);
 
-                // setIsNameModalOpen(false);
                 // If it's an invitation, keep the modal open so they can set their password
                 if (!window.location.href.includes('type=invite')) {
                   setIsNameModalOpen(false);
