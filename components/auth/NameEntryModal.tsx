@@ -30,7 +30,7 @@ const PASSWORD_RULES = [
 
 
 
-type EmailMode = 'signin' | 'signup';
+type EmailMode = 'signin' | 'signup' | 'setpassword';
 
 
 
@@ -140,6 +140,74 @@ export const NameEntryModal: React.FC<NameEntryModalProps> = ({ isOpen }) => {
 
 
 
+    const handleSetPassword = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setEmailMessage(null);
+
+        const pwdError = validatePassword(password);
+        if (pwdError) {
+            setEmailMessage({ type: 'error', text: pwdError });
+            return;
+        }
+
+        if (password !== confirmPassword) {
+            setEmailMessage({ type: 'error', text: 'Passwords do not match.' });
+            return;
+        }
+
+        try {
+            setEmailLoading(true);
+            
+            // Robustly extract tokens from URL regardless of malformed hashes/slashes
+            const fullUrl = window.location.href;
+            const accessToken = fullUrl.match(/[?&#]access_token=([^&]*)/)?.[1];
+            const refreshToken = fullUrl.match(/[?&#]refresh_token=([^&]*)/)?.[1];
+
+            if (accessToken && refreshToken) {
+                await SupabaseService.supabase.auth.setSession({
+                    access_token: accessToken,
+                    refresh_token: refreshToken
+                });
+            }
+
+            // Check session again
+            const { data: sessionData } = await SupabaseService.supabase.auth.getSession();
+            if (!sessionData.session) {
+                throw new Error('Your invitation session has expired or is invalid. Please try clicking the link in your email again.');
+            }
+
+            const { error } = await SupabaseService.supabase.auth.updateUser({
+                password: password,
+            });
+
+            if (error) throw error;
+
+            setEmailMessage({ 
+                type: 'success', 
+                text: 'Password set successfully! You can now sign in with your email and password.' 
+            });
+            
+            // Clear the invitation hash from the URL so normal login can proceed
+            if (window.location.hash.includes('type=invite')) {
+                window.history.replaceState(null, '', window.location.pathname + window.location.search);
+            }
+
+            // Switch to signin mode after success
+            setTimeout(() => {
+                setEmailMode('signin');
+                setPassword('');
+                setConfirmPassword('');
+            }, 2000);
+
+        } catch (err: any) {
+            setEmailMessage({ type: 'error', text: err?.message || 'Failed to set password. Please try again.' });
+        } finally {
+            setEmailLoading(false);
+        }
+    };
+
+
+
     const handleEmailSignUp = async (e: React.FormEvent) => {
 
         e.preventDefault();
@@ -190,7 +258,7 @@ export const NameEntryModal: React.FC<NameEntryModalProps> = ({ isOpen }) => {
 
             if (data.user && data.user.identities && data.user.identities.length === 0) {
 
-                setEmailMessage({ type: 'error', text: 'An account with this email already exists via Google or GitHub. Sign in with your social account, then use "Set Password" from the profile menu to enable email login.' });
+                setEmailMessage({ type: 'error', text: 'This email is already registered. If you were invited, please check your email for the invitation link, or use the "Forgot Password" option below.' });
 
                 return;
 
@@ -458,8 +526,49 @@ export const NameEntryModal: React.FC<NameEntryModalProps> = ({ isOpen }) => {
 
                 {!showEmail ? (
 
-                    <button type="button" onClick={() => { setShowEmail(true); setEmailMode('signin'); setEmailMessage(null); }}
+                    <button type="button" onClick={() => { 
+                        setShowEmail(true); 
+                        if (window.location.href.includes('type=invite')) {
+                            setEmailMode('setpassword');
 
+                            // FIX: Handle cases where the URL hash is malformed (e.g. /#/ or ##)
+                            const normalizeAndSetSession = async () => {
+                                const fullUrl = window.location.href;
+                                const accessToken = fullUrl.match(/[?&#]access_token=([^&]*)/)?.[1];
+                                const refreshToken = fullUrl.match(/[?&#]refresh_token=([^&]*)/)?.[1];
+
+                                if (accessToken && refreshToken) {
+                                    try {
+                                        await SupabaseService.supabase.auth.setSession({
+                                            access_token: accessToken,
+                                            refresh_token: refreshToken
+                                        });
+                                    } catch (e) {
+                                        console.error("Manual session set failed", e);
+                                    }
+                                }
+                            };
+
+                            normalizeAndSetSession().then(() => {
+                                // Try to get email from session
+                                const fetchUser = async () => {
+                                    const { data } = await SupabaseService.supabase.auth.getUser();
+                                    if (data.user?.email) {
+                                        setEmail(data.user.email);
+                                    } else {
+                                        setTimeout(async () => {
+                                            const { data: secondTry } = await SupabaseService.supabase.auth.getUser();
+                                            if (secondTry.user?.email) setEmail(secondTry.user.email);
+                                        }, 500);
+                                    }
+                                };
+                                fetchUser();
+                            });
+                        } else {
+                            setEmailMode('signin');
+                        }
+                        setEmailMessage(null); 
+                    }}
                         className="w-full inline-flex items-center justify-center gap-3 px-5 py-3 bg-white border border-gray-200 rounded-full shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition">
 
                         <svg className="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -485,17 +594,17 @@ export const NameEntryModal: React.FC<NameEntryModalProps> = ({ isOpen }) => {
                                 className={`text-sm font-medium pb-1 ${emailMode === 'signin' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400 hover:text-gray-500'}`}>
 
                                 Sign in
-
                             </button>
-
                             <button type="button" onClick={() => { setEmailMode('signup'); setEmailMessage(null); }}
-
                                 className={`text-[11px] pb-1 ${emailMode === 'signup' ? 'text-gray-600 border-b-2 border-gray-400' : 'text-gray-300 hover:text-gray-400'}`}>
-
                                 Sign up
-
                             </button>
-
+                            {emailMode === 'setpassword' && (
+                                <button type="button" disabled
+                                    className="text-sm font-medium pb-1 text-blue-600 border-b-2 border-blue-600 ml-auto">
+                                    Set Password
+                                </button>
+                            )}
                         </div>
 
 
@@ -512,82 +621,46 @@ export const NameEntryModal: React.FC<NameEntryModalProps> = ({ isOpen }) => {
 
 
 
-                        <form onSubmit={emailMode === 'signin' ? handleEmailSignIn : handleEmailSignUp} className="space-y-2">
-
+                        <form onSubmit={emailMode === 'signin' ? handleEmailSignIn : (emailMode === 'signup' ? handleEmailSignUp : handleSetPassword)} className="space-y-2">
                             <input type="email" placeholder="Email" required value={email} onChange={e => setEmail(e.target.value)}
-
+                                disabled={emailMode === 'setpassword'}
+                                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:bg-gray-50" />
+                            
+                            <input type="password" placeholder={emailMode === 'setpassword' ? "New Password" : "Password"} required value={password} onChange={e => setPassword(e.target.value)}
                                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400" />
 
-                            <input type="password" placeholder="Password" required value={password} onChange={e => setPassword(e.target.value)}
-
-                                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400" />
-
-
-
-                            {emailMode === 'signup' && (
-
+                            {(emailMode === 'signup' || emailMode === 'setpassword') && (
                                 <>
-
                                     <input type="password" placeholder="Confirm password" required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
-
                                         className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400" />
-
                                     {/* Password strength indicator */}
-
                                     {password && (
-
                                         <div className="space-y-1">
-
                                             <div className="flex gap-1">
-
                                                 {PASSWORD_RULES.map((_, i) => (
-
                                                     <div key={i} className={`h-1 flex-1 rounded-full ${i < passwordStrength ? 'bg-blue-500' : 'bg-gray-200'}`} />
-
                                                 ))}
-
                                             </div>
-
                                             <ul className="text-[10px] text-gray-400 space-y-0.5">
-
                                                 {PASSWORD_RULES.map(r => (
-
                                                     <li key={r.label} className={r.test(password) ? 'text-green-500' : ''}>
-
                                                         {r.test(password) ? '\u2713' : '\u2022'} {r.label}
-
                                                     </li>
-
                                                 ))}
-
                                             </ul>
-
                                         </div>
-
                                     )}
-
                                 </>
-
                             )}
 
-
-
                             <button type="submit" disabled={emailLoading}
-
                                 className={`w-full py-2 text-sm font-medium rounded-md transition disabled:opacity-50 ${
-
-                                    emailMode === 'signin'
-
+                                    emailMode === 'signin' || emailMode === 'setpassword'
                                         ? 'bg-blue-600 text-white hover:bg-blue-700'
-
                                         : 'bg-gray-100 text-gray-500 border border-gray-200 hover:bg-gray-200'
-
                                 }`}>
-
-                                {emailLoading ? 'Please wait...' : emailMode === 'signin' ? 'Sign in' : 'Create Account'}
-
+                                {emailLoading ? 'Please wait...' : (emailMode === 'signin' ? 'Sign in' : (emailMode === 'signup' ? 'Create Account' : 'Set Password'))}
                             </button>
-
                         </form>
 
 
