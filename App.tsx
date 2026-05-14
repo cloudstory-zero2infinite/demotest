@@ -6,6 +6,8 @@ import { UserRole } from './types';
 
 import { useTabRefresh } from './hooks/useTabRefresh';
 
+import { DEMO_ORG_NAME, isDemoEnabled } from './services/demo/demoMode';
+
 // Layout & Common Components
 
 import { Header } from "./components/Header";
@@ -712,6 +714,7 @@ const App: React.FC = () => {
           userEmail={userEmail}
           userPhotoUrl={userPhotoUrl}
           orgName={displayOrgName}
+          isAbcNews={orgName === DEMO_ORG_NAME || isDemoEnabled()}
           openFeedback={() => setIsFeedbackOpen(true)}
           onNavigate={(tab, subTab, itemId) =>
             handleNavigate(tab as MainTab, subTab, itemId)
