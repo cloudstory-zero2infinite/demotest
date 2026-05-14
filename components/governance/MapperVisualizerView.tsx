@@ -35,6 +35,24 @@ interface Props {
     onFocusConsumed?: () => void;
 }
 
+// Tracks whether the app is currently in dark mode. App.tsx toggles the
+// `dark` class on document.body — we watch that with a MutationObserver so
+// the visualizer follows the user's choice instead of being locked to dark.
+function useIsDarkMode(): boolean {
+    const [isDark, setIsDark] = useState(() =>
+        typeof document !== 'undefined' && document.body.classList.contains('dark'),
+    );
+    useEffect(() => {
+        if (typeof document === 'undefined') return;
+        const observer = new MutationObserver(() => {
+            setIsDark(document.body.classList.contains('dark'));
+        });
+        observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+        return () => observer.disconnect();
+    }, []);
+    return isDark;
+}
+
 // ── Config ────────────────────────────────────────────────────────────────
 const GROUP_THRESHOLD = 3;
 const CONF_THRESHOLD = 0.5;
@@ -165,14 +183,14 @@ const IconNode: React.FC<NodeProps> = ({ data }) => {
                     <Icon className="text-white" />
                 </div>
                 {hasChildren && (
-                    <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-gray-900 ring-1 ring-gray-500 flex items-center justify-center">
-                        <svg className={`w-2.5 h-2.5 text-white transition-transform ${expanded ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
+                    <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-white dark:bg-gray-900 ring-1 ring-gray-400 dark:ring-gray-500 flex items-center justify-center">
+                        <svg className={`w-2.5 h-2.5 text-gray-700 dark:text-white transition-transform ${expanded ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                         </svg>
                     </div>
                 )}
             </div>
-            <div className="mt-1 text-[10px] text-center text-gray-200 leading-tight" style={{
+            <div className="mt-1 text-[10px] text-center text-gray-700 dark:text-gray-200 leading-tight" style={{
                 maxWidth: 110,
                 overflow: 'hidden',
                 display: '-webkit-box',
@@ -201,13 +219,13 @@ const HubNode: React.FC<NodeProps> = ({ data }) => {
                 >
                     <span className="text-base font-bold text-white">{count}</span>
                 </div>
-                <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-gray-900 ring-1 ring-gray-500 flex items-center justify-center">
-                    <svg className={`w-2.5 h-2.5 text-white transition-transform ${expanded ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
+                <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-white dark:bg-gray-900 ring-1 ring-gray-400 dark:ring-gray-500 flex items-center justify-center">
+                    <svg className={`w-2.5 h-2.5 text-gray-700 dark:text-white transition-transform ${expanded ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                     </svg>
                 </div>
             </div>
-            <div className="mt-1 text-[10px] text-center text-gray-200 leading-tight">
+            <div className="mt-1 text-[10px] text-center text-gray-700 dark:text-gray-200 leading-tight">
                 <div className="font-bold tracking-wide">{relation}</div>
                 <div className="opacity-70">{labelWord}</div>
             </div>
@@ -527,6 +545,7 @@ function runForceLayout(
 
 // ── Main view ─────────────────────────────────────────────────────────────
 export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMasterPolicyId, onFocusConsumed }) => {
+    const isDark = useIsDarkMode();
     const [graph, setGraph] = useState<MapperGraph | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -762,38 +781,38 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
     }, [graph, hiddenNodes]);
 
     return (
-        <div className="dark flex flex-col gap-3 bg-gray-900 text-gray-100 rounded-lg p-4 -mx-4">
+        <div className="flex flex-col gap-3 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-lg p-4 -mx-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                    <h2 className="text-lg font-semibold text-white">Mapper Visualizer</h2>
-                    <p className="text-xs text-gray-400">
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Mapper Visualizer</h2>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
                         Click any node to expand its children. Drag nodes to rearrange. Force-based clustering arranges everything else automatically.
                     </p>
                 </div>
                 <div className="flex items-center gap-3 text-xs flex-wrap">
                     {stats && (
-                        <div className="flex items-center gap-3 text-gray-300">
+                        <div className="flex items-center gap-3 text-gray-600 dark:text-gray-300">
                             <span><strong>{stats.policies}</strong> policies</span>
                             <span><strong>{stats.domains}</strong> domains</span>
                             <span><strong>{stats.functions}</strong> functions</span>
                             <span><strong>{stats.orphans}</strong> orphans</span>
-                            {stats.hidden > 0 && <span className="text-amber-400"><strong>{stats.hidden}</strong> hidden</span>}
-                            {focusedNodeId && <span className="text-blue-400">focused</span>}
+                            {stats.hidden > 0 && <span className="text-amber-600 dark:text-amber-400"><strong>{stats.hidden}</strong> hidden</span>}
+                            {focusedNodeId && <span className="text-blue-600 dark:text-blue-400">focused</span>}
                         </div>
                     )}
                     <label className="inline-flex items-center gap-1 cursor-pointer">
-                        <input type="checkbox" checked={showLowConfidence} onChange={e => setShowLowConfidence(e.target.checked)} className="rounded border-gray-300" />
-                        <span className="text-gray-200">Show low-confidence edges</span>
+                        <input type="checkbox" checked={showLowConfidence} onChange={e => setShowLowConfidence(e.target.checked)} className="rounded border-gray-300 dark:border-gray-600" />
+                        <span className="text-gray-700 dark:text-gray-200">Show low-confidence edges</span>
                     </label>
-                    <button onClick={expandAll} className="px-2 py-1 rounded border border-gray-600 text-gray-200 hover:bg-gray-700">Expand all</button>
-                    <button onClick={collapseAll} className="px-2 py-1 rounded border border-gray-600 text-gray-200 hover:bg-gray-700">Collapse all</button>
-                    <button onClick={resetView} className="px-2 py-1 rounded border border-gray-600 text-gray-200 hover:bg-gray-700">Reset view</button>
+                    <button onClick={expandAll} className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">Expand all</button>
+                    <button onClick={collapseAll} className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">Collapse all</button>
+                    <button onClick={resetView} className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">Reset view</button>
                     <button onClick={fetchGraph} className="px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">Refresh</button>
                 </div>
             </div>
 
             {error && (
-                <div className="rounded border border-red-800 bg-red-900/20 px-3 py-2 text-sm text-red-200">{error}</div>
+                <div className="rounded border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20 px-3 py-2 text-sm text-red-800 dark:text-red-200">{error}</div>
             )}
 
             <div className="relative" style={{ height: '70vh', minHeight: 500 }}>
@@ -817,13 +836,18 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
                         fitView
                         minZoom={0.05}
                         maxZoom={2}
-                        colorMode="dark"
+                        colorMode={isDark ? 'dark' : 'light'}
                         defaultEdgeOptions={{ type: 'straight' }}
                         proOptions={{ hideAttribution: true }}
-                        style={{ background: '#0b1220' }}
+                        style={{ background: isDark ? '#0b1220' : '#f8fafc' }}
                     >
-                        <Background gap={20} color="#1e293b" />
-                        <MiniMap pannable zoomable maskColor="rgba(0,0,0,0.6)" style={{ background: '#0b1220' }} />
+                        <Background gap={20} color={isDark ? '#1e293b' : '#cbd5e1'} />
+                        <MiniMap
+                            pannable
+                            zoomable
+                            maskColor={isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.7)'}
+                            style={{ background: isDark ? '#0b1220' : '#f8fafc' }}
+                        />
                         <Controls />
                     </ReactFlow>
                 )}
@@ -833,21 +857,21 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
                 )}
 
                 {selected && (
-                    <div className="absolute top-2 right-2 w-80 max-h-[60%] overflow-y-auto bg-gray-800 rounded-lg shadow-lg border border-gray-700 p-4 text-sm">
+                    <div className="absolute top-2 right-2 w-80 max-h-[60%] overflow-y-auto bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-4 text-sm">
                         <div className="flex items-start justify-between gap-2 mb-2">
                             <div>
-                                <div className="text-[10px] uppercase tracking-wide text-gray-500">{(selected.data as any).kind || (selected.data as any).relation}</div>
-                                <div className="font-semibold text-white">{(selected.data as any).label}</div>
+                                <div className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{(selected.data as any).kind || (selected.data as any).relation}</div>
+                                <div className="font-semibold text-gray-900 dark:text-white">{(selected.data as any).label}</div>
                             </div>
-                            <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-200">
+                            <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
                                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                             </button>
                         </div>
                         <dl className="space-y-1">
                             {Object.entries((selected.data as any).raw || {}).map(([k, v]) => (
                                 <div key={k} className="flex gap-2">
-                                    <dt className="text-gray-500 min-w-[6.5rem]">{k}</dt>
-                                    <dd className="text-gray-200 break-all">{String(v ?? '—')}</dd>
+                                    <dt className="text-gray-500 dark:text-gray-400 min-w-[6.5rem]">{k}</dt>
+                                    <dd className="text-gray-800 dark:text-gray-200 break-all">{String(v ?? '—')}</dd>
                                 </div>
                             ))}
                         </dl>
