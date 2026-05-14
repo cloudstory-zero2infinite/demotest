@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { SunIcon, MoonIcon, BellIcon } from './Icons';
 import * as SupabaseService from '../services/supabase';
 import { UserRole } from '../types';
+import { DemoToggle } from './common/DemoToggle';
 
 declare const __APP_VERSION__: string;
 
@@ -28,6 +29,7 @@ interface HeaderProps {
     userEmail: string | null;
     userPhotoUrl: string | null;
     orgName: string | null;
+    isAbcNews?: boolean;
     openFeedback: () => void;
     onNavigate?: (tab: string, subTab?: string, itemId?: string) => void;
     onDeleteAccount?: () => Promise<void>;
@@ -35,7 +37,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
     userRole, setUserRole, isDarkMode, toggleDarkMode,
-    onSignOut, userName, userEmail, userPhotoUrl, orgName, openFeedback, onNavigate, onDeleteAccount
+    onSignOut, userName, userEmail, userPhotoUrl, orgName, isAbcNews, openFeedback, onNavigate, onDeleteAccount
 }) => {
     // ─── Notifications ───
     const [notifications, setNotifications] = useState<UnifiedNotification[]>([]);
@@ -246,6 +248,9 @@ export const Header: React.FC<HeaderProps> = ({
                     </div>
 
                     <div className="flex items-center space-x-2 sm:space-x-3">
+                        {/* Demo mode toggle — only for the ABC News tenant */}
+                        {isAbcNews && <DemoToggle />}
+
                         {/* Role selector commented out - users now have fixed roles based on their actual permissions */}
                         {/*
                         <select

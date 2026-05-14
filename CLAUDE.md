@@ -25,7 +25,7 @@ ZeroTo1 GRC is a Governance, Risk & Compliance (GRC) SaaS platform with multi-te
 ### Backend (`/server/`)
 - **Express.js** (Node.js, ESM modules — `"type": "module"`)
 - Entry: `server/src/index.js`
-- Routes: `server/src/routes/` — one file per domain (program, controls, assets, asset-types, asset-custom-fields, custom-fields, policies, vulnerabilities, compliance, scoring, contacts, activity, org, org-settings, org-contacts, feedback, capabilities, control-registry). Note: `scoring` is mounted under `/api/compliance` alongside the compliance router
+- Routes: `server/src/routes/` — one file per domain (program, controls, assets, asset-types, asset-custom-fields, custom-fields, policies, vulnerabilities, compliance, scoring, contacts, activity, org, org-settings, org-contacts, feedback, capabilities, control-registry, mapper). Note: `scoring` is mounted under `/api/compliance` alongside the compliance router; `mapper` is a thin proxy that forwards `/api/mapper/*` to the ai-agent at `AI_AGENT_URL`
 - Auth middleware: `server/src/middleware/auth.js` — extracts JWT from `Authorization: Bearer <token>`, validates via `supabaseAdmin.auth.getUser()`, then looks up `org_onboarding` to attach `req.userId`, `req.orgId`, `req.userRole`, `req.onboardingStatus`
 - Supabase admin client: `server/src/supabase.js` (service-role key, bypasses RLS)
 - Email: uses **Resend** (`resend` npm package) for transactional email
@@ -157,6 +157,16 @@ Copy `.env.example` to `.env`. Required:
 ## CORS
 - Server CORS origin defaults to `process.env.FRONTEND_URL || 'http://localhost:5173'`
 - **Note**: Vite dev server actually runs on port **5174** (configured in `vite.config.ts`), not 5173 — set `FRONTEND_URL=http://localhost:5174` in `server/.env` for local dev
+
+## Demo mode (ABC News tenant)
+- Client-side, tenant-gated demo subsystem. Lives entirely in `services/demo/` plus a button in `components/common/DemoToggle.tsx`. Nothing on the backend or in Supabase.
+- **Gating**: the Demo toggle in the header only renders when the user's org name is `"ABC News"` (constant `DEMO_ORG_NAME` in `services/demo/demoMode.ts`). Threaded from `App.tsx` as `isAbcNews` prop to `Header.tsx`.
+- **Interception point**: `apiRequest()` in `services/supabase.ts` checks `isDemoEnabled()` at the top of every call and forwards to `handleDemoRequest()` in `services/demo/demoApi.ts`. Three calls that bypass `apiRequest` (`uploadFile`, `submitControlEnforcement`, `saveFeedback`) also have demo short-circuits.
+- **Store**: `services/demo/demoStore.ts` is a JSON-cloned mutable copy of `demoSeed.ts`, persisted to `sessionStorage` on every write. Survives page reload, dies with the tab (per-tab isolation). The persisted payload is wrapped `{ _version, data }` — bump `SEED_VERSION` in `demoStore.ts` whenever the seed shape changes so older stores auto-invalidate on next load.
+- **Toggle on/off**: `enableDemoMode()` / `disableDemoMode()` flip the sessionStorage flag, wipe the persisted store, then `window.location.reload()` — every mounted tab refetches via the interceptor (or the real backend, on the way back out). Toggle off prompts for confirmation since in-memory edits are discarded.
+- **Asset relationship convention**: `source_asset_id` / `target_asset_id` store the human `asset.asset_id` (e.g. `EP-001`), NOT the UUID `asset.id`. Matches the real backend (`server/src/routes/assets.js` queries by `asset_id`) and `OrgDiagramView`'s Mermaid builder. Easy to get wrong — see the `mkRel` helper in `demoSeed.ts`.
+- **Mapper graph in demo**: `handleDemoRequest` for `/api/mapper/graph` synthesizes a minimal `{nodes, edges}` from the in-memory master policy + child policies + a fixed set of 6 security domains. No Neo4j involved.
+- **Adding new demo data**: extend the relevant `SEED_*` constant in `demoSeed.ts`, add it to the `DemoStore` interface + `freshFromSeed()` in `demoStore.ts`, and add a route in `demoApi.ts` (the order matters — `/api/assets/relationships` must be matched before `/api/assets/:id`). Then bump `SEED_VERSION`.
 
 ## Vite Config Notes
 - Dev server on `0.0.0.0:5174` with `allowedHosts: true` (Docker-friendly)

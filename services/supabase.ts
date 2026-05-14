@@ -1,6 +1,8 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate, MapperRunResult, MapperGraph } from '../types';
+import { isDemoEnabled } from './demo/demoMode';
+import { handleDemoRequest } from './demo/demoApi';
 
 
 
@@ -71,6 +73,11 @@ supabase.auth.getSession().then(({ data }) => {
 // Internal helper — attaches the user's JWT to every backend request
 
 const apiRequest = async <T>(path: string, options: RequestInit = {}): Promise<T> => {
+
+  // Demo mode short-circuit: all reads/writes hit an in-memory store, not the backend
+  if (isDemoEnabled()) {
+    return handleDemoRequest<T>(path, options);
+  }
 
   let token = cachedToken;
 
@@ -520,6 +527,11 @@ const GRC_DOCUMENTS_BUCKET = 'grc-documents';
 
 
 export const uploadFile = async (file: File, pathPrefix: string): Promise<string> => {
+
+  if (isDemoEnabled()) {
+    // Demo: no real upload — return a stable placeholder URL
+    return `https://demo.local/files/${pathPrefix}/${file.name}`;
+  }
 
   const filePath = `${pathPrefix}/${Date.now()}-${file.name}`;
 
@@ -1008,6 +1020,31 @@ export const submitControlEnforcement = async (
   }
 
 ): Promise<{ success: boolean; review: ControlEvidenceReview }> => {
+
+  if (isDemoEnabled()) {
+    // Demo: synthesize a review record without hitting the backend
+    return {
+      success: true,
+      review: {
+        id: `demo-review-${Date.now()}`,
+        control_id: id,
+        requested_status: data.requested_status as 'Enforced' | 'NotEnforced',
+        requested_by: 'demo-abc-news-user',
+        enforced_by_name: data.enforced_by_name,
+        enforced_by_email: data.enforced_by_email,
+        reviewer_id: data.reviewer_id ?? null,
+        reviewer_name: data.reviewer_name,
+        reviewer_email: data.reviewer_email,
+        status: 'pending',
+        comment: data.comment ?? null,
+        review_comment: null,
+        evidence_files: data.files.map(f => ({ name: f.name, storage_path: `demo://${f.name}`, original_name: f.name, size: f.size, type: f.type })),
+        org_id: 'demo-abc-news-org',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    };
+  }
 
   let token = cachedToken;
 
@@ -1693,6 +1730,8 @@ export interface FeedbackData {
 
 
 export const saveFeedback = async (feedback: FeedbackData): Promise<boolean> => {
+
+  if (isDemoEnabled()) return true;  // Silent success in demo mode
 
   try {
 
