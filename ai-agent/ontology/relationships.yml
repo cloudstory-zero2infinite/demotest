@@ -1,0 +1,74 @@
+# Mapper Agent — Relationship definitions (semantic contract).
+#
+# This file defines every edge the Mapper Agent is allowed to create.
+# The agent MUST NOT introduce relationship types not listed here.
+#
+# `derivation`:
+#   - from_source : both endpoints come from Supabase rows; no LLM judgment.
+#   - llm_inferred: at least one endpoint or the edge itself is inferred by
+#                   the LLM from policy text. Confidence must be recorded.
+
+version: 1
+
+relationships:
+
+  DEFINES:
+    description: >
+      The master policy defines the security domains the organisation
+      recognises. Edge runs from the master Policy to a SecurityDomain.
+    from_entity: Policy            # must have is_master=true
+    to_entity: SecurityDomain
+    neo4j_type: DEFINES
+    cardinality: one_to_many
+    derivation: llm_inferred
+    properties:
+      - name: org_id
+        required: true
+      - name: confidence
+
+  CONTAINS:
+    description: >
+      A SecurityDomain contains zero or more SecurityFunctions.
+    from_entity: SecurityDomain
+    to_entity: SecurityFunction
+    neo4j_type: CONTAINS
+    cardinality: one_to_many
+    derivation: llm_inferred
+    properties:
+      - name: org_id
+        required: true
+      - name: confidence
+
+  HAS_CHILD:
+    description: >
+      The master policy claims a topic-specific (child) policy as
+      semantically related. The LLM assigns a confidence score and a short
+      rationale. Edges below a confidence threshold may still be written but
+      are hidden from the visualizer by default.
+    from_entity: Policy            # must have is_master=true
+    to_entity: Policy              # must have is_master=false
+    neo4j_type: HAS_CHILD
+    cardinality: one_to_many
+    derivation: llm_inferred
+    properties:
+      - name: org_id
+        required: true
+      - name: confidence
+        required: true
+      - name: rationale            # one sentence from the LLM
+      - name: matched_on           # e.g. "name", "policy_ref", "topic"
+
+  COVERS:
+    description: >
+      A child Policy covers a SecurityDomain. Useful for cross-cutting view:
+      "which child policies address Incident Response?". Inferred when the
+      LLM links a child policy to one or more domains.
+    from_entity: Policy            # is_master=false
+    to_entity: SecurityDomain
+    neo4j_type: COVERS
+    cardinality: many_to_many
+    derivation: llm_inferred
+    properties:
+      - name: org_id
+        required: true
+      - name: confidence

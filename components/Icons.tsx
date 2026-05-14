@@ -104,6 +104,22 @@ export const BotIcon: React.FC<{className?: string}> = ({ className }) => (
     </svg>
 );
 
+// Mapper Agent — small node-graph glyph (3 nodes + 2 edges)
+export const MapperIcon: React.FC<{className?: string}> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <circle cx="5" cy="6" r="2.25" />
+        <circle cx="19" cy="6" r="2.25" />
+        <circle cx="12" cy="18" r="2.25" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M6.7 7.5l4.5 9M17.3 7.5l-4.5 9M7.25 6h9.5" />
+    </svg>
+);
+
+export const StarIcon: React.FC<{className?: string}> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 2l2.9 6.9L22 10l-5.3 4.6L18.2 22 12 18.2 5.8 22l1.5-7.4L2 10l7.1-1.1L12 2z" />
+    </svg>
+);
+
 export const SortUpDownIcon: React.FC<{className?: string}> = ({ className }) => (
     <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
