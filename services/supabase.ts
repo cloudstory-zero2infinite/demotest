@@ -1977,10 +1977,23 @@ export const createAssetType = async (name: string, fields: any[]): Promise<Asse
   });
 };
 
+export const updateAssetType = async (id: string, name: string, fields: any[]): Promise<AssetType> => {
+  return apiRequest<AssetType>(`/api/asset-types/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name, fields }),
+  });
+};
+
 export const saveAssetTypes = async (assetTypes: AssetType[]): Promise<void> => {
   return apiRequest<void>('/api/asset-types', {
     method: 'POST',
     body: JSON.stringify(assetTypes),
+  });
+};
+
+export const deleteAssetType = async (id: string): Promise<void> => {
+  return apiRequest<void>(`/api/asset-types/${id}`, {
+    method: 'DELETE',
   });
 };
 
