@@ -6,8 +6,9 @@ import html2canvas from 'html2canvas';
 import JSZip from 'jszip';
 import { PolicyV2, PolicyWorkflowStatus, PolicyApproval, AllActivityLog } from '../../types';
 import * as SupabaseService from '../../services/supabase';
-import { EyeIcon, PencilIcon, PlusIcon, UploadIcon, DownloadIcon, BotIcon, HistoryIcon, TrashIcon, PhotoIcon } from '../Icons';
+import { EyeIcon, PencilIcon, PlusIcon, UploadIcon, DownloadIcon, BotIcon, HistoryIcon, TrashIcon, PhotoIcon, MapperIcon } from '../Icons';
 import { PolicyAIDraftModal } from './PolicyAIDraftModal';
+import { MapperRunModal } from './MapperRunModal';
 
 // ─── Markdown config ─────────────────────────────────────────────────────────
 marked.setOptions({ gfm: true, breaks: true });
@@ -917,6 +918,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
     // Modal targets
     const [editorTarget, setEditorTarget] = useState<{ policy?: PolicyV2; initialMarkdown?: string } | null>(null);
     const [aiDraftOpen, setAiDraftOpen] = useState(false);
+    const [mapperOpen, setMapperOpen] = useState(false);
     const [viewTarget, setViewTarget] = useState<PolicyV2 | null>(null);
     const [historyTarget, setHistoryTarget] = useState<PolicyV2 | null>(null);
 
@@ -1142,6 +1144,13 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
                     >
                         <BotIcon className="h-5 w-5" />
                     </button>
+                    <button
+                        onClick={() => setMapperOpen(true)}
+                        title="Mapper Agent — map this policy to security domains + child policies"
+                        className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+                    >
+                        <MapperIcon className="h-5 w-5" />
+                    </button>
                     <button disabled title="Upload (coming soon)" className="p-2 text-gray-300 dark:text-gray-600 rounded-md cursor-not-allowed">
                         <UploadIcon className="h-5 w-5" />
                     </button>
@@ -1237,6 +1246,19 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
                 isOpen={aiDraftOpen}
                 onClose={() => setAiDraftOpen(false)}
                 onUseDraft={(md) => setEditorTarget({ initialMarkdown: md })}
+            />
+            <MapperRunModal
+                isOpen={mapperOpen}
+                onClose={() => setMapperOpen(false)}
+                policies={policies}
+                onMasterUpdated={fetchPolicies}
+                onOpenVisualizer={(masterId) => {
+                    setMapperOpen(false);
+                    // GovernanceTab listens for this event and switches subtabs.
+                    window.dispatchEvent(new CustomEvent('governance-navigate', {
+                        detail: { subTab: 'mapper_visualizer', masterPolicyId: masterId },
+                    }));
+                }}
             />
 
             {viewTarget && (

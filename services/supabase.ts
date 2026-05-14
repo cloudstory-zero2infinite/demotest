@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate } from '../types';
+import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate, MapperRunResult, MapperGraph } from '../types';
 
 
 
@@ -795,6 +795,33 @@ export const updatePolicy = async (id: string, updates: { markdown?: string; pol
 };
 
 
+
+// ── Master policy + Mapper Agent ──────────────────────────────────────────
+export const getMasterPolicy = async (): Promise<PolicyV2 | null> => {
+  return apiRequest<PolicyV2 | null>('/api/policies/master');
+};
+
+export const setPolicyMaster = async (
+  id: string,
+  is_master: boolean = true,
+): Promise<{ policy_id: string; name: string; is_master: boolean }> => {
+  return apiRequest(`/api/policies/${id}/master`, {
+    method: 'PATCH',
+    body: JSON.stringify({ is_master }),
+  });
+};
+
+export const runMapper = async (trigger: string = 'policies'): Promise<MapperRunResult> => {
+  return apiRequest<MapperRunResult>('/api/mapper/run', {
+    method: 'POST',
+    body: JSON.stringify({ trigger }),
+  });
+};
+
+export const getMapperGraph = async (masterPolicyId?: string): Promise<MapperGraph> => {
+  const qs = masterPolicyId ? `?master_policy_id=${encodeURIComponent(masterPolicyId)}` : '';
+  return apiRequest<MapperGraph>(`/api/mapper/graph${qs}`);
+};
 
 export const deletePolicy = async (id: string): Promise<void> => {
 

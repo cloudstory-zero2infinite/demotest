@@ -1,0 +1,108 @@
+# Mapper Agent — Entity definitions (semantic contract).
+#
+# This file defines every entity the Mapper Agent is allowed to create or
+# reference when building the Governance knowledge graph in Neo4j.
+#
+# Rules the agent MUST abide to:
+#   1. Only entities listed here are valid node labels in Neo4j.
+#   2. For source-backed entities, only the columns listed in `source_columns`
+#      may be read from Supabase. All other columns are off-limits.
+#   3. Only properties listed under `properties` may be written to Neo4j nodes.
+#   4. Every node must carry `org_id` (multi-tenant scoping).
+#   5. `id_strategy` describes how the agent computes the unique key used in
+#      `MERGE` statements — never rely on Neo4j-internal ids.
+
+version: 1
+
+entities:
+
+  Policy:
+    description: >
+      A policy document owned by an organisation. Two flavours coexist with the
+      same label: a single "master" policy per org (Information Security Policy)
+      and any number of "child" policies (topic-specific policies such as
+      Incident Response, Vulnerability Management, etc.).
+    source:
+      type: supabase
+      table: policy_documents
+      org_scope_column: org_id
+    source_columns:
+      - policy_id
+      - name
+      - markdown
+      - policy_ref
+      - policy_status
+      - document_type
+      - owner_name
+      - is_master
+      - org_id
+      - updated_at
+    neo4j_label: Policy
+    properties:
+      - name: policy_id          # primary key (mirrors Supabase policy_id)
+        required: true
+      - name: name
+        required: true
+      - name: is_master
+        required: true
+      - name: policy_ref
+      - name: policy_status
+      - name: document_type
+      - name: owner_name
+      - name: org_id
+        required: true
+      - name: updated_at
+    id_strategy:
+      keys: [org_id, policy_id]   # composite — guarantees per-org uniqueness
+
+  SecurityDomain:
+    description: >
+      A top-level security area asserted by the master policy
+      (e.g. "Incident Response", "Vulnerability Management", "Access Control").
+      Inferred by the LLM from the master policy markdown.
+    source:
+      type: llm_inferred
+    neo4j_label: SecurityDomain
+    properties:
+      - name: name               # canonical name, Title Case
+        required: true
+      - name: description        # short, derived from the master policy
+      - name: org_id
+        required: true
+      - name: confidence         # 0..1, optional; toggleable in visualizer
+    id_strategy:
+      keys: [org_id, name]
+
+  SecurityFunction:
+    description: >
+      A finer-grained capability sitting under a SecurityDomain
+      (e.g. under "Incident Response": "Detection", "Containment", "Recovery").
+      Inferred by the LLM from the master policy markdown. Optional —
+      domains without enumerated functions are valid.
+    source:
+      type: llm_inferred
+    neo4j_label: SecurityFunction
+    properties:
+      - name: name
+        required: true
+      - name: description
+      - name: org_id
+        required: true
+      - name: confidence
+    id_strategy:
+      keys: [org_id, domain_name, name]
+
+  OrphanPolicy:
+    description: >
+      A virtual view label — not a separate Supabase row. A child Policy node
+      that ended up with no HAS_CHILD edge from the current master is rendered
+      in the visualizer as "orphan". The label is added/removed in Neo4j by
+      the mapper after each run.
+    source:
+      type: derived
+    neo4j_label: OrphanPolicy
+    properties:
+      - name: org_id
+        required: true
+    id_strategy:
+      keys: [org_id, policy_id]
