@@ -30,11 +30,15 @@ jobs:
             echo "REGION=asia-southeast1" >> $GITHUB_ENV
             echo "IMAGE_NAME=shankar/zti-prod" >> $GITHUB_ENV
             echo "DEPLOY_API_BASE_URL=${{ secrets.VITE_API_BASE_URL_PROD }}" >> $GITHUB_ENV
+            # Frontend + Express share the same Cloud Run URL, so FRONTEND_URL
+            # (used by CORS) equals the API base URL.
+            echo "DEPLOY_FRONTEND_URL=${{ secrets.VITE_API_BASE_URL_PROD }}" >> $GITHUB_ENV
           else
             echo "SERVICE=pre-prod" >> $GITHUB_ENV
             echo "REGION=asia-south1" >> $GITHUB_ENV
             echo "IMAGE_NAME=shankar/pre-prod" >> $GITHUB_ENV
             echo "DEPLOY_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }}" >> $GITHUB_ENV
+            echo "DEPLOY_FRONTEND_URL=${{ secrets.VITE_API_BASE_URL }}" >> $GITHUB_ENV
           fi
 
       ###########################################
@@ -95,5 +99,5 @@ jobs:
             --platform managed \
             --allow-unauthenticated \
             --set-env-vars \
-              SUPABASE_URL=${{ secrets.SUPABASE_URL }},SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+              SUPABASE_URL=${{ secrets.SUPABASE_URL }},SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }},AI_AGENT_URL=${{ secrets.AI_AGENT_URL }},FRONTEND_URL=${{ env.DEPLOY_FRONTEND_URL }}
 
