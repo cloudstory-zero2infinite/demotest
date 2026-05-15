@@ -1066,7 +1066,7 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
     const handleConfirmMapping = (mapping: ColumnMapping[]) => {
         try {
-            const { records, newFields } = applyManualMapping(mapping, rawRows, customFields);
+            const { records, newFields } = applyManualMapping(mapping, rawRows, customFields, 'asset_relationships');
             
             if (newFields.length > 0) {
                 setNewFieldsToCreate(newFields);
@@ -1403,13 +1403,9 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
                                     return (
                                         <th key={field.id} scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
                                             <div className="flex items-center">
-                                                <span className="flex-grow">
-                                                    {field.field_label}
-                                                    {field.is_required && <span className="text-red-500 ml-1">*</span>}
-                                                </span>
-                                                {shouldShowFilter && (
-                                                    <button
-                                                        onClick={(e) => {
+                                                <button
+                                                    onClick={(e) => {
+                                                        if (shouldShowFilter) {
                                                             e.stopPropagation();
                                                             const rect = e.currentTarget.getBoundingClientRect();
                                                             if (openFilterDropdown?.key === colKey) {
@@ -1417,13 +1413,16 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
                                                             } else {
                                                                 setOpenFilterDropdown({ key: colKey, rect });
                                                             }
-                                                        }}
-                                                        className={`ml-1 p-0.5 rounded transition-colors ${columnFilters[colKey]?.length ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
-                                                        title="Filter"
-                                                    >
-                                                        <FunnelIcon className="h-3 w-3" />
-                                                    </button>
-                                                )}
+                                                        } else {
+                                                            requestSort(colKey as keyof AssetRelationship);
+                                                        }
+                                                    }}
+                                                    className={`flex items-center text-left focus:outline-none flex-grow ${columnFilters[colKey]?.length ? 'text-blue-600 font-semibold' : ''}`}
+                                                >
+                                                    {field.field_label}
+                                                    {field.is_required && <span className="text-red-500 ml-1">*</span>}
+                                                    {getSortIconFor(colKey as keyof AssetRelationship)}
+                                                </button>
                                             </div>
                                             {openFilterDropdown?.key === colKey && shouldShowFilter && (
                                                 <FilterDropdown
@@ -1433,6 +1432,9 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
                                                     setColumnFilters={setColumnFilters}
                                                     onClose={() => setOpenFilterDropdown(null)}
                                                     triggerRect={openFilterDropdown.rect}
+                                                    sortConfig={sortConfig}
+                                                    requestSort={requestSort as any}
+                                                    hasFilter={shouldShowFilter}
                                                 />
                                             )}
                                         </th>

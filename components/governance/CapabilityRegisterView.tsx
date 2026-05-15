@@ -1441,7 +1441,7 @@ export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isAct
 
     const handleConfirmMapping = (mapping: ColumnMapping[]) => {
         try {
-            const { records, newFields } = applyManualMapping(mapping, rawRows, customFields);
+            const { records, newFields } = applyManualMapping(mapping, rawRows, customFields, 'capabilities');
             
             if (newFields.length > 0) {
                 setNewFieldsToCreate(newFields);
@@ -2253,7 +2253,7 @@ const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded
                 onClose={() => { setNewFieldsToCreate([]); setPendingImportData([]); }}
                 onConfirm={handleConfirmNewFields}
                 newFields={newFieldsToCreate}
-                moduleName="Capabilities"
+                moduleName="capabilities"
             />
 
             <ImportMappingModal
@@ -2261,7 +2261,7 @@ const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded
                 onClose={() => setModalState({ type: null })}
                 onConfirm={handleConfirmMapping}
                 headers={importHeaders}
-                moduleName="Capabilities"
+                moduleName="capabilities"
                 systemFields={SYSTEM_FIELDS_CONFIG.capabilities}
                 existingCustomFields={customFields}
             />

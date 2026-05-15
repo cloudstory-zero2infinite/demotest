@@ -10,6 +10,7 @@ export interface ProgramTask {
   assignee: string | null;
   status: ProgramStatus;
   progress_percent: number;
+  comments: string | null;
   last_updated: string;
 }
 

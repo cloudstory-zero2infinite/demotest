@@ -4247,7 +4247,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
     const handleConfirmMapping = (mapping: ColumnMapping[]) => {
         try {
-            const { records, newFields } = applyManualMapping(mapping, rawRows, customFields);
+            const { records, newFields } = applyManualMapping(mapping, rawRows, customFields, 'control_registry');
             
             if (newFields.length > 0) {
                 setNewFieldsToCreate(newFields);

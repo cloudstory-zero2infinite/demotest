@@ -46,6 +46,11 @@ if (!supabaseUrl || !supabaseAnonKey || supabaseUrl === 'undefined' || supabaseA
 
 export { supabase };
 
+export const getUser = async () => {
+  const { data: { user } } = await supabase.auth.getUser();
+  return user;
+};
+
 
 
 const API_BASE_URL = ((import.meta as any).env.VITE_API_BASE_URL as string) || 'http://localhost:3001';
@@ -386,17 +391,30 @@ export const removeMember = async (id: number): Promise<void> => {
 
 
 
-export const addActivityLog = async (programId: string, activity: string) => {
+export const getTaskById = async (id: string): Promise<ProgramTask> => {
+  return apiRequest(`/api/program/${id}`);
+};
 
-  try {
+export const addActivityLog = async (programId: string, payload: any) => {
+  const body = typeof payload === 'string' ? { activity: payload } : payload;
+  return apiRequest(`/api/program/${programId}/activity`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+};
 
-    await apiRequest(`/api/program/${programId}/activity`, {
+export const updateActivityLog = async (programId: string, activityId: string, payload: any) => {
+  return apiRequest(`/api/program/${programId}/activity/${activityId}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+};
 
-      method: 'POST',
-
-      body: JSON.stringify({ activity }),
-
-    });
+export const deleteActivityLog = async (programId: string, activityId: string) => {
+  return apiRequest(`/api/program/${programId}/activity/${activityId}`, {
+    method: 'DELETE',
+  });
+};
 
     
 
@@ -408,13 +426,7 @@ export const addActivityLog = async (programId: string, activity: string) => {
 
     }
 
-  } catch (err) {
 
-    console.error('Error logging activity:', err);
-
-  }
-
-};
 
 
 
@@ -987,6 +999,25 @@ export const deleteControlRegistryBulk = async (ids: string[]): Promise<{ delete
     method: 'DELETE',
     body: JSON.stringify({ ids }),
   });
+};
+
+export const bulkAddControlRegistry = async (controls: ControlRegistryCreate[]): Promise<ControlRegistry[]> => {
+  const result = await apiRequest<{ data: ControlRegistry[]; inserted: number; total: number; errors: number; errorDetails?: any[] }>('/api/control-registry/bulk', {
+    method: 'POST',
+    body: JSON.stringify(controls),
+  });
+
+  if (result && typeof result === 'object' && 'data' in result) {
+    if (result.errors > 0) {
+      console.warn(`Bulk import completed with ${result.errors} errors. ${result.inserted}/${result.total} controls successfully imported.`);
+      if (result.errorDetails) {
+        console.error('Error details:', result.errorDetails);
+      }
+    }
+    return Array.isArray(result.data) ? result.data : [];
+  }
+
+  return Array.isArray(result) ? result : [];
 };
 
 
@@ -2043,10 +2074,23 @@ export const createAssetType = async (name: string, fields: any[]): Promise<Asse
   });
 };
 
+export const updateAssetType = async (id: string, name: string, fields: any[]): Promise<AssetType> => {
+  return apiRequest<AssetType>(`/api/asset-types/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ name, fields }),
+  });
+};
+
 export const saveAssetTypes = async (assetTypes: AssetType[]): Promise<void> => {
   return apiRequest<void>('/api/asset-types', {
     method: 'POST',
     body: JSON.stringify(assetTypes),
+  });
+};
+
+export const deleteAssetType = async (id: string): Promise<void> => {
+  return apiRequest<void>(`/api/asset-types/${id}`, {
+    method: 'DELETE',
   });
 };
 

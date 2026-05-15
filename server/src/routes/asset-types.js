@@ -126,7 +126,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
     const { error } = await supabaseAdmin
       .from('asset_types')
-      .update({ is_active: false })
+      .delete()
       .eq('id', id)
       .eq('org_id', req.orgId);
 

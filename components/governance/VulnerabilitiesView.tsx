@@ -1122,7 +1122,7 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
 
     const handleConfirmMapping = (mapping: ColumnMapping[]) => {
         try {
-            const { records, newFields } = applyManualMapping(mapping, rawRows, customFields);
+            const { records, newFields } = applyManualMapping(mapping, rawRows, customFields, 'vulnerabilities');
             
             if (newFields.length > 0) {
                 setNewFieldsToCreate(newFields);
