@@ -12,6 +12,9 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.101.0",
+    "@types/d3-force": "^3.0.10",
+    "@xyflow/react": "^12.10.2",
+    "d3-force": "^3.0.0",
     "dom-helpers": "^6.0.1",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",

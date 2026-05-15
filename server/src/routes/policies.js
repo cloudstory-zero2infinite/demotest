@@ -171,7 +171,7 @@ router.get('/', requireAuth, async (req, res) => {
 
     const { data, error } = await supabaseAdmin
       .from('policy_documents')
-      .select('policy_id,name,policy_ref,policy_status,refresh_date,version,document_type,owner_name,org_id,user_id,created_at,updated_at,markdown')
+      .select('policy_id,name,policy_ref,policy_status,refresh_date,version,document_type,owner_name,is_master,org_id,user_id,created_at,updated_at,markdown')
       .eq('org_id', req.orgId)
       .order('updated_at', { ascending: false });
     if (error) throw error;
@@ -234,6 +234,72 @@ router.put('/notifications/:notifId/read', requireAuth, async (req, res) => {
       .eq('recipient_id', req.userId);
     if (error) throw error;
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── GET /master  ─ return the org's master policy (if any) ────────────────
+// Used by the Mapper Agent run modal to detect "no master set" state.
+// MUST be declared before /:id so Express doesn't route "master" as an id.
+router.get('/master', requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('policy_documents')
+      .select('policy_id,name,policy_ref,policy_status,owner_name,document_type,is_master,updated_at')
+      .eq('org_id', req.orgId)
+      .eq('is_master', true)
+      .maybeSingle();
+    if (error) throw error;
+    res.json(data || null);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ── PATCH /:id/master  ─ mark a policy as the org's master ────────────────
+// Atomically clears any existing master before setting the new one so the
+// partial-unique-index constraint (one master per org) never gets violated.
+router.patch('/:id/master', requireAuth, async (req, res) => {
+  try {
+    if (!req.orgId) {
+      return res.status(400).json({ message: 'No organisation found for user.' });
+    }
+    const setMaster = req.body && typeof req.body.is_master === 'boolean'
+      ? req.body.is_master
+      : true;
+
+    if (setMaster) {
+      const { error: clearErr } = await supabaseAdmin
+        .from('policy_documents')
+        .update({ is_master: false })
+        .eq('org_id', req.orgId)
+        .eq('is_master', true)
+        .neq('policy_id', req.params.id);
+      if (clearErr) throw clearErr;
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('policy_documents')
+      .update({ is_master: setMaster })
+      .eq('policy_id', req.params.id)
+      .eq('org_id', req.orgId)
+      .select('policy_id,name,is_master')
+      .single();
+    if (error) throw error;
+
+    logActivity({
+      action: setMaster ? 'policy_master_set' : 'policy_master_cleared',
+      module: 'Policy',
+      entity_id: req.params.id,
+      entity_name: data?.name || null,
+      user_id: req.userId,
+      org_id: req.orgId,
+      severity: 'info',
+      event_data: { actor_name: req.user?.email || req.userId },
+    });
+
+    res.json(data);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

@@ -7,8 +7,9 @@ import { StatusBadge } from '../common/StatusBadge';
 import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
 import { useTableSelection } from '../../hooks/useTableSelection';
 import { SelectionActionBar } from '../common/SelectionActionBar';
-import { parseCSVLine } from '../../utils/csvParser';
+import { parseCSVLine, parseCSVText } from '../../utils/csvParser';
 import { useDataRefresh } from '../../hooks/useDataRefresh';
+import { BulkProgressModal, BulkProgress } from '../common/BulkProgressModal';
 
 // ─── Assignee Search+Select (same pattern as OwnerSelect in CapabilityRegisterView) ───
 
@@ -507,12 +508,17 @@ const HistoryModal: React.FC<{ task: ProgramTask; onClose: () => void }> = ({ ta
                                                 "{toDesc || 'No description'}"
                                             </p>
                                         )}
-                                        {ed.comment && (
+                                        {ed.old_comment && ed.new_comment ? (
+                                            <p className="mt-1 text-xs text-gray-600 dark:text-gray-300 italic">
+                                                <span className="font-semibold mr-1">Updated comment:</span>
+                                                "{ed.old_comment}" → "{ed.new_comment}"
+                                            </p>
+                                        ) : ed.comment ? (
                                             <p className="mt-1 text-xs text-gray-600 dark:text-gray-300 italic">
                                                 {e.action === 'comment_edited' && <span className="font-semibold mr-1">Updated comment:</span>}
                                                 "{typeof ed.comment === 'string' ? ed.comment : (ed.comment?.text || JSON.stringify(ed.comment))}"
                                             </p>
-                                        )}
+                                        ) : null}
                                         {ed.note && (
                                             <p className="mt-1 text-xs text-gray-600 dark:text-gray-300 italic">{ed.note}</p>
                                         )}
@@ -640,7 +646,7 @@ const CommentModal: React.FC<{
                                                 </div>
                                             ) : (
                                                 <p className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap">
-                                                    {typeof ed.comment === 'string' ? ed.comment : (ed.comment?.text || JSON.stringify(ed.comment))}
+                                                    {ed.current_comment ? (typeof ed.current_comment === 'string' ? ed.current_comment : JSON.stringify(ed.current_comment)) : (typeof ed.comment === 'string' ? ed.comment : (ed.comment?.text || JSON.stringify(ed.comment)))}
                                                 </p>
                                             )}
                                         </div>
@@ -665,6 +671,8 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [orgContacts, setOrgContacts] = useState<OrgContact[]>([]);
     const [currentUserId, setCurrentUserId] = useState<string>();
+    const [isImporting, setIsImporting] = useState(false);
+    const [importProgress, setImportProgress] = useState<BulkProgress>({ total: 0, completed: 0, failed: 0, status: 'idle' });
 
     const {
         selectedIds, isEditing, editValues, isConfirmingDelete, isSaving,
@@ -788,21 +796,27 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
             const text = e.target?.result as string;
             if(!text) return;
 
-            const allLines = text.split('\n').filter(line => line.trim());
-            if (allLines.length === 0) return;
-            const lines = allLines.slice(1);
+            const { rows } = parseCSVText(text);
+            if (rows.length === 0) return;
             
-            const importedTasks: ProgramTaskCreate[] = lines
-                .map(line => {
-                    const fields = parseCSVLine(line);
-                    const [program_name, description, due_date, assignee, status, progress_percent] = fields;
-                    if (!program_name || !program_name.trim()) return null;
+            const importedTasks: ProgramTaskCreate[] = rows
+                .map(row => {
+                    const program_name = row.program_name || row.Program_Name || '';
+                    if (!program_name.trim()) return null;
+
+                    const description = row.description || row.Description || '';
+                    const due_date = row.due_date || row.Due_Date || '';
+                    const assignee = row.assignee || row.Assignee || '';
+                    const status = row.status || row.Status || '';
+                    const progress_percent = row.progress_percent || row.Progress_Percent || '0';
+                    const id = row.id || row.ID || null;
 
                     return {
+                        id: id ? id.trim() : undefined,
                         program_name: sanitizeInput(program_name.trim()),
                         description: description ? sanitizeInput(description.trim()) : '',
-                        month: '',
-                        due_date: due_date ? due_date.trim() : null,
+                        month: 'January',
+                        due_date: (due_date && !isNaN(Date.parse(due_date.trim()))) ? due_date.trim() : null,
                         assignee: assignee ? sanitizeInput(assignee.trim()) : null,
                         status: status ? (sanitizeInput(status.trim()) as ProgramStatus) : deriveStatus(Number(progress_percent) || 0),
                         progress_percent: Number(progress_percent) || 0,
@@ -810,14 +824,73 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                 })
                 .filter((task): task is ProgramTaskCreate => task !== null);
 
-            if (importedTasks.length > 0) {
-                try {
-                    await SupabaseService.bulkAddTasks(importedTasks);
-                    fetchTasks();
-                    alert('Import successful.');
-                } catch (err) {
-                    alert('Failed to import.');
+            // Filter to only include new or updated tasks
+            const tasksToProcess = importedTasks.filter(newTask => {
+                // Find existing by ID or Name
+                const existing = tasks.find(t => 
+                    (newTask.id && t.id === newTask.id) || 
+                    (!newTask.id && t.program_name.trim().toLowerCase() === newTask.program_name.trim().toLowerCase())
+                );
+
+                if (!existing) return true; // Brand new
+
+                // Check for differences
+                const hasNameChange = newTask.program_name.trim() !== existing.program_name.trim();
+                const hasDescChange = (newTask.description || '') !== (existing.description || '');
+                const hasAssigneeChange = (newTask.assignee || '') !== (existing.assignee || '');
+                const hasStatusChange = newTask.status !== existing.status;
+                const hasProgressChange = Number(newTask.progress_percent) !== Number(existing.progress_percent);
+                
+                // Date comparison
+                const newDate = newTask.due_date ? new Date(newTask.due_date).toISOString().split('T')[0] : null;
+                const existingDate = existing.due_date ? new Date(existing.due_date).toISOString().split('T')[0] : null;
+                const hasDateChange = newDate !== existingDate;
+
+                const changed = hasNameChange || hasDescChange || hasAssigneeChange || hasStatusChange || hasProgressChange || hasDateChange;
+                
+                // If matched by name, ensure ID is set for update
+                if (changed && !newTask.id) {
+                    newTask.id = existing.id;
                 }
+                
+                return changed;
+            });
+
+            if (tasksToProcess.length > 0) {
+                setIsImporting(true);
+                setImportProgress({ total: tasksToProcess.length, completed: 0, failed: 0, status: 'processing' });
+                
+                try {
+                    const CHUNK_SIZE = 50;
+                    for (let i = 0; i < tasksToProcess.length; i += CHUNK_SIZE) {
+                        const chunk = tasksToProcess.slice(i, i + CHUNK_SIZE);
+                        try {
+                            await SupabaseService.bulkAddTasks(chunk);
+                            setImportProgress(prev => ({
+                                ...prev,
+                                completed: prev.completed + chunk.length
+                            }));
+                        } catch (chunkErr) {
+                            console.error('Chunk import error:', chunkErr);
+                            setImportProgress(prev => ({
+                                ...prev,
+                                failed: prev.failed + chunk.length
+                            }));
+                        }
+                    }
+                    
+                    fetchTasks();
+                    setImportProgress(prev => ({
+                        ...prev,
+                        status: prev.failed > 0 ? (prev.completed > 0 ? 'warning' : 'error') : 'done'
+                    }));
+                } catch (err: any) {
+                    console.error('Import error:', err);
+                    setImportProgress(prev => ({ ...prev, status: 'error' }));
+                    alert(`Failed to import: ${err.message}`);
+                }
+            } else {
+                alert('No new or updated milestones found in the CSV.');
             }
         };
         reader.readAsText(file);
@@ -857,8 +930,23 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
     };
 
     const handleExportCSV = () => {
-        const headers = ['program_name', 'description', 'due_date', 'assignee', 'status', 'progress_percent'];
-        const csvContent = [headers.join(','), ...filteredAndSortedTasks.map(t => [t.program_name, t.description, t.due_date, t.assignee, t.status, t.progress_percent].join(','))].join('\n');
+        const headers = ['id', 'program_name', 'description', 'due_date', 'assignee', 'status', 'progress_percent'];
+        const quoteCSVValue = (val: any) => {
+            const s = val === null || val === undefined ? '' : String(val);
+            return `"${s.replace(/"/g, '""')}"`;
+        };
+        const csvContent = [
+            headers.join(','), 
+            ...filteredAndSortedTasks.map(t => [
+                t.id,
+                t.program_name, 
+                t.description, 
+                t.due_date, 
+                t.assignee, 
+                t.status, 
+                t.progress_percent
+            ].map(quoteCSVValue).join(','))
+        ].join('\n');
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
@@ -1126,6 +1214,13 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                 onConfirmDelete={handleBulkDelete}
                 onCancelDelete={() => setIsConfirmingDelete(false)}
                 onClear={clearAll}
+            />
+
+            <BulkProgressModal
+                isOpen={isImporting}
+                title="Importing Milestones"
+                progress={importProgress}
+                onClose={() => setIsImporting(false)}
             />
         </div>
     );

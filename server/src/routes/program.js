@@ -88,13 +88,50 @@ router.post('/bulk', requireAuth, async (req, res) => {
     const tasks = req.body;
     
     // Simply insert all tasks - frontend handles duplicate detection
+    // Fetch existing programs for this org to match by name if ID is missing
+    const { data: existingPrograms, error: fetchError } = await supabaseAdmin
+      .from('program')
+      .select('id, program_name')
+      .eq('org_id', req.orgId);
+    
+    if (fetchError) {
+      console.error('[bulk-program] Error fetching existing programs:', fetchError);
+      // Continue anyway, but matching will fail
+    }
+
+    const nameToIdMap = new Map();
+    if (existingPrograms) {
+      existingPrograms.forEach(p => {
+        if (p.program_name) {
+          nameToIdMap.set(p.program_name.trim().toLowerCase(), p.id);
+        }
+      });
+    }
+
     const payloads = tasks.map(t => {
       const p = { ...t, user_id: req.userId, org_id: req.orgId };
+      
+      // If no ID is provided, try to match by name
+      if (!p.id && p.program_name) {
+        const existingId = nameToIdMap.get(p.program_name.trim().toLowerCase());
+        if (existingId) {
+          p.id = existingId;
+        }
+      }
+
       p.status = deriveStatus(p.progress_percent, p.status);
       return p;
     });
-    const { data, error } = await supabaseAdmin.from('program').insert(payloads).select();
-    if (error) throw error;
+
+    console.log(`[bulk-program] Attempting to upsert ${payloads.length} tasks for org: ${req.orgId}`);
+    const { data, error } = await supabaseAdmin.from('program').upsert(payloads, { 
+      onConflict: 'id',
+      ignoreDuplicates: false 
+    }).select();
+    if (error) {
+      console.error('[bulk-program] Supabase insert error:', error);
+      throw error;
+    }
     
     if (data && data.length > 0) {
       for (const item of data) {
@@ -115,7 +152,11 @@ router.post('/bulk', requireAuth, async (req, res) => {
     });
   } catch (err) {
     console.error('Bulk add error:', err);
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ 
+      message: err.message,
+      details: err.details || err.hint || null,
+      code: err.code || null
+    });
   }
 });
 
@@ -391,6 +432,9 @@ router.put('/:id/activity/:activityId', requireAuth, async (req, res) => {
     if (log.user_id !== req.userId) return res.status(403).json({ message: 'Unauthorized' });
 
     let updatedActivity = activity;
+    let oldCommentValue = '';
+    let newCommentValue = '';
+
     if (action) {
       let parsed = {};
       try {
@@ -399,12 +443,15 @@ router.put('/:id/activity/:activityId', requireAuth, async (req, res) => {
         parsed = { event_data: { comment: log.activity } };
       }
       
+      oldCommentValue = parsed.event_data?.current_comment || parsed.event_data?.comment || (typeof log.activity === 'string' ? log.activity : '');
+      newCommentValue = event_data?.comment || activity || '';
+
       updatedActivity = JSON.stringify({
         ...parsed,
         action,
         event_data: {
           ...(parsed.event_data || {}),
-          ...event_data,
+          current_comment: newCommentValue, // For entity display in recent comments list
           edited: true,
           edited_at: new Date().toISOString()
         }
@@ -418,19 +465,28 @@ router.put('/:id/activity/:activityId', requireAuth, async (req, res) => {
 
     if (error) throw error;
 
-    // Log the edit action for history tracking
-    let commentText = 'Comment updated';
-    try {
-      const parsed = JSON.parse(updatedActivity);
-      commentText = parsed.event_data?.comment || parsed.event_data?.text || commentText;
-    } catch (e) {}
-
+    // Log the edit action for history tracking with old and new values
     await logProgramActivity(req, req.params.id, {
       action: 'comment_edited',
       event_data: {
-        comment: commentText
+        old_comment: oldCommentValue,
+        new_comment: newCommentValue
       }
     });
+
+    // Sync: Update in program table array
+    if (oldCommentValue && newCommentValue) {
+      const { data: p } = await supabaseAdmin.from('program').select('comments').eq('id', req.params.id).single();
+      if (p && Array.isArray(p.comments)) {
+        const updatedArr = p.comments.map(c => {
+          if (c.text === oldCommentValue && c.user_id === req.userId) {
+            return { ...c, text: newCommentValue, edited: true, edited_at: new Date().toISOString() };
+          }
+          return c;
+        });
+        await supabaseAdmin.from('program').update({ comments: updatedArr }).eq('id', req.params.id);
+      }
+    }
 
     res.json({ ok: true });
   } catch (err) {

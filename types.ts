@@ -380,10 +380,59 @@ export interface PolicyV2 {
   version: string | null;
   document_type: string | null;
   owner_name: string | null;
+  is_master?: boolean;
   org_id: string;
   user_id: string;
   created_at: string;
   updated_at: string;
+}
+
+// Mapper Agent — Phase 1: triggered from the Policy tab.
+export interface MapperRunResult {
+  status: 'ok' | 'needs_master';
+  message?: string;
+  trigger?: string;
+  master_policy_id?: string;
+  summary?: {
+    domains: number;
+    functions: number;
+    child_links: number;
+    orphans: number;
+  };
+  extraction?: {
+    security_domains: Array<{
+      name: string;
+      description?: string | null;
+      confidence?: number | null;
+      functions?: Array<{ name: string; description?: string | null; confidence?: number | null }>;
+    }>;
+    child_policy_links: Array<{
+      policy_id: string;
+      confidence: number;
+      rationale?: string | null;
+      matched_on?: string | null;
+      covers_domains?: string[];
+    }>;
+  };
+}
+
+export interface MapperGraphNode {
+  id: string;
+  type: 'MasterPolicy' | 'ChildPolicy' | 'OrphanPolicy' | 'SecurityDomain' | 'SecurityFunction';
+  data: Record<string, any>;
+}
+
+export interface MapperGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  label: 'DEFINES' | 'CONTAINS' | 'HAS_CHILD' | 'COVERS';
+  data?: { confidence?: number | null; rationale?: string | null; matched_on?: string | null };
+}
+
+export interface MapperGraph {
+  nodes: MapperGraphNode[];
+  edges: MapperGraphEdge[];
 }
 
 export interface PolicyApproval {

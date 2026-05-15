@@ -693,7 +693,9 @@ export const applyManualMapping = (
 
   rows: Record<string, string>[],
 
-  existingFields: CustomField[]
+  existingFields: CustomField[],
+
+  moduleName?: string
 
 ) => {
 
@@ -940,89 +942,156 @@ export const applyManualMapping = (
     });
 
     // Ensure required fields have default values
-    if (standardData.asset_id !== undefined && standardData.asset_id.trim() === '') {
-      delete standardData.asset_id;
+    const moduleLower = (moduleName || 'assets').toLowerCase();
+
+    if (moduleLower === 'assets') {
+
+      if (standardData.asset_id !== undefined && standardData.asset_id.trim() === '') {
+
+        delete standardData.asset_id;
+
+      }
+
+      if (!standardData.name || standardData.name.trim() === '') {
+
+        standardData.name = `Unnamed Asset ${Date.now()}`;
+
+      }
+
+      if (!standardData.asset_owner || standardData.asset_owner.trim() === '') {
+
+        standardData.asset_owner = 'Unknown';
+
+      }
+
+      if (!standardData.business_unit || standardData.business_unit.trim() === '') {
+
+        standardData.business_unit = 'Unknown';
+
+      }
+
+      if (!standardData.ip_address || standardData.ip_address.trim() === '') {
+
+        standardData.ip_address = '0.0.0.0';
+
+      }
+
+      if (!standardData.mac_id || standardData.mac_id.trim() === '') {
+
+        standardData.mac_id = 'Unknown';
+
+      }
+
+      if (!standardData.details || standardData.details.trim() === '') {
+
+        standardData.details = 'Imported asset';
+
+      }
+
+      if (!standardData.criticality) {
+
+        standardData.criticality = 'Low';
+
+      }
+
+      if (!standardData.category) {
+
+        // Default to DEMO to match the user's asset type
+
+        standardData.category = 'DEMO';
+
+      }
+
+      if (!standardData.exposure) {
+
+        standardData.exposure = 'Internal';
+
+      }
+
+      if (!standardData.governed_status) {
+
+        standardData.governed_status = 'Non-Governed';
+
+      }
+
+      if (!standardData.source) {
+
+        standardData.source = 'File Upload';
+
+      }
+
+      // Set default vulnerability count
+
+      if (standardData.vulnerability_count === undefined || standardData.vulnerability_count === null) {
+
+        standardData.vulnerability_count = 0;
+
+      }
+
+    } else if (moduleLower === 'vulnerabilities') {
+
+      if (!standardData.name || standardData.name.trim() === '') {
+
+        standardData.name = `Unnamed Vulnerability ${Date.now()}`;
+
+      }
+
+      if (!standardData.derived_from) {
+
+        standardData.derived_from = 'Scanning';
+
+      }
+
+      if (!standardData.status) {
+
+        standardData.status = 'Planned';
+
+      }
+
+    } else if (moduleLower === 'control_registry') {
+
+      if (!standardData.ctl_name || standardData.ctl_name.trim() === '') {
+
+        standardData.ctl_name = `Unnamed Control ${Date.now()}`;
+
+      }
+
+      if (!standardData.ctl_status) {
+
+        standardData.ctl_status = 'Draft';
+
+      }
+
+    } else if (moduleLower === 'capabilities') {
+
+      if (!standardData.capab_name || standardData.capab_name.trim() === '') {
+
+        standardData.capab_name = `Unnamed Capability ${Date.now()}`;
+
+      }
+
+    } else if (moduleLower === 'asset_relationships') {
+
+      if (!standardData.relationship_type || standardData.relationship_type.trim() === '') {
+
+        standardData.relationship_type = 'related_to';
+
+      }
+
     }
 
-    if (!standardData.name || standardData.name.trim() === '') {
-      standardData.name = `Unnamed Asset ${Date.now()}`;
-    }
-
-    if (!standardData.asset_owner || standardData.asset_owner.trim() === '') {
-
-      standardData.asset_owner = 'Unknown';
-
-    }
-
-    if (!standardData.business_unit || standardData.business_unit.trim() === '') {
-
-      standardData.business_unit = 'Unknown';
-
-    }
-
-    if (!standardData.ip_address || standardData.ip_address.trim() === '') {
-
-      standardData.ip_address = '0.0.0.0';
-
-    }
-
-    if (!standardData.mac_id || standardData.mac_id.trim() === '') {
-
-      standardData.mac_id = 'Unknown';
-
-    }
-
-    if (!standardData.details || standardData.details.trim() === '') {
-
-      standardData.details = 'Imported asset';
-
-    }
-
-    if (!standardData.criticality) {
-
-      standardData.criticality = 'Low';
-
-    }
-
-    if (!standardData.category) {
-
-      // Default to DEMO to match the user's asset type
-
-      standardData.category = 'DEMO';
-
-    }
-
-    if (!standardData.exposure) {
-
-      standardData.exposure = 'Internal';
-
-    }
-
-    if (!standardData.governed_status) {
-
-      standardData.governed_status = 'Non-Governed';
-
-    }
-
-    if (!standardData.source) {
-
-      standardData.source = 'File Upload';
-
-    }
-
+    // Final safety: Filter standardData to ONLY include fields defined in SYSTEM_FIELDS_CONFIG for this module
+    // This prevents any "leaked" fields like asset_owner from causing schema errors
+    const allowedFields = new Set((SYSTEM_FIELDS_CONFIG[moduleLower] || []).map(f => f.key));
+    const cleanStandardData: Record<string, any> = {};
     
+    Object.keys(standardData).forEach(key => {
+      if (allowedFields.has(key)) {
+        cleanStandardData[key] = standardData[key];
+      }
+    });
 
-    // Set default vulnerability count
-
-    if (standardData.vulnerability_count === undefined || standardData.vulnerability_count === null) {
-
-      standardData.vulnerability_count = 0;
-
-    }
-
-
-
-    return { ...standardData, custom_fields: customData };
+    return { ...cleanStandardData, custom_fields: customData };
 
   });
 

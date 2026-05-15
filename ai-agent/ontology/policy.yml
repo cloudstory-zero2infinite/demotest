@@ -1,0 +1,122 @@
+# Mapper Agent — Recipe for the "policies" trigger.
+#
+# This file binds together the generic entity/relationship contract with the
+# specific behaviour required when the Mapper Agent is invoked from the
+# Policy tab. Each trigger module (capabilities, controls, etc.) will get
+# its own recipe file in this directory in later phases.
+
+version: 1
+trigger: policies
+
+# What the agent must read before reasoning. Keys are referenced by the
+# extractor; values are Supabase queries described declaratively.
+inputs:
+  master_policy:
+    description: The single Information Security master policy for the org.
+    entity: Policy
+    where:
+      org_id: ${org_id}
+      is_master: true
+    cardinality: exactly_one        # fail with needs_master if zero, conflict if >1
+    on_missing: needs_master_response
+
+  candidate_child_policies:
+    description: Every non-master policy in the same org.
+    entity: Policy
+    where:
+      org_id: ${org_id}
+      is_master: false
+    fields_to_use:                  # subset of source_columns used by the LLM
+      - policy_id
+      - name
+      - policy_ref
+      - document_type
+
+# What the agent must produce. Entities/relationships must match
+# entities.yml and relationships.yml.
+outputs:
+  entities:
+    - SecurityDomain
+    - SecurityFunction              # optional
+  relationships:
+    - DEFINES                       # master -> domain
+    - CONTAINS                      # domain -> function (optional)
+    - HAS_CHILD                     # master -> child
+    - COVERS                        # child  -> domain (optional)
+
+# LLM extraction instructions (used by policy_extractor.py to compose the
+# Gemini prompt — kept here so domain experts can iterate without touching
+# Python).
+extraction:
+  model_temperature: 0.2
+  response_format: json
+  json_schema:
+    type: object
+    required: [security_domains, child_policy_links]
+    properties:
+      security_domains:
+        type: array
+        items:
+          type: object
+          required: [name]
+          properties:
+            name: { type: string }
+            description: { type: string }
+            confidence: { type: number, minimum: 0, maximum: 1 }
+            functions:
+              type: array
+              items:
+                type: object
+                required: [name]
+                properties:
+                  name: { type: string }
+                  description: { type: string }
+                  confidence: { type: number, minimum: 0, maximum: 1 }
+      child_policy_links:
+        type: array
+        items:
+          type: object
+          required: [policy_id, confidence]
+          properties:
+            policy_id: { type: string }       # MUST be from candidate_child_policies
+            confidence: { type: number, minimum: 0, maximum: 1 }
+            rationale: { type: string }
+            matched_on: { type: string }
+            covers_domains:                   # optional cross-links
+              type: array
+              items: { type: string }         # SecurityDomain.name
+
+  instructions: |
+    You are the GRC Mapper Agent. You are given the markdown body of an
+    organisation's master Information Security policy plus a list of other
+    candidate policies that already exist in the same organisation.
+
+    Your job:
+      1. Identify the SECURITY DOMAINS the master policy asserts. Use the
+         canonical Title Case forms you see in the document. Examples seen
+         in GRC programmes include "Incident Response", "Vulnerability
+         Management", "Access Control", "Asset Management", "Business
+         Continuity", "Data Protection", "Risk Management", "Third Party
+         Risk", "Physical Security", "Awareness & Training". Do NOT invent
+         domains that are not supported by the text.
+      2. Where the master policy enumerates sub-areas under a domain (e.g.
+         Detection / Containment / Recovery under Incident Response), emit
+         them as `functions` of that domain.
+      3. From the candidate policies list, decide which ones are
+         semantically the CHILD policies of this master (i.e. topic-specific
+         documents that the master delegates to). Match by name, policy_ref,
+         and document_type. Provide a one-sentence `rationale` and an
+         honest `confidence` in [0,1].
+      4. Optionally, for each child policy you link, note which security
+         domains it covers (`covers_domains`).
+      5. Do NOT include any policy_id that is not in the candidates list.
+      6. Return ONLY the JSON object described by the schema. No prose,
+         no markdown fences.
+
+# Neo4j write strategy.
+write_strategy:
+  mode: wipe_and_rewrite             # Phase 1: clear current master's subgraph
+  scope: per_master                  # only this master's edges + inferred nodes
+  preserve:                          # nodes kept across runs
+    - Policy                         # children are sourced from Supabase, never deleted
+  confidence_threshold_for_visualizer: 0.5

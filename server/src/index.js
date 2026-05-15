@@ -222,6 +222,7 @@ import { assetTypesRouter } from "./routes/asset-types.js";
 
 import { checkAllExpiredPolicies } from "./jobs/policy-expiry.js";
 import { scoringRouter } from "./routes/scoring.js";
+import { mapperRouter } from "./routes/mapper.js";
 
 
 
@@ -300,6 +301,8 @@ app.use("/api/control-registry", controlRegistryRouter);
 app.use("/api/org-settings", orgSettingsRouter);
 
 app.use("/api/org-contacts", orgContactsRouter);
+
+app.use("/api/mapper", mapperRouter);
 
 
 

@@ -1,6 +1,8 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate } from '../types';
+import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate, MapperRunResult, MapperGraph } from '../types';
+import { isDemoEnabled } from './demo/demoMode';
+import { handleDemoRequest } from './demo/demoApi';
 
 
 
@@ -76,6 +78,11 @@ supabase.auth.getSession().then(({ data }) => {
 // Internal helper — attaches the user's JWT to every backend request
 
 const apiRequest = async <T>(path: string, options: RequestInit = {}): Promise<T> => {
+
+  // Demo mode short-circuit: all reads/writes hit an in-memory store, not the backend
+  if (isDemoEnabled()) {
+    return handleDemoRequest<T>(path, options);
+  }
 
   let token = cachedToken;
 
@@ -533,6 +540,11 @@ const GRC_DOCUMENTS_BUCKET = 'grc-documents';
 
 export const uploadFile = async (file: File, pathPrefix: string): Promise<string> => {
 
+  if (isDemoEnabled()) {
+    // Demo: no real upload — return a stable placeholder URL
+    return `https://demo.local/files/${pathPrefix}/${file.name}`;
+  }
+
   const filePath = `${pathPrefix}/${Date.now()}-${file.name}`;
 
   const { error } = await supabase.storage.from(GRC_DOCUMENTS_BUCKET).upload(filePath, file);
@@ -808,6 +820,33 @@ export const updatePolicy = async (id: string, updates: { markdown?: string; pol
 
 
 
+// ── Master policy + Mapper Agent ──────────────────────────────────────────
+export const getMasterPolicy = async (): Promise<PolicyV2 | null> => {
+  return apiRequest<PolicyV2 | null>('/api/policies/master');
+};
+
+export const setPolicyMaster = async (
+  id: string,
+  is_master: boolean = true,
+): Promise<{ policy_id: string; name: string; is_master: boolean }> => {
+  return apiRequest(`/api/policies/${id}/master`, {
+    method: 'PATCH',
+    body: JSON.stringify({ is_master }),
+  });
+};
+
+export const runMapper = async (trigger: string = 'policies'): Promise<MapperRunResult> => {
+  return apiRequest<MapperRunResult>('/api/mapper/run', {
+    method: 'POST',
+    body: JSON.stringify({ trigger }),
+  });
+};
+
+export const getMapperGraph = async (masterPolicyId?: string): Promise<MapperGraph> => {
+  const qs = masterPolicyId ? `?master_policy_id=${encodeURIComponent(masterPolicyId)}` : '';
+  return apiRequest<MapperGraph>(`/api/mapper/graph${qs}`);
+};
+
 export const deletePolicy = async (id: string): Promise<void> => {
 
   return apiRequest<void>(`/api/policies/${id}`, { method: 'DELETE' });
@@ -962,6 +1001,25 @@ export const deleteControlRegistryBulk = async (ids: string[]): Promise<{ delete
   });
 };
 
+export const bulkAddControlRegistry = async (controls: ControlRegistryCreate[]): Promise<ControlRegistry[]> => {
+  const result = await apiRequest<{ data: ControlRegistry[]; inserted: number; total: number; errors: number; errorDetails?: any[] }>('/api/control-registry/bulk', {
+    method: 'POST',
+    body: JSON.stringify(controls),
+  });
+
+  if (result && typeof result === 'object' && 'data' in result) {
+    if (result.errors > 0) {
+      console.warn(`Bulk import completed with ${result.errors} errors. ${result.inserted}/${result.total} controls successfully imported.`);
+      if (result.errorDetails) {
+        console.error('Error details:', result.errorDetails);
+      }
+    }
+    return Array.isArray(result.data) ? result.data : [];
+  }
+
+  return Array.isArray(result) ? result : [];
+};
+
 
 
 // --- Control Evidence & Enforcement ---
@@ -993,6 +1051,31 @@ export const submitControlEnforcement = async (
   }
 
 ): Promise<{ success: boolean; review: ControlEvidenceReview }> => {
+
+  if (isDemoEnabled()) {
+    // Demo: synthesize a review record without hitting the backend
+    return {
+      success: true,
+      review: {
+        id: `demo-review-${Date.now()}`,
+        control_id: id,
+        requested_status: data.requested_status as 'Enforced' | 'NotEnforced',
+        requested_by: 'demo-abc-news-user',
+        enforced_by_name: data.enforced_by_name,
+        enforced_by_email: data.enforced_by_email,
+        reviewer_id: data.reviewer_id ?? null,
+        reviewer_name: data.reviewer_name,
+        reviewer_email: data.reviewer_email,
+        status: 'pending',
+        comment: data.comment ?? null,
+        review_comment: null,
+        evidence_files: data.files.map(f => ({ name: f.name, storage_path: `demo://${f.name}`, original_name: f.name, size: f.size, type: f.type })),
+        org_id: 'demo-abc-news-org',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    };
+  }
 
   let token = cachedToken;
 
@@ -1678,6 +1761,8 @@ export interface FeedbackData {
 
 
 export const saveFeedback = async (feedback: FeedbackData): Promise<boolean> => {
+
+  if (isDemoEnabled()) return true;  // Silent success in demo mode
 
   try {
 

@@ -24,6 +24,10 @@ app.add_middleware(
 from policy_agent.router import router as policy_router
 app.include_router(policy_router, prefix="/policy")
 
+# Mapper Agent — builds the Governance knowledge graph in Neo4j.
+from mapper_agent.router import router as mapper_router
+app.include_router(mapper_router, prefix="/mapper")
+
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 

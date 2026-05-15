@@ -14,6 +14,8 @@ import { CapabilityRegisterView } from '../governance/CapabilityRegisterView';
 
 import { ControlRegistryView } from '../governance/ControlRegistryView';
 
+import { MapperVisualizerView } from '../governance/MapperVisualizerView';
+
 
 
 
@@ -27,7 +29,7 @@ interface GovernanceTabProps {
 
     onExternalSubTabConsumed?: () => void;
 
-    activeGovernanceSubTab?: 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry';
+    activeGovernanceSubTab?: 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry' | 'mapper_visualizer';
 
 }
 
@@ -47,7 +49,7 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
 
 }) => {
 
-    type SubTab = 'controls' | 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry';
+    type SubTab = 'controls' | 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry' | 'mapper_visualizer';
 
     const [activeSubTab, setActiveSubTab] = useState<SubTab>(activeGovernanceSubTab);
 
@@ -60,6 +62,24 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
     const [openControlId, setOpenControlId] = useState<string | null>(null);
 
     const [openPolicyId, setOpenPolicyId] = useState<string | null>(null);
+
+    const [focusMasterPolicyId, setFocusMasterPolicyId] = useState<string | null>(null);
+
+    // Listen for navigation events dispatched from child views (e.g. the
+    // Mapper Run modal's "Open in Mapper Visualizer" CTA).
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const detail = (e as CustomEvent).detail || {};
+            if (detail.subTab) {
+                handleSubTabChange(detail.subTab as SubTab);
+                if (detail.subTab === 'mapper_visualizer' && detail.masterPolicyId) {
+                    setFocusMasterPolicyId(detail.masterPolicyId);
+                }
+            }
+        };
+        window.addEventListener('governance-navigate', handler);
+        return () => window.removeEventListener('governance-navigate', handler);
+    }, []);
 
 
 
@@ -134,6 +154,7 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
         { id: 'relationships', label: 'Asset Relationships' },
         { id: 'capabilities', label: 'Capability Register' },
         { id: 'control_registry', label: 'Control Registry' },
+        { id: 'mapper_visualizer', label: 'Mapper Visualizer' },
     ];
 
     return (
@@ -197,6 +218,20 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
                     <div className={activeSubTab === 'control_registry' ? '' : 'hidden'}>
 
                         <ControlRegistryView isActive={isActive && activeSubTab === 'control_registry'} autoOpenControlId={openControlId} onAutoOpenConsumed={() => setOpenControlId(null)} />
+
+                    </div>
+
+                )}
+
+                {mountedSubTabs.has('mapper_visualizer') && (
+
+                    <div className={activeSubTab === 'mapper_visualizer' ? '' : 'hidden'}>
+
+                        <MapperVisualizerView
+                            isActive={isActive && activeSubTab === 'mapper_visualizer'}
+                            focusMasterPolicyId={focusMasterPolicyId}
+                            onFocusConsumed={() => setFocusMasterPolicyId(null)}
+                        />
 
                     </div>
 

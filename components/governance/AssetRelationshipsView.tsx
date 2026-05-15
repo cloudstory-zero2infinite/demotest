@@ -1066,7 +1066,7 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
     const handleConfirmMapping = (mapping: ColumnMapping[]) => {
         try {
-            const { records, newFields } = applyManualMapping(mapping, rawRows, customFields);
+            const { records, newFields } = applyManualMapping(mapping, rawRows, customFields, 'asset_relationships');
             
             if (newFields.length > 0) {
                 setNewFieldsToCreate(newFields);

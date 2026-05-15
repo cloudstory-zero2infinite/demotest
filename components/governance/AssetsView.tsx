@@ -2296,7 +2296,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
     const handleConfirmMapping = async (mapping: ColumnMapping[], assetTypeName?: string) => {
         try {
-            const { records, newFields } = applyManualMapping(mapping, rawRows, customFields);
+            const { records, newFields } = applyManualMapping(mapping, rawRows, customFields, 'assets');
 
             // Set the dynamic type attribute in custom_fields
             records.forEach((record: any) => {
@@ -2445,7 +2445,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                                 setFilter('');
                                 setSelectedAssetType(null);
                             }}
-                            className={`px-3 py-1 text-sm font-medium rounded-full transition-colors ${!selectedAssetType
+                            className={`px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap transition-colors ${!selectedAssetType
                                     ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
                                     : 'bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200'
                                 }`}
@@ -2455,7 +2455,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                         {hasStandardAssets && (
                             <button
                                 onClick={() => setSelectedAssetType(selectedAssetType === 'standard' ? null : 'standard')}
-                                className={`px-3 py-1 text-sm font-medium rounded-full transition-colors ${selectedAssetType === 'standard'
+                                className={`px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap transition-colors ${selectedAssetType === 'standard'
                                         ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
                                         : 'bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200'
                                     }`}
@@ -2469,7 +2469,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                                 <button
                                     key={type.id}
                                     onClick={() => setSelectedAssetType(type.id === selectedAssetType ? null : type.id)}
-                                    className={`px-3 py-1 text-sm font-medium rounded-full transition-colors inline-flex items-center gap-1.5 ${isSelected
+                                    className={`px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap transition-colors inline-flex items-center gap-1.5 ${isSelected
                                             ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
                                             : 'bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200'
                                         }`}
