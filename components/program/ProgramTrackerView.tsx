@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, ChangeEvent, useCallback, useMemo } from 'react';
 import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ProgramStatus, ActivityLog, AllActivityLog, OrgContact, formatOrgContact } from '../../types';
 import * as SupabaseService from '../../services/supabase';
-import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, HistoryIcon } from '../Icons';
+import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, HistoryIcon, MessageCircleIcon } from '../Icons';
 import { Modal } from '../common/Modal';
 import { StatusBadge } from '../common/StatusBadge';
 import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
@@ -150,6 +150,18 @@ const PROGRAM_ACTION_LABELS: Record<string, string> = {
     'Updated Milestone':  'Milestone updated',
     'Deleted Milestone':  'Milestone deleted',
     'Imported Milestones': 'Milestones imported',
+    program_created: 'Milestone created',
+    program_updated: 'Milestone updated',
+    status_changed: 'Status changed',
+    assignee_changed: 'Assignee changed',
+    progress_updated: 'Progress updated',
+    description_updated: 'Description updated',
+    due_date_updated: 'Due date updated',
+    comment_added: 'Comment added',
+    comment: 'Comment added',
+    comment_edited: 'Comment updated',
+    comment_deleted: 'Comment deleted',
+    program_deleted: 'Milestone deleted',
     'program_blocked':    'Blocked',
     'program_unblocked':  'Unblocked',
 };
@@ -159,6 +171,18 @@ const PROGRAM_ACTION_COLORS: Record<string, string> = {
     'Updated Milestone':  'bg-purple-500',
     'Deleted Milestone':  'bg-red-700',
     'Imported Milestones': 'bg-teal-500',
+    program_created: 'bg-blue-500',
+    program_updated: 'bg-gray-400',
+    status_changed: 'bg-purple-500',
+    assignee_changed: 'bg-orange-400',
+    progress_updated: 'bg-green-500',
+    description_updated: 'bg-indigo-400',
+    due_date_updated: 'bg-amber-400',
+    comment_added: 'bg-blue-400',
+    comment: 'bg-blue-400',
+    comment_edited: 'bg-yellow-500',
+    comment_deleted: 'bg-gray-400',
+    program_deleted: 'bg-red-700',
     'program_blocked':    'bg-red-500',
     'program_unblocked':  'bg-green-500',
 };
@@ -173,10 +197,37 @@ interface ProgramModalProps {
     onContactCreated?: (c: OrgContact) => void;
     onEdit?: () => void;
     onDelete?: () => void;
+    onSaveComment?: (comment: string) => void;
+    onEditComment?: (commentId: string, comment: string) => void;
+    onDeleteComment?: (commentId: string) => void;
+    currentUserId?: string;
 }
 
-const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, taskToEdit, mode, contacts, onContactCreated, onEdit, onDelete }) => {
+const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, taskToEdit, mode, contacts, onContactCreated, onEdit, onDelete, onSaveComment, onEditComment, onDeleteComment, currentUserId }) => {
     const [formData, setFormData] = useState<ProgramTaskCreate | ProgramTaskUpdate>({});
+    const [history, setHistory] = useState<AllActivityLog[]>([]);
+    const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+    const [editCommentText, setEditCommentText] = useState('');
+
+    useEffect(() => {
+        if (isOpen) {
+            if (taskToEdit?.id) {
+                SupabaseService.getProgramHistory(taskToEdit.id).then(setHistory);
+            } else {
+                setHistory([]);
+            }
+        }
+    }, [isOpen, taskToEdit?.id, taskToEdit]);
+
+    const formatRelativeTime = (iso: string) => {
+        const d = new Date(iso);
+        const diff = Math.floor((Date.now() - d.getTime()) / 1000);
+        if (diff < 60) return 'just now';
+        if (diff < 3600) return `${Math.floor(diff / 60)} mins ago`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
+        return `${Math.floor(diff / 86400)} days ago`;
+    };
+    const [newComment, setNewComment] = useState('');
     const isViewMode = mode === 'view';
 
     useEffect(() => {
@@ -190,10 +241,12 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
                 status: taskToEdit.status,
                 progress_percent: taskToEdit.progress_percent
             });
+            setNewComment('');
         } else {
             setFormData({
                 program_name: '', description: '', month: 'January', due_date: '', assignee: '', status: 'Planned', progress_percent: 0
             });
+            setNewComment('');
         }
     }, [taskToEdit, isOpen, mode]);
 
@@ -210,33 +263,22 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
     };
 
     const toggleEscalated = () => {
-        console.log('🔍 DEBUG: toggleEscalated called');
         setFormData(prev => {
-            console.log('🔍 DEBUG: Current form status before toggle:', prev.status);
             if (prev.status === 'Escalated') {
-                console.log('🔍 DEBUG: Removing escalation, deriving status from progress:', prev.progress_percent);
                 const newStatus = deriveStatus(prev.progress_percent || 0);
-                console.log('🔍 DEBUG: New derived status:', newStatus);
                 return { ...prev, status: newStatus };
             }
-            console.log('🔍 DEBUG: Setting status to Escalated');
             return { ...prev, status: 'Escalated' as ProgramStatus };
         });
     };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        console.log('🔍 DEBUG: Form submission started');
-        console.log('🔍 DEBUG: Current form data:', formData);
-        
-        // Clean empty strings to null for nullable DB fields
         const cleaned = {
             ...formData,
             due_date: formData.due_date || null,
             assignee: formData.assignee || null,
         };
-        console.log('🔍 DEBUG: Cleaned form data:', cleaned);
-        console.log('🔍 DEBUG: Calling onSave with status:', cleaned.status);
         onSave(cleaned);
     };
 
@@ -285,7 +327,7 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
                                 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
                             }`}>{formData.status || 'Planned'}</span>
                             {!isViewMode && (
-                                <button type="button" onClick={toggleEscalated} className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors $$
+                                <button type="button" onClick={toggleEscalated} className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
                                     isEscalated
                                         ? 'border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-900/30'
                                         : 'border-purple-300 text-purple-700 hover:bg-purple-50 dark:border-purple-600 dark:text-purple-300 dark:hover:bg-purple-900/30'
@@ -305,6 +347,84 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
                         <input type="date" name="due_date" value={formData.due_date || ''} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
                 </div>
+
+                {/* Comments Section */}
+                <div className="mt-6 border-t pt-4 dark:border-gray-700">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                        <MessageCircleIcon className="h-4 w-4 text-gray-400" />
+                        Comments
+                    </label>
+                    <textarea
+                        name="newComment"
+                        value={newComment}
+                        onChange={(e) => setNewComment(e.target.value)}
+                        rows={3}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        placeholder="Add a comment..."
+                    ></textarea>
+
+                    {newComment.trim() !== '' && (
+                        <div className="mt-2 flex justify-end">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    onSaveComment?.(newComment);
+                                    setNewComment('');
+                                }}
+                                className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
+                            >
+                                Save Comment
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Recent Comments List */}
+                    {history.filter(h => h.action === 'comment_added').length > 0 && (
+                        <div className="mt-4 space-y-3 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                            {history
+                                .filter(h => h.action === 'comment_added')
+                                .map(h => {
+                                    const ed = (h.event_data || {}) as any;
+                                    const isAuthor = currentUserId && (h.user_id === currentUserId);
+                                    const isEditing = editingCommentId === h.id;
+                                    return (
+                                        <div key={h.id} className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3 border dark:border-gray-800">
+                                            <div className="flex justify-between items-start mb-1">
+                                                <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+                                                    {ed.actor_name || ed.user_email || 'Unknown'}
+                                                </span>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[10px] text-gray-400">
+                                                        {formatRelativeTime(h.created_at)}
+                                                        {ed.edited && ' (edited)'}
+                                                    </span>
+                                                    {isAuthor && !isEditing && (
+                                                        <div className="flex items-center gap-2">
+                                                            <button type="button" onClick={() => { setEditingCommentId(h.id); setEditCommentText(typeof ed.comment === 'string' ? ed.comment : (ed.comment?.text || '')); }} className="text-[10px] text-blue-600 hover:underline">Edit</button>
+                                                            <button type="button" onClick={() => onDeleteComment?.(h.id)} className="text-[10px] text-red-600 hover:underline">Delete</button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            {isEditing ? (
+                                                <div className="space-y-2">
+                                                    <textarea value={editCommentText} onChange={e => setEditCommentText(e.target.value)} className="w-full text-sm p-2 rounded dark:bg-gray-800 dark:text-white border" rows={2} />
+                                                    <div className="flex gap-2">
+                                                        <button type="button" onClick={() => { onEditComment?.(h.id, editCommentText); setEditingCommentId(null); }} className="px-2 py-1 text-[10px] bg-blue-600 text-white rounded">Save</button>
+                                                        <button type="button" onClick={() => setEditingCommentId(null)} className="px-2 py-1 text-[10px] text-gray-500">Cancel</button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <p className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap">
+                                                    {typeof ed.comment === 'string' ? ed.comment : (ed.comment?.text || JSON.stringify(ed.comment))}
+                                                </p>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                        </div>
+                    )}
+                </div>
                 {!isViewMode && (
                 <div className="mt-6 flex justify-end space-x-3">
                     <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
@@ -315,6 +435,7 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
         </Modal>
     );
 };
+
 
 const HistoryModal: React.FC<{ task: ProgramTask; onClose: () => void }> = ({ task, onClose }) => {
     const [entries, setEntries] = useState<AllActivityLog[]>([]);
@@ -350,6 +471,15 @@ const HistoryModal: React.FC<{ task: ProgramTask; onClose: () => void }> = ({ ta
                                 const actorName = ed.actor_name || ed.user_email || e.user_id || 'Unknown';
                                 const fromStatus = ed.from_status as string | null;
                                 const toStatus = ed.to_status as string | null;
+                                const fromAssignee = ed.from_assignee as string | null;
+                                const toAssignee = ed.to_assignee as string | null;
+                                const fromProgress = ed.from_progress !== undefined ? ed.from_progress : undefined;
+                                const toProgress = ed.to_progress !== undefined ? ed.to_progress : undefined;
+                                const fromDate = ed.from_date as string | null;
+                                const toDate = ed.to_date as string | null;
+                                const fromDesc = ed.from_description as string | null;
+                                const toDesc = ed.to_description as string | null;
+
                                 const dotColor = PROGRAM_ACTION_COLORS[e.action] || 'bg-gray-400';
                                 return (
                                     <li key={e.id} className="ml-4">
@@ -362,7 +492,30 @@ const HistoryModal: React.FC<{ task: ProgramTask; onClose: () => void }> = ({ ta
                                             {fromStatus && toStatus && fromStatus !== toStatus && (
                                                 <span className="ml-1 text-gray-400">· {fromStatus} → {toStatus}</span>
                                             )}
+                                            {fromAssignee !== undefined && toAssignee !== undefined && fromAssignee !== toAssignee && (
+                                                <span className="ml-1 text-gray-400">· {fromAssignee || '—'} → {toAssignee || '—'}</span>
+                                            )}
+                                            {fromProgress !== undefined && toProgress !== undefined && fromProgress !== toProgress && (
+                                                <span className="ml-1 text-gray-400">· {fromProgress}% → {toProgress}%</span>
+                                            )}
+                                            {fromDate && toDate && fromDate !== toDate && (
+                                                <span className="ml-1 text-gray-400">· {new Date(fromDate).toLocaleDateString()} → {new Date(toDate).toLocaleDateString()}</span>
+                                            )}
                                         </p>
+                                        {fromDesc !== undefined && toDesc !== undefined && fromDesc !== toDesc && (
+                                            <p className="mt-1 text-xs text-gray-600 dark:text-gray-300 italic">
+                                                "{toDesc || 'No description'}"
+                                            </p>
+                                        )}
+                                        {ed.comment && (
+                                            <p className="mt-1 text-xs text-gray-600 dark:text-gray-300 italic">
+                                                {e.action === 'comment_edited' && <span className="font-semibold mr-1">Updated comment:</span>}
+                                                "{typeof ed.comment === 'string' ? ed.comment : (ed.comment?.text || JSON.stringify(ed.comment))}"
+                                            </p>
+                                        )}
+                                        {ed.note && (
+                                            <p className="mt-1 text-xs text-gray-600 dark:text-gray-300 italic">{ed.note}</p>
+                                        )}
                                         <time className="text-[10px] text-gray-400">{fmt(e.created_at)}</time>
                                     </li>
                                 );
@@ -375,15 +528,143 @@ const HistoryModal: React.FC<{ task: ProgramTask; onClose: () => void }> = ({ ta
     );
 };
 
+const CommentModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    onSave: (comment: string) => void;
+    task: ProgramTask | null;
+    onEditComment?: (id: string, text: string) => void;
+    onDeleteComment?: (id: string) => void;
+    currentUserId?: string;
+}> = ({ isOpen, onClose, onSave, task, onEditComment, onDeleteComment, currentUserId }) => {
+    const [comment, setComment] = useState('');
+    const [history, setHistory] = useState<AllActivityLog[]>([]);
+    const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+    const [editCommentText, setEditCommentText] = useState('');
+
+    useEffect(() => {
+        if (isOpen) {
+            setComment('');
+            if (task?.id) {
+                SupabaseService.getProgramHistory(task.id).then(setHistory);
+            }
+        }
+    }, [isOpen, task?.id, task]);
+
+    const formatRelativeTime = (iso: string) => {
+        const d = new Date(iso);
+        const diff = Math.floor((Date.now() - d.getTime()) / 1000);
+        if (diff < 60) return 'just now';
+        if (diff < 3600) return `${Math.floor(diff / 60)} mins ago`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
+        return `${Math.floor(diff / 86400)} days ago`;
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (comment.trim()) {
+            onSave(comment.trim());
+        }
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Add Comment">
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Milestone: <span className="font-semibold text-blue-600 dark:text-blue-400">{task?.program_name}</span>
+                    </label>
+                    <textarea
+                        autoFocus
+                        value={comment}
+                        onChange={(e) => setComment(e.target.value)}
+                        placeholder="Type your comment here..."
+                        className="mt-2 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        rows={4}
+                        required
+                    />
+                </div>
+                <div className="flex justify-end space-x-3">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="submit"
+                        className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    >
+                        Save Comment
+                    </button>
+                </div>
+
+                {/* Recent Comments List */}
+                {history.filter(h => h.action === 'comment_added').length > 0 && (
+                    <div className="mt-4 border-t pt-4 dark:border-gray-700">
+                        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Recent Comments</h4>
+                        <div className="space-y-3 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                            {history
+                                .filter(h => h.action === 'comment_added')
+                                .map(h => {
+                                    const ed = (h.event_data || {}) as any;
+                                    const isAuthor = currentUserId && (h.user_id === currentUserId);
+                                    const isEditing = editingCommentId === h.id;
+                                    return (
+                                        <div key={h.id} className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3 border dark:border-gray-800">
+                                            <div className="flex justify-between items-start mb-1">
+                                                <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+                                                    {ed.actor_name || ed.user_email || 'Unknown'}
+                                                </span>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[10px] text-gray-400">
+                                                        {formatRelativeTime(h.created_at)}
+                                                        {ed.edited && ' (edited)'}
+                                                    </span>
+                                                    {isAuthor && !isEditing && (
+                                                        <div className="flex items-center gap-2">
+                                                            <button type="button" onClick={() => { setEditingCommentId(h.id); setEditCommentText(typeof ed.comment === 'string' ? ed.comment : (ed.comment?.text || '')); }} className="text-[10px] text-blue-600 hover:underline">Edit</button>
+                                                            <button type="button" onClick={() => onDeleteComment?.(h.id)} className="text-[10px] text-red-600 hover:underline">Delete</button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            {isEditing ? (
+                                                <div className="space-y-2">
+                                                    <textarea value={editCommentText} onChange={e => setEditCommentText(e.target.value)} className="w-full text-sm p-2 rounded dark:bg-gray-800 dark:text-white border" rows={2} />
+                                                    <div className="flex gap-2">
+                                                        <button type="button" onClick={() => { onEditComment?.(h.id, editCommentText); setEditingCommentId(null); SupabaseService.getProgramHistory(task?.id!).then(setHistory); }} className="px-2 py-1 text-[10px] bg-blue-600 text-white rounded">Save</button>
+                                                        <button type="button" onClick={() => setEditingCommentId(null)} className="px-2 py-1 text-[10px] text-gray-500">Cancel</button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <p className="text-sm text-gray-600 dark:text-gray-400 whitespace-pre-wrap">
+                                                    {typeof ed.comment === 'string' ? ed.comment : (ed.comment?.text || JSON.stringify(ed.comment))}
+                                                </p>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                        </div>
+                    </div>
+                )}
+            </form>
+        </Modal>
+    );
+};
+
+
 export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: boolean }> = ({ isActive = true, hideEscalated = false }) => {
     const [tasks, setTasks] = useState<ProgramTask[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
-    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | 'log' | null; task?: ProgramTask | null }>({ type: null });
+    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | 'log' | 'comment' | null; task?: ProgramTask | null }>({ type: null });
     const [filter, setFilter] = useState('');
     const [sortConfig, setSortConfig] = useState<{ key: keyof ProgramTask; direction: 'ascending' | 'descending' } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [orgContacts, setOrgContacts] = useState<OrgContact[]>([]);
+    const [currentUserId, setCurrentUserId] = useState<string>();
 
     const {
         selectedIds, isEditing, editValues, isConfirmingDelete, isSaving,
@@ -391,16 +672,14 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
         toggle, toggleAll, clearAll, startEdit, updateField, cancelEdit,
     } = useTableSelection<ProgramTask>();
 
+    useEffect(() => {
+        SupabaseService.getUser().then(u => setCurrentUserId(u?.id));
+    }, []);
+
     const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
-    const editSelectCls = "border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400";
 
     const fetchTasks = useCallback(async () => {
-        console.log('🔍 DEBUG: fetchTasks called - fetching fresh data from database');
         const data = await SupabaseService.getTasks();
-        console.log('🔍 DEBUG: fetchTasks response:', data);
-        console.log('🔍 DEBUG: Number of tasks fetched:', data.length);
-        const escalatedTasks = data.filter(t => t.status === 'Escalated');
-        console.log('🔍 DEBUG: Escalated tasks in database:', escalatedTasks.length, escalatedTasks.map(t => ({ id: t.id, name: t.program_name, status: t.status })));
         setTasks(data);
         return data;
     }, []);
@@ -414,7 +693,6 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
 
     useEffect(() => { fetchContacts(); }, [fetchContacts]);
 
-    // Sync local state with hook state
     useMemo(() => {
         if (tasksData) setTasks(tasksData);
         if (tasksError) setError(tasksError);
@@ -429,55 +707,9 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
     const handleSaveTask = async (formData: ProgramTaskCreate | ProgramTaskUpdate) => {
         try {
             if (modalState.type === 'edit' && modalState.task) {
-                const oldTask = modalState.task;
-                const updatedTask = await SupabaseService.updateTask(modalState.task.id, formData);
-
-                const statusChanged = oldTask.status !== updatedTask.status;
-                await SupabaseService.logAllActivity({
-                    action: statusChanged ? 'Updated Milestone' : 'Updated Milestone',
-                    module: 'Program',
-                    entity_id: updatedTask.id,
-                    entity_name: updatedTask.program_name,
-                    event_data: {
-                        from_status: oldTask.status,
-                        to_status: updatedTask.status,
-                        changes: formData,
-                    }
-                });
-
-                const changes: string[] = [];
-                if (oldTask.program_name !== updatedTask.program_name) {
-                    changes.push(`name changed from "${oldTask.program_name}" to "${updatedTask.program_name}"`);
-                }
-                if (oldTask.description !== updatedTask.description) {
-                    changes.push('description was updated');
-                }
-                if (oldTask.month !== updatedTask.month) {
-                    changes.push(`month changed from "${oldTask.month}" to "${updatedTask.month}"`);
-                }
-                if (oldTask.status !== updatedTask.status) {
-                    changes.push(`status changed from "${oldTask.status}" to "${updatedTask.status}"`);
-                }
-                if (oldTask.progress_percent !== updatedTask.progress_percent) {
-                    changes.push(`progress changed from ${oldTask.progress_percent}% to ${updatedTask.progress_percent}%`);
-                }
-
-                if (changes.length > 0) {
-                    await SupabaseService.addActivityLog(updatedTask.id, `Milestone updated: ${changes.join(', ')}.`);
-                }
-
+                await SupabaseService.updateTask(modalState.task.id, formData);
             } else if (modalState.type === 'add') {
-                const addedTask = await SupabaseService.addTask(formData as ProgramTaskCreate);
-
-                await SupabaseService.logAllActivity({
-                    action: 'Created Milestone',
-                    module: 'Program',
-                    entity_id: addedTask.id,
-                    entity_name: addedTask.program_name,
-                    event_data: { details: formData }
-                });
-
-                await SupabaseService.addActivityLog(addedTask.id, `Milestone "${addedTask.program_name}" was created.`);
+                await SupabaseService.addTask(formData as ProgramTaskCreate);
             }
             fetchTasks();
             closeModal();
@@ -490,17 +722,59 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
         if (modalState.type === 'delete' && modalState.task) {
             try {
                 await SupabaseService.deleteTask(modalState.task.id);
-                await SupabaseService.logAllActivity({
-                    action: 'Deleted Milestone',
-                    module: 'Program',
-                    entity_id: modalState.task.id,
-                    entity_name: modalState.task.program_name
-                });
                 fetchTasks();
                 closeModal();
             } catch (err: any) {
-                const message = err?.message || 'Failed to delete milestone.';
-                setError(`Failed to delete milestone. ${message}`);
+                setError('Failed to delete milestone.');
+            }
+        }
+    };
+
+    const handleSaveComment = async (comment: string) => {
+        if (modalState.task) {
+            try {
+                await SupabaseService.addActivityLog(modalState.task.id, {
+                    action: 'comment_added',
+                    event_data: { comment }
+                });
+                fetchTasks();
+                if (modalState.type === 'comment') {
+                    closeModal();
+                } else {
+                    const task = await SupabaseService.getTaskById(modalState.task.id);
+                    setModalState(prev => ({ ...prev, task }));
+                }
+            } catch (err) {
+                setError('Failed to save comment.');
+            }
+        }
+    };
+
+    const handleEditComment = async (activityId: string, comment: string) => {
+        if (modalState.task) {
+            try {
+                await SupabaseService.updateActivityLog(modalState.task.id, activityId, {
+                    action: 'comment_added',
+                    event_data: { comment }
+                });
+                fetchTasks();
+                const task = await SupabaseService.getTaskById(modalState.task.id);
+                setModalState(prev => ({ ...prev, task }));
+            } catch (err) {
+                setError('Failed to update comment.');
+            }
+        }
+    };
+
+    const handleDeleteComment = async (activityId: string) => {
+        if (modalState.task && window.confirm('Are you sure you want to delete this comment?')) {
+            try {
+                await SupabaseService.deleteActivityLog(modalState.task.id, activityId);
+                fetchTasks();
+                const task = await SupabaseService.getTaskById(modalState.task.id);
+                setModalState(prev => ({ ...prev, task }));
+            } catch (err) {
+                setError('Failed to delete comment.');
             }
         }
     };
@@ -515,180 +789,35 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
             if(!text) return;
 
             const allLines = text.split('\n').filter(line => line.trim());
-            
-            if (allLines.length === 0) {
-                alert('CSV file is empty or contains only whitespace.');
-                return;
-            }
-            
+            if (allLines.length === 0) return;
             const lines = allLines.slice(1);
-            
-            if (lines.length === 0) {
-                alert('No data rows found in CSV file after header.');
-                return;
-            }
             
             const importedTasks: ProgramTaskCreate[] = lines
                 .map(line => {
                     const fields = parseCSVLine(line);
                     const [program_name, description, due_date, assignee, status, progress_percent] = fields;
-
-                    if (!program_name || !program_name.trim()) {
-                        return null;
-                    }
-
-                    const cleanProgramName = sanitizeInput(program_name.trim());
-                    const cleanDescription = description ? sanitizeInput(description.trim()) : '';
-                    const cleanDueDate = due_date ? due_date.trim() : null;
-                    const cleanAssignee = assignee ? sanitizeInput(assignee.trim()) : null;
-                    const progress = Number(progress_percent) || 0;
-                    const cleanStatus = (() => {
-                        console.log('🔍 DEBUG: cleanStatus function called with status:', status, 'progress:', progress);
-                        if (status && (sanitizeInput(status.trim()) === 'Blocked' || sanitizeInput(status.trim()) === 'Escalated')) {
-                            const finalStatus = sanitizeInput(status.trim()) as ProgramStatus;
-                            console.log('🔍 DEBUG: Preserving special status:', finalStatus);
-                            return finalStatus;
-                        }
-                        const derivedStatus = deriveStatus(progress);
-                        console.log('🔍 DEBUG: Using derived status:', derivedStatus);
-                        return derivedStatus;
-                    })();
+                    if (!program_name || !program_name.trim()) return null;
 
                     return {
-                        program_name: cleanProgramName,
-                        description: cleanDescription,
+                        program_name: sanitizeInput(program_name.trim()),
+                        description: description ? sanitizeInput(description.trim()) : '',
                         month: '',
-                        due_date: cleanDueDate,
-                        assignee: cleanAssignee,
-                        status: cleanStatus,
-                        progress_percent: progress,
+                        due_date: due_date ? due_date.trim() : null,
+                        assignee: assignee ? sanitizeInput(assignee.trim()) : null,
+                        status: status ? (sanitizeInput(status.trim()) as ProgramStatus) : deriveStatus(Number(progress_percent) || 0),
+                        progress_percent: Number(progress_percent) || 0,
                     } as ProgramTaskCreate;
                 })
                 .filter((task): task is ProgramTaskCreate => task !== null);
 
             if (importedTasks.length > 0) {
                 try {
-                    // Get existing tasks to find duplicates and updates
-                    const existingTasks = await SupabaseService.getTasks();
-                    const tasksToUpdate: { id: string; updates: ProgramTaskUpdate }[] = [];
-                    const tasksToAdd: ProgramTaskCreate[] = [];
-                    const duplicateNames = new Set<string>();
-
-                    for (const importedTask of importedTasks) {
-                        const normalizeString = (str: string) => str.replace(/^["']|["']$/g, '').trim().toLowerCase();
-
-                        const importedProgramName = normalizeString(importedTask.program_name);
-
-                        // Find existing task by normalized program_name
-                        const existingTask = existingTasks.find(t => {
-                            return normalizeString(t.program_name) === importedProgramName;
-                        });
-
-                        if (existingTask) {
-                            duplicateNames.add(importedTask.program_name);
-                            console.log('Marked as duplicate:', importedTask.program_name);
-
-                            // Check if anything actually changed (using normalized comparison for text fields)
-                            const hasChanges =
-                                normalizeString(existingTask.description || '') !== normalizeString(importedTask.description || '') ||
-                                existingTask.status !== importedTask.status ||
-                                existingTask.progress_percent !== importedTask.progress_percent;
-
-                            if (hasChanges) {
-                                console.log('Task has changes, will update:', importedTask.program_name);
-                                tasksToUpdate.push({
-                                    id: existingTask.id,
-                                    updates: {
-                                        description: importedTask.description,
-                                        status: importedTask.status,
-                                        progress_percent: importedTask.progress_percent
-                                    }
-                                });
-                            } else {
-                                console.log('Task has no changes, will skip:', importedTask.program_name);
-                            }
-                        } else {
-                            console.log('New task, will add:', importedTask.program_name);
-                            tasksToAdd.push(importedTask);
-                        }
-                    }
-
-                    let totalProcessed = 0;
-                    let message = '';
-
-                    // Add new tasks first
-                    if (tasksToAdd.length > 0) {
-                        const addedTasks = await SupabaseService.bulkAddTasks(tasksToAdd);
-                        totalProcessed += tasksToAdd.length;
-                        message += `• ${tasksToAdd.length} new milestones added\n`;
-                    }
-
-                    // Update existing tasks
-                    if (tasksToUpdate.length > 0) {
-                        for (const { id, updates } of tasksToUpdate) {
-                            await SupabaseService.updateTask(id, updates);
-                            totalProcessed++;
-                        }
-                        message += `• ${tasksToUpdate.length} existing milestones updated\n`;
-                    }
-
-                    // Summary logging
-                    console.log('CSV Import Summary:', {
-                        totalImported: importedTasks.length,
-                        newAdded: tasksToAdd.length,
-                        updated: tasksToUpdate.length,
-                        skipped: duplicateNames.size - tasksToUpdate.length,
-                        totalProcessed
-                    });
-
-                    if (totalProcessed > 0) {
-                        await SupabaseService.logAllActivity({
-                            action: 'Imported Milestones',
-                            module: 'Program',
-                            event_data: {
-                                total: importedTasks.length,
-                                added: tasksToAdd.length,
-                                updated: tasksToUpdate.length,
-                                duplicates: Array.from(duplicateNames)
-                            }
-                        });
-
-                        let fullMessage = `${totalProcessed} milestones processed:\n${message}`;
-
-                        if (duplicateNames.size > tasksToUpdate.length) {
-                            const skippedCount = duplicateNames.size - tasksToUpdate.length;
-                            fullMessage += `• ${skippedCount} duplicates skipped (no changes)\n`;
-                            
-                            const skippedNames = Array.from(duplicateNames).filter(name => 
-                                !tasksToUpdate.some(update => {
-                                    const task = existingTasks.find(t => t.id === update.id);
-                                    return `${task.program_name} (${task.month})` === name;
-                                })
-                            );
-                            
-                            if (skippedNames.length > 0) {
-                                fullMessage += `\nSkipped duplicates:\n${skippedNames.slice(0, 5).join('\n')}`;
-                                if (skippedNames.length > 5) {
-                                    fullMessage += `\n... and ${skippedNames.length - 5} more`;
-                                }
-                            }
-                        }
-
-                        alert(fullMessage.trim());
-                        fetchTasks();
-                    } else {
-                        if (duplicateNames.size > 0) {
-                            alert(`All ${duplicateNames.size} imported milestones already exist and no changes were detected.`);
-                        } else {
-                            alert('No changes detected in imported data.');
-                        }
-                    }
+                    await SupabaseService.bulkAddTasks(importedTasks);
+                    fetchTasks();
+                    alert('Import successful.');
                 } catch (err) {
-                    console.error('Import error:', err);
-                    alert('Failed to import milestones. Please check the file format and try again.');
+                    alert('Failed to import.');
                 }
-            } else {
-                alert('No valid data found in the CSV file.');
             }
         };
         reader.readAsText(file);
@@ -697,33 +826,24 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
 
     const filteredAndSortedTasks = useMemo(() => {
         let items = [...tasks];
-        
-        // Note: Don't hide escalated items - user wants to see escalated status in Program tab
-        // Escalated items should be visible but with proper status display
-        
         if (filter) {
             const q = filter.toLowerCase();
             items = items.filter(t =>
                 t.program_name.toLowerCase().includes(q) ||
-                (t.description && t.description.toLowerCase().includes(q)) ||
-                t.month.toLowerCase().includes(q) ||
-                t.status.toLowerCase().includes(q) ||
-                (t.assignee && t.assignee.toLowerCase().includes(q))
+                (t.description && t.description.toLowerCase().includes(q))
             );
         }
         if (sortConfig) {
             items.sort((a, b) => {
                 const aVal = a[sortConfig.key];
                 const bVal = b[sortConfig.key];
-                if (aVal === null || aVal === undefined) return 1;
-                if (bVal === null || bVal === undefined) return -1;
                 if (aVal < bVal) return sortConfig.direction === 'ascending' ? -1 : 1;
                 if (aVal > bVal) return sortConfig.direction === 'ascending' ? 1 : -1;
                 return 0;
             });
         }
         return items;
-    }, [tasks, filter, sortConfig, hideEscalated]);
+    }, [tasks, filter, sortConfig]);
 
     const requestSort = (key: keyof ProgramTask) => {
         let direction: 'ascending' | 'descending' = 'ascending';
@@ -738,42 +858,12 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
 
     const handleExportCSV = () => {
         const headers = ['program_name', 'description', 'due_date', 'assignee', 'status', 'progress_percent'];
-        const csvContent = [
-            headers.join(','),
-            ...filteredAndSortedTasks.map(t =>
-                [
-                    `"${(t.program_name || '').replace(/"/g, '""')}"`,
-                    `"${(t.description || '').replace(/"/g, '""')}"`,
-                    t.due_date || '',
-                    `"${(t.assignee || '').replace(/"/g, '""')}"`,
-                    t.status,
-                    t.progress_percent,
-                ].join(',')
-            ),
-        ].join('\n');
+        const csvContent = [headers.join(','), ...filteredAndSortedTasks.map(t => [t.program_name, t.description, t.due_date, t.assignee, t.status, t.progress_percent].join(','))].join('\n');
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
-        link.download = `program-milestones-${new Date().toISOString().split('T')[0]}.csv`;
+        link.download = `milestones-${new Date().toISOString().split('T')[0]}.csv`;
         link.click();
-    };
-
-    const handleSave = async (updates: ProgramTaskUpdate) => {
-        console.log('🔍 DEBUG: handleSave called with updates:', updates);
-        try {
-            setIsSaving(true);
-            setError(null);
-            console.log('🔍 DEBUG: Calling updateTask with ID:', task.id, 'updates:', updates);
-            const updateResult = await SupabaseService.updateTask(task.id as string, updates);
-            console.log('🔍 DEBUG: updateTask completed, result:', updateResult);
-            console.log('🔍 DEBUG: updateTask completed, calling fetchTasks');
-            fetchTasks();
-        } catch (error) {
-            console.log('🔍 DEBUG: Save failed with error:', error);
-            setError('Failed to save changes.');
-        } finally {
-            setIsSaving(false);
-        }
     };
 
     const handleSaveAll = async () => {
@@ -897,7 +987,33 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white" title={task.description || undefined}>
                                         {isEditing && selectedIds.has(task.id) ? (
                                             <input type="text" value={editValues[task.id]?.program_name ?? task.program_name} onChange={e => updateField(task.id, 'program_name', e.target.value)} className={editInputCls} />
-                                        ) : task.program_name}
+                                        ) : (
+                                            <div className="flex items-center gap-3 group">
+                                                <span>{task.program_name}</span>
+                                                <div className="flex items-center gap-0">
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setModalState({ type: 'comment', task });
+                                                        }}
+                                                        className="p-0.5 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-all"
+                                                        title="Add comment"
+                                                    >
+                                                        <MessageCircleIcon className="h-4 w-4" />
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setModalState({ type: 'log', task });
+                                                        }}
+                                                        className="p-0.5 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-all"
+                                                        title="View History"
+                                                    >
+                                                        <HistoryIcon className="h-4 w-4" />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                         {isEditing && selectedIds.has(task.id) ? (
@@ -971,11 +1087,25 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                 onContactCreated={c => setOrgContacts(prev => [...prev, c])}
                 onEdit={() => setModalState({ type: 'edit', task: modalState.task })}
                 onDelete={() => setModalState({ type: 'delete', task: modalState.task })}
+                onSaveComment={handleSaveComment}
+                onEditComment={handleEditComment}
+                onDeleteComment={handleDeleteComment}
+                currentUserId={currentUserId}
             />
 
             {modalState.type === 'log' && modalState.task && (
                 <HistoryModal task={modalState.task} onClose={closeModal} />
             )}
+
+            <CommentModal
+                isOpen={modalState.type === 'comment'}
+                onClose={closeModal}
+                onSave={handleSaveComment}
+                task={modalState.task || null}
+                onEditComment={handleEditComment}
+                onDeleteComment={handleDeleteComment}
+                currentUserId={currentUserId}
+            />
 
             <DeleteConfirmationModal
                 isOpen={modalState.type === 'delete'}

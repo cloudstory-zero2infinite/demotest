@@ -44,6 +44,11 @@ if (!supabaseUrl || !supabaseAnonKey || supabaseUrl === 'undefined' || supabaseA
 
 export { supabase };
 
+export const getUser = async () => {
+  const { data: { user } } = await supabase.auth.getUser();
+  return user;
+};
+
 
 
 const API_BASE_URL = ((import.meta as any).env.VITE_API_BASE_URL as string) || 'http://localhost:3001';
@@ -379,17 +384,30 @@ export const removeMember = async (id: number): Promise<void> => {
 
 
 
-export const addActivityLog = async (programId: string, activity: string) => {
+export const getTaskById = async (id: string): Promise<ProgramTask> => {
+  return apiRequest(`/api/program/${id}`);
+};
 
-  try {
+export const addActivityLog = async (programId: string, payload: any) => {
+  const body = typeof payload === 'string' ? { activity: payload } : payload;
+  return apiRequest(`/api/program/${programId}/activity`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+};
 
-    await apiRequest(`/api/program/${programId}/activity`, {
+export const updateActivityLog = async (programId: string, activityId: string, payload: any) => {
+  return apiRequest(`/api/program/${programId}/activity/${activityId}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+};
 
-      method: 'POST',
-
-      body: JSON.stringify({ activity }),
-
-    });
+export const deleteActivityLog = async (programId: string, activityId: string) => {
+  return apiRequest(`/api/program/${programId}/activity/${activityId}`, {
+    method: 'DELETE',
+  });
+};
 
     
 
@@ -401,13 +419,7 @@ export const addActivityLog = async (programId: string, activity: string) => {
 
     }
 
-  } catch (err) {
 
-    console.error('Error logging activity:', err);
-
-  }
-
-};
 
 
 
