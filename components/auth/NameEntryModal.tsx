@@ -1,8 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 import { FaGithub } from "react-icons/fa";
 
 import * as SupabaseService from '../../services/supabase';
+
+if (typeof window !== 'undefined') {
+    (window as any).SupabaseService = SupabaseService;
+}
 
 
 
@@ -58,9 +62,132 @@ export const NameEntryModal: React.FC<NameEntryModalProps> = ({ isOpen }) => {
 
     const [emailMessage, setEmailMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+    const [isAutoRedirecting, setIsAutoRedirecting] = useState(() => {
+        return isOpen && typeof window !== 'undefined' && window.location.href.includes('type=invite');
+    });
+
+    const [autoRedirectStatus, setAutoRedirectStatus] = useState('');
+
+    useEffect(() => {
+        if (!isOpen) return;
+
+        const handleInviteAutoRedirect = async () => {
+            const fullUrl = window.location.href;
+            if (!fullUrl.includes('type=invite')) {
+                setIsAutoRedirecting(false);
+                return;
+            }
+
+            try {
+                setIsAutoRedirecting(true);
+                setAutoRedirectStatus('Verifying invitation token...');
+
+                // 1. Handle cases where the URL hash is malformed (e.g. /#/ or ##)
+                const accessToken = fullUrl.match(/[?&#]access_token=([^&]*)/)?.[1];
+                const refreshToken = fullUrl.match(/[?&#]refresh_token=([^&]*)/)?.[1];
+
+                if (accessToken && refreshToken) {
+                    try {
+                        await SupabaseService.supabase.auth.setSession({
+                            access_token: accessToken,
+                            refresh_token: refreshToken
+                        });
+                    } catch (e) {
+                        console.error("Manual session set failed during auto-redirect check", e);
+                    }
+                }
+
+                // 2. Try to get email from session
+                let userEmail: string | null = null;
+                const { data } = await SupabaseService.supabase.auth.getUser();
+                if (data.user?.email) {
+                    userEmail = data.user.email;
+                } else {
+                    // Try second time with a short propagation delay
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    const { data: secondTry } = await SupabaseService.supabase.auth.getUser();
+                    if (secondTry.user?.email) {
+                        userEmail = secondTry.user.email;
+                    }
+                }
+
+                if (!userEmail) {
+                    console.warn("Could not retrieve invited user's email");
+                    setIsAutoRedirecting(false);
+                    return;
+                }
+
+                // Populate email state
+                setEmail(userEmail);
+
+                // 3. Determine redirect behavior based on email
+                const emailLower = userEmail.toLowerCase();
+                
+                if (emailLower.includes('@gmail.com')) {
+                    setAutoRedirectStatus('Redirecting to Google Sign-In...');
+                    await handleGoogleSignIn();
+                } else {
+                    setAutoRedirectStatus('Checking authentication provider...');
+                    // Check if associated with GitHub
+                    let isGitHub = emailLower.endsWith('@github.com') || emailLower.includes('github');
+                    if (!isGitHub) {
+                        try {
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), 1200); // 1.2s timeout
+                            const res = await fetch(`https://api.github.com/search/users?q=${encodeURIComponent(userEmail)}+in:email`, {
+                                signal: controller.signal
+                            });
+                            clearTimeout(timeoutId);
+                            if (res.ok) {
+                                const searchData = await res.json();
+                                isGitHub = searchData && searchData.total_count > 0;
+                            }
+                        } catch (e) {
+                            console.error("GitHub search API check failed:", e);
+                        }
+                    }
+
+                    if (isGitHub) {
+                        setAutoRedirectStatus('Redirecting to GitHub Sign-In...');
+                        await handleGitHubSignIn();
+                    } else {
+                        // For all other email domains, redirect to normal email login flow (Set Password mode)
+                        setShowEmail(true);
+                        setEmailMode('setpassword');
+                        setIsAutoRedirecting(false);
+                    }
+                }
+            } catch (err) {
+                console.error("Failed handling auto redirect for invite:", err);
+                setIsAutoRedirecting(false);
+            }
+        };
+
+        handleInviteAutoRedirect();
+    }, [isOpen]);
+
 
 
     if (!isOpen) return null;
+
+    if (isAutoRedirecting) {
+        return (
+            <div className="fixed inset-0 bg-blue-50 dark:bg-blue-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-6" aria-modal="true" role="dialog">
+                <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-700 p-8 text-center animate-in fade-in zoom-in-95 duration-300">
+                    <div className="flex flex-col items-center">
+                        <img src="/logo.png" alt="Zero to Infinite" className="h-16 w-16 object-contain mb-6 animate-pulse" />
+                        <div className="relative flex items-center justify-center mb-6">
+                            <div className="h-12 w-12 rounded-full border-4 border-blue-100 dark:border-blue-900 border-t-blue-600 animate-spin" />
+                        </div>
+                        <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Accepting Your Invitation</h3>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 max-w-xs leading-relaxed">
+                            {autoRedirectStatus || 'Verifying your invitation details and preparing your workspace...'}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
 
 
