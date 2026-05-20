@@ -219,6 +219,7 @@ export interface ControlRegistry {
     user_id: string | null;
     created_at: string;
     updated_at: string;
+    maturity_score?: number | null;
     custom_fields?: Record<string, any>;
 }
 

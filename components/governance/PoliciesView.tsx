@@ -406,16 +406,44 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
     
     // Internal mapping of uploaded images to Supabase URLs (hidden from users)
     const [imageMap, setImageMap] = useState<Map<string, string>>(new Map());
+
+    // Extract existing image mappings on mount
+    useEffect(() => {
+        const initialText = policy?.markdown || initialMarkdown || '';
+        const map = new Map<string, string>();
+        const regex = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+(?:\([^)]*\)[^\s)]*)*)\)/g;
+        let match;
+        while ((match = regex.exec(initialText)) !== null) {
+            const alt = match[1];
+            const url = match[2];
+            map.set(alt, url);
+        }
+        if (map.size > 0) {
+            setImageMap(map);
+        }
+    }, [policy, initialMarkdown]);
     
     // Display markdown with hidden URLs for user view
     const displayMarkdown = useMemo(() => {
         let processedMarkdown = markdown;
-        // Replace Supabase URLs with placeholder text
-        processedMarkdown = processedMarkdown.replace(/!\[([^\]]*)\]\(https:\/\/[^)]*\)/g, (match, alt) => {
+        // Replace Supabase URLs with placeholder text using robust parenthesis-matching regex
+        const regex = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+(?:\([^)]*\)[^\s)]*)*)\)/g;
+        processedMarkdown = processedMarkdown.replace(regex, (match, alt) => {
             return `![${alt}](Hide from markdown...)`;
         });
         return processedMarkdown;
     }, [markdown]);
+
+    // Restore real URLs from imageMap whenever user edits displayMarkdown
+    const handleMarkdownChange = (newVal: string) => {
+        let restored = newVal;
+        imageMap.forEach((url, alt) => {
+            const escapedAlt = alt.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&');
+            const pattern = new RegExp(`!\\[${escapedAlt}\\]\\(Hide from markdown\\.\\.\\.\\)`, 'g');
+            restored = restored.replace(pattern, `![${alt}](${url})`);
+        });
+        setMarkdown(restored);
+    };
     
     const previewHtml = useMemo(() => {
         // Replace image references with Supabase URLs for rendering
@@ -583,6 +611,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
                 console.log('Mapping uploaded images to markdown references...');
                 uploadedImages.forEach(({ name, url }) => {
                     console.log(`Processing image: ${name} -> ${url}`);
+                    const safeUrl = url.replace(/\(/g, '%28').replace(/\)/g, '%29').replace(/ /g, '%20');
                     
                     // Try different patterns to find existing references
                     const patterns = [
@@ -600,7 +629,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
                             console.log(`Found match for ${name} with pattern`);
                             // Reset regex after test
                             pattern.lastIndex = 0;
-                            updatedMarkdown = updatedMarkdown.replace(pattern, `![$1](${url})`);
+                            updatedMarkdown = updatedMarkdown.replace(pattern, `![$1](${safeUrl})`);
                             foundMatch = true;
                             break;
                         }
@@ -608,12 +637,12 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
                     
                     if (!foundMatch) {
                         console.log(`No existing reference found for ${name}, appending to end`);
-                        updatedMarkdown += `\n\n![${name}](${name})`;
+                        updatedMarkdown += `\n\n![${name}](${safeUrl})`;
                         // Store mapping for this new image
-                        setImageMap(prev => new Map(prev).set(name, url));
+                        setImageMap(prev => new Map(prev).set(name, safeUrl));
                     } else {
                         // Store mapping for existing image
-                        setImageMap(prev => new Map(prev).set(name, url));
+                        setImageMap(prev => new Map(prev).set(name, safeUrl));
                     }
                 });
                 
@@ -630,6 +659,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
                     for (const file of singleImageFiles) {
                         const uploadResult = await uploadImageToSupabase(file);
                         console.log(`Processing single image: ${file.name} -> ${uploadResult.url}`);
+                        const safeUrl = uploadResult.url.replace(/\(/g, '%28').replace(/\)/g, '%29').replace(/ /g, '%20');
                         
                         // Try different patterns to find existing references
                         const patterns = [
@@ -647,7 +677,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
                                 console.log(`Found match for ${file.name} with pattern`);
                                 // Reset regex after test
                                 pattern.lastIndex = 0;
-                                updatedMarkdown = updatedMarkdown.replace(pattern, `![$1](${uploadResult.url})`);
+                                updatedMarkdown = updatedMarkdown.replace(pattern, `![$1](${safeUrl})`);
                                 foundMatch = true;
                                 break;
                             }
@@ -655,8 +685,11 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
                         
                         if (!foundMatch) {
                             console.log(`No existing reference found for ${file.name}, appending to end`);
-                            updatedMarkdown += `\n\n![${file.name}](${uploadResult.url})`;
+                            updatedMarkdown += `\n\n![${file.name}](${safeUrl})`;
                         }
+
+                        // Store mapping for single image upload
+                        setImageMap(prev => new Map(prev).set(file.name, safeUrl));
                     }
                     
                     setMarkdown(updatedMarkdown);
@@ -812,7 +845,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
                             </div>
                             <textarea
                                 value={displayMarkdown}
-                                onChange={e => { if (!isFrozen) setMarkdown(e.target.value); }}
+                                onChange={e => { if (!isFrozen) handleMarkdownChange(e.target.value); }}
                                 readOnly={isFrozen}
                                 className={`flex-1 p-4 text-sm font-mono text-gray-800 dark:text-gray-200 resize-none focus:outline-none ${isFrozen ? 'bg-gray-100 dark:bg-gray-950 cursor-not-allowed opacity-75' : 'bg-white dark:bg-gray-900'}`}
                                 placeholder="Paste or type your markdown policy here..."
@@ -1184,6 +1217,13 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
                     </span>
                     <button onClick={() => setSelectedIds(new Set())} className="text-xs text-blue-500 hover:text-blue-700 underline">
                         Clear
+                    </button>
+                    <span className="text-xs text-blue-300 dark:text-blue-700 font-normal">•</span>
+                    <button 
+                        onClick={() => setSelectedIds(new Set(filtered.map(p => p.policy_id)))} 
+                        className="text-xs text-blue-500 hover:text-blue-700 underline"
+                    >
+                        Select All
                     </button>
                     <button
                         onClick={handleDownload}

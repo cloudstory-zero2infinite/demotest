@@ -129,7 +129,7 @@ const App: React.FC = () => {
     setActiveTab(tab);
     if (tab === 'organisation' && subTab) setActiveOrgSubTab(subTab as OrgSubTab);
     // Handle governance-related tabs
-    if (['assets', 'policies', 'vulnerability', 'relationships', 'capabilities', 'control_registry'].includes(tab)) {
+    if (['governance', 'assets', 'policies', 'vulnerability', 'relationships', 'capabilities', 'control_registry'].includes(tab)) {
       if (subTab) setGovernanceSubTab(subTab);
       setGovernanceOpenItemId(itemId || null);
     }
