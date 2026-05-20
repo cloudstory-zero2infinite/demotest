@@ -2168,6 +2168,10 @@ type FormData = {
 
 
 
+    maturity_score?: number | null;
+
+
+
     custom_fields?: Record<string, any>;
 
 
@@ -2217,6 +2221,10 @@ const DEFAULT_FORM: FormData = {
 
 
     ctl_other_details: '',
+
+
+
+    maturity_score: 0,
 
 
 
@@ -2305,6 +2313,7 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
                     ctld_by: controlToEdit.ctld_by ?? [],
                     ctl_ref_fw: controlToEdit.ctl_ref_fw ?? '',
                     ctl_other_details: controlToEdit.ctl_other_details ?? '',
+                    maturity_score: controlToEdit.maturity_score ?? 0,
                     custom_fields: customFieldsData,
                 });
             } else {
@@ -2762,7 +2771,34 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
                     </div>
 
-
+                    {(formData.ctl_type === 'NN' || formData.ctl_type === 'Custom') && (
+                        <div className="md:col-span-2 mt-2 mb-2 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600">
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
+                                NN Control Maturity Score
+                                <span className="ml-2 text-xs font-normal text-blue-600 dark:text-blue-400 font-bold">{formData.ctl_status === 'Enforced' ? 100 : (formData.maturity_score || 0)}%</span>
+                            </label>
+                            
+                            <input 
+                                type="range" 
+                                name="maturity_score"
+                                min="0" 
+                                max="100" 
+                                step="1"
+                                value={formData.ctl_status === 'Enforced' ? 100 : (formData.maturity_score || 0)} 
+                                onChange={e => setFormData(prev => ({ ...prev, maturity_score: Number(e.target.value) }))} 
+                                disabled={isView || isSystemFieldFrozen || formData.ctl_status === 'Enforced'} 
+                                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-600 accent-blue-600" 
+                            />
+                            
+                            <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-2 px-1">
+                                <span className="w-1/5 text-left">Not Implemented (0%)</span>
+                                <span className="w-1/5 text-center">Initial (25%)</span>
+                                <span className="w-1/5 text-center">Partial (50%)</span>
+                                <span className="w-1/5 text-center">Mostly Implemented (75%)</span>
+                                <span className="w-1/5 text-right">Fully Implemented (100%)</span>
+                            </div>
+                        </div>
+                    )}
 
                     <div className="md:col-span-2">
 
@@ -4681,6 +4717,20 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                                         <button 
                                             onClick={(e) => {
                                                 e.stopPropagation();
+                                                requestSort('maturity_score' as keyof ControlRegistry);
+                                            }}
+                                            className={`flex items-center text-left focus:outline-none flex-grow ${sortConfig?.key === 'maturity_score' ? 'text-blue-600 font-semibold' : ''}`}
+                                        >
+                                            Maturity Score {getSortIconFor('maturity_score' as keyof ControlRegistry)}
+                                        </button>
+                                    </div>
+                                </th>
+
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                    <div className="flex items-center">
+                                        <button 
+                                            onClick={(e) => {
+                                                e.stopPropagation();
                                                 const rect = e.currentTarget.getBoundingClientRect();
                                                 if (openFilterDropdown?.key === 'ctl_type') {
                                                     setOpenFilterDropdown(null);
@@ -4996,11 +5046,35 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
                                     </td>
 
-
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                        {(ctl.ctl_type === 'NN' || ctl.ctl_type === 'Custom') ? (
+                                            <div className="flex items-center space-x-2 w-32">
+                                                {isEditing && selectedIds.has(ctl.id) ? (
+                                                    <input 
+                                                        type="range" 
+                                                        min="0" max="100" step="1"
+                                                        value={ctl.ctl_status === 'Enforced' ? 100 : (editValues[ctl.id]?.maturity_score ?? ctl.maturity_score ?? 0)}
+                                                        onChange={e => updateField(ctl.id, 'maturity_score', Number(e.target.value))}
+                                                        disabled={ctl.ctl_status === 'Enforced'}
+                                                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700 accent-blue-600"
+                                                    />
+                                                ) : (
+                                                    <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700 mt-1">
+                                                        <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${ctl.ctl_status === 'Enforced' ? 100 : (ctl.maturity_score ?? 0)}%` }}></div>
+                                                    </div>
+                                                )}
+                                                <span className="text-xs font-medium text-gray-700 dark:text-gray-300 w-8 text-right">
+                                                    {ctl.ctl_status === 'Enforced' ? '100%' : (isEditing && selectedIds.has(ctl.id) 
+                                                        ? `${editValues[ctl.id]?.maturity_score ?? ctl.maturity_score ?? 0}%` 
+                                                        : `${ctl.maturity_score ?? 0}%`)}
+                                                </span>
+                                            </div>
+                                        ) : (
+                                            <span className="text-xs text-gray-400">—</span>
+                                        )}
+                                    </td>
 
                                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-
-
 
                                         {isEditing && selectedIds.has(ctl.id) ? (
 
