@@ -431,18 +431,31 @@ export interface PolicyV2 {
   updated_at: string;
 }
 
-// Mapper Agent — Phase 2: SCF-grounded mapping triggered from the Policy tab.
-// Master policy → Security Objectives → SCF Domains (from the global SCF list).
+// Mapper Agent — two triggers:
+//   'policies' (from Policy tab):  Master Policy → Security Objectives → SCF Domains + child policies
+//   'controls' (from Visualizer):  SCFDomain → Control → Capability → Asset (deterministic joins)
 export interface MapperRunResult {
-  status: 'ok' | 'needs_master' | 'needs_scf_reference';
+  status: 'ok' | 'needs_master' | 'needs_scf_reference' | 'needs_policies_first';
   message?: string;
   trigger?: string;
   master_policy_id?: string;
+  // Loosely typed because keys differ per trigger; consumers read specific
+  // keys with `?? 0` and render only what they expect.
   summary?: {
-    objectives: number;
-    scf_domains: number;
-    child_links: number;
-    orphans: number;
+    // 'policies' trigger
+    objectives?: number;
+    scf_domains?: number;
+    child_links?: number;
+    orphans?: number;
+    // 'controls' trigger
+    controls?: number;
+    capabilities?: number;
+    assets?: number;
+    implemented_by_edges?: number;
+    enforced_by_edges?: number;
+    provided_by_edges?: number;
+    controls_with_capabilities?: number;
+    total_standard_controls?: number;
   };
   extraction?: {
     security_objectives: Array<{
@@ -463,7 +476,15 @@ export interface MapperRunResult {
 
 export interface MapperGraphNode {
   id: string;
-  type: 'MasterPolicy' | 'ChildPolicy' | 'OrphanPolicy' | 'SecurityObjective' | 'SCFDomain';
+  type:
+    | 'MasterPolicy'
+    | 'ChildPolicy'
+    | 'OrphanPolicy'
+    | 'SecurityObjective'
+    | 'SCFDomain'
+    | 'Control'
+    | 'Capability'
+    | 'Asset';
   data: Record<string, any>;
 }
 
@@ -471,7 +492,14 @@ export interface MapperGraphEdge {
   id: string;
   source: string;
   target: string;
-  label: 'DEFINES' | 'MAPS_TO' | 'HAS_CHILD' | 'COVERS';
+  label:
+    | 'DEFINES'
+    | 'MAPS_TO'
+    | 'HAS_CHILD'
+    | 'COVERS'
+    | 'IMPLEMENTED_BY'
+    | 'ENFORCED_BY'
+    | 'PROVIDED_BY';
   data?: { confidence?: number | null; rationale?: string | null; matched_on?: string | null };
 }
 

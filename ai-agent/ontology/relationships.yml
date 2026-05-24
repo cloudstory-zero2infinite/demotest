@@ -75,3 +75,48 @@ relationships:
       - name: org_id
         required: true
       - name: confidence
+
+  IMPLEMENTED_BY:
+    description: >
+      An SCFDomain is implemented by the standard Controls whose
+      scf_control_id starts with that domain's scf_id. Created by the
+      'controls' mapper trigger by deterministic prefix-match — no LLM.
+    from_entity: SCFDomain
+    to_entity: Control
+    neo4j_type: IMPLEMENTED_BY
+    cardinality: one_to_many
+    derivation: from_source
+    properties:
+      - name: org_id
+        required: true
+
+  ENFORCED_BY:
+    description: >
+      A Control is enforced by a Capability when any element of
+      control_registry.ctld_by case-insensitively matches the Capability's
+      capab_name, an entry in capab_provider[], or capab_owner (first hit).
+      Matched via SQL by the 'controls' trigger — no LLM.
+    from_entity: Control
+    to_entity: Capability
+    neo4j_type: ENFORCED_BY
+    cardinality: many_to_many
+    derivation: from_source
+    properties:
+      - name: org_id
+        required: true
+      - name: matched_on                 # 'capab_name' | 'capab_provider' | 'capab_owner'
+
+  PROVIDED_BY:
+    description: >
+      A Capability is provided by Assets matched via capap_cmdb_id elements.
+      Match is case-insensitive against assets.asset_id, then assets.name.
+      Matched via SQL by the 'controls' trigger — no LLM.
+    from_entity: Capability
+    to_entity: Asset
+    neo4j_type: PROVIDED_BY
+    cardinality: many_to_many
+    derivation: from_source
+    properties:
+      - name: org_id
+        required: true
+      - name: matched_on                 # 'asset_id' | 'asset_name'
