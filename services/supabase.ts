@@ -2020,6 +2020,23 @@ export const getAvailableFrameworks = async (): Promise<string[]> =>
 
 
 
+// ── SCF Frameworks catalog (Settings → Org framework picker) ────────────────
+
+export const getScfFrameworks = async (): Promise<import('../types').ScfFramework[]> =>
+  apiRequest('/api/scf/frameworks');
+
+
+
+// ── Fw-ControlRegistry recompute (Settings → Org "Recompute" button) ────────
+
+export const recomputeControlRegistryPreview = async (): Promise<import('../types').FwcrPreview> =>
+  apiRequest('/api/fwcr/recompute-preview', { method: 'POST' });
+
+export const recomputeControlRegistry = async (): Promise<import('../types').FwcrApplyResult> =>
+  apiRequest('/api/fwcr/recompute', { method: 'POST' });
+
+
+
 // ── Org Contacts ─────────────────────────────────────────────────────────────
 
 

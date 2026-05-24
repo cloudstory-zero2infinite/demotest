@@ -56,13 +56,16 @@ function useIsDarkMode(): boolean {
 // ── Config ────────────────────────────────────────────────────────────────
 const GROUP_THRESHOLD = 3;
 const CONF_THRESHOLD = 0.5;
-const TREE_RELATIONS = new Set(['DEFINES', 'HAS_CHILD', 'CONTAINS']);
+// Tree relationships build the visible spine: master -DEFINES-> objective
+// -MAPS_TO-> SCFDomain, and master -HAS_CHILD-> child policy. COVERS is a
+// cross-link overlay (child -> SCFDomain) and is NOT part of the tree.
+const TREE_RELATIONS = new Set(['DEFINES', 'MAPS_TO', 'HAS_CHILD']);
 
 const HUB_LABELS: Record<string, string> = {
-    DEFINES: 'domains',
-    CONTAINS: 'functions',
+    DEFINES:   'objectives',
+    MAPS_TO:   'SCF domains',
     HAS_CHILD: 'child policies',
-    COVERS: 'domains covered',
+    COVERS:    'domains covered',
 };
 
 // Per-node-type colour for icon background.
@@ -70,27 +73,27 @@ const ICON_BG: Record<string, string> = {
     MasterPolicy: 'bg-amber-500',
     ChildPolicy: 'bg-blue-500',
     OrphanPolicy: 'bg-gray-500',
-    SecurityDomain: 'bg-purple-500',
-    SecurityFunction: 'bg-emerald-500',
+    SecurityObjective: 'bg-purple-500',
+    SCFDomain: 'bg-emerald-500',
 };
 const ICON_RING: Record<string, string> = {
     MasterPolicy: 'ring-amber-300',
     ChildPolicy: 'ring-blue-300',
     OrphanPolicy: 'ring-gray-500',
-    SecurityDomain: 'ring-purple-300',
-    SecurityFunction: 'ring-emerald-300',
+    SecurityObjective: 'ring-purple-300',
+    SCFDomain: 'ring-emerald-300',
 };
 
 const HUB_STYLE: Record<string, { bg: string; ring: string; text: string }> = {
     DEFINES:   { bg: 'bg-purple-700',  ring: 'ring-purple-400',  text: 'text-purple-50' },
-    CONTAINS:  { bg: 'bg-emerald-700', ring: 'ring-emerald-400', text: 'text-emerald-50' },
+    MAPS_TO:   { bg: 'bg-emerald-700', ring: 'ring-emerald-400', text: 'text-emerald-50' },
     HAS_CHILD: { bg: 'bg-blue-700',    ring: 'ring-blue-400',    text: 'text-blue-50' },
     COVERS:    { bg: 'bg-slate-700',   ring: 'ring-slate-400',   text: 'text-slate-50' },
 };
 
 const EDGE_COLOR: Record<string, string> = {
     DEFINES:   '#a855f7',
-    CONTAINS:  '#10b981',
+    MAPS_TO:   '#10b981',
     HAS_CHILD: '#3b82f6',
     COVERS:    '#94a3b8',
 };
@@ -123,10 +126,11 @@ const FolderIcon: React.FC<{ className?: string }> = ({ className }) => (
         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
     </svg>
 );
-const CogIcon: React.FC<{ className?: string }> = ({ className }) => (
+const TargetIcon: React.FC<{ className?: string }> = ({ className }) => (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className}>
-        <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        <circle cx="12" cy="12" r="9" />
+        <circle cx="12" cy="12" r="5" />
+        <circle cx="12" cy="12" r="1.5" fill="currentColor" />
     </svg>
 );
 
@@ -134,8 +138,8 @@ const ICONS: Record<string, React.FC<{ className?: string }>> = {
     MasterPolicy: ShieldIcon,
     ChildPolicy: FileIcon,
     OrphanPolicy: FileQuestionIcon,
-    SecurityDomain: FolderIcon,
-    SecurityFunction: CogIcon,
+    SecurityObjective: TargetIcon,
+    SCFDomain: FolderIcon,
 };
 
 // ── Handles ──────────────────────────────────────────────────────────────
@@ -244,14 +248,21 @@ interface TreeNode {
     rfType: 'icon' | 'hub';
     raw: any;
     label: string;
-    kind?: string;          // for icon nodes: MasterPolicy / ChildPolicy / OrphanPolicy / SecurityDomain / SecurityFunction
+    kind?: string;          // for icon nodes: MasterPolicy / ChildPolicy / OrphanPolicy / SecurityObjective / SCFDomain
     relation?: string;      // for hubs
     count?: number;         // for hubs
     children: TreeNode[];
 }
 
 function labelFor(n: MapperGraphNode): string {
-    return (n.data as any).name || (n.data as any).policy_id || n.id;
+    const d: any = n.data || {};
+    if (n.type === 'SCFDomain' && d.scf_id) {
+        return d.domain_name ? `${d.scf_id} — ${d.domain_name}` : d.scf_id;
+    }
+    if (n.type === 'SecurityObjective') {
+        return d.name || n.id;
+    }
+    return d.name || d.policy_id || n.id;
 }
 function rfTypeFor(n: MapperGraphNode): 'icon' {
     return 'icon';   // all non-hub nodes use the icon renderer
@@ -773,8 +784,8 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
         if (!graph) return null;
         return {
             policies: graph.nodes.filter(n => n.type === 'MasterPolicy' || n.type === 'ChildPolicy' || n.type === 'OrphanPolicy').length,
-            domains: graph.nodes.filter(n => n.type === 'SecurityDomain').length,
-            functions: graph.nodes.filter(n => n.type === 'SecurityFunction').length,
+            objectives: graph.nodes.filter(n => n.type === 'SecurityObjective').length,
+            domains: graph.nodes.filter(n => n.type === 'SCFDomain').length,
             orphans: graph.nodes.filter(n => n.type === 'OrphanPolicy').length,
             hidden: hiddenNodes.size,
         };
@@ -793,8 +804,8 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
                     {stats && (
                         <div className="flex items-center gap-3 text-gray-600 dark:text-gray-300">
                             <span><strong>{stats.policies}</strong> policies</span>
-                            <span><strong>{stats.domains}</strong> domains</span>
-                            <span><strong>{stats.functions}</strong> functions</span>
+                            <span><strong>{stats.objectives}</strong> objectives</span>
+                            <span><strong>{stats.domains}</strong> SCF domains</span>
                             <span><strong>{stats.orphans}</strong> orphans</span>
                             {stats.hidden > 0 && <span className="text-amber-600 dark:text-amber-400"><strong>{stats.hidden}</strong> hidden</span>}
                             {focusedNodeId && <span className="text-blue-600 dark:text-blue-400">focused</span>}

@@ -19,6 +19,7 @@ from .policy_extractor import (
     extract_for_org,
     NeedsMasterError,
     MultipleMastersError,
+    NoScfReferenceError,
 )
 from .neo4j_writer import write_policy_mapping, read_graph
 
@@ -43,6 +44,11 @@ async def run_mapping(req: RunRequest):
         return {
             "status": "needs_master",
             "message": "No master policy marked for this org. Mark a policy as master and re-run.",
+        }
+    except NoScfReferenceError as e:
+        return {
+            "status": "needs_scf_reference",
+            "message": str(e),
         }
     except MultipleMastersError as e:
         raise HTTPException(status_code=409, detail=str(e))
