@@ -210,7 +210,12 @@ export interface ControlRegistry {
     enforcement_type: EnforcementType;
     ctl_description: string | null;
     ctld_by: string[];
-    ctl_ref_fw: string | null;
+    /**
+     * Array of framework canonical names that claim this control. Migrated
+     * from TEXT to JSONB in 2026-05; the Fw-ControlRegistry agent manages this
+     * for rows where scf_control_id is set.
+     */
+    ctl_ref_fw: string[];
     ctl_other_details: string | null;
     evidence_metadata: EvidenceFileMetadata[] | null;
     enforced_by: string | null;
@@ -221,6 +226,44 @@ export interface ControlRegistry {
     updated_at: string;
     maturity_score?: number | null;
     custom_fields?: Record<string, any>;
+    /** Set only on rows owned by the Fw-ControlRegistry agent. */
+    scf_control_id?: string | null;
+}
+
+// ── SCF Frameworks & Fw-ControlRegistry recompute ────────────────────────────
+
+export interface ScfFramework {
+  name: string;          // canonical key, e.g. "ISO 27001 2022"
+  display_name: string;  // shown in the UI
+  region: 'Global' | 'US' | 'EMEA' | 'APAC' | 'Americas' | string;
+  is_common: boolean;
+  sort_order: number;
+}
+
+export interface FwcrPreviewSummary {
+  to_add: number;
+  to_update: number;
+  to_delete_unenforced: number;
+  keep_orphan_enforced: number;
+  unchanged: number;
+}
+
+export interface FwcrPreview {
+  selected_frameworks: string[];
+  summary: FwcrPreviewSummary;
+  samples: {
+    to_add: Array<{ scf_control_id: string; ctl_name: string; ctl_ref_fw: string[] }>;
+    to_update: Array<{ scf_control_id: string; ctl_ref_fw_old: string[]; ctl_ref_fw_new: string[] }>;
+    to_delete_unenforced: Array<{ scf_control_id: string; ctl_name: string }>;
+    keep_orphan_enforced: Array<{ scf_control_id: string; ctl_name: string }>;
+  };
+}
+
+export interface FwcrApplyResult {
+  selected_frameworks: string[];
+  applied: { added: number; updated: number; deleted: number };
+  kept_orphan_enforced: number;
+  unchanged: number;
 }
 
 export interface EvidenceFileMetadata {
@@ -388,38 +431,39 @@ export interface PolicyV2 {
   updated_at: string;
 }
 
-// Mapper Agent — Phase 1: triggered from the Policy tab.
+// Mapper Agent — Phase 2: SCF-grounded mapping triggered from the Policy tab.
+// Master policy → Security Objectives → SCF Domains (from the global SCF list).
 export interface MapperRunResult {
-  status: 'ok' | 'needs_master';
+  status: 'ok' | 'needs_master' | 'needs_scf_reference';
   message?: string;
   trigger?: string;
   master_policy_id?: string;
   summary?: {
-    domains: number;
-    functions: number;
+    objectives: number;
+    scf_domains: number;
     child_links: number;
     orphans: number;
   };
   extraction?: {
-    security_domains: Array<{
+    security_objectives: Array<{
       name: string;
       description?: string | null;
       confidence?: number | null;
-      functions?: Array<{ name: string; description?: string | null; confidence?: number | null }>;
+      scf_ids: string[];
     }>;
     child_policy_links: Array<{
       policy_id: string;
       confidence: number;
       rationale?: string | null;
       matched_on?: string | null;
-      covers_domains?: string[];
+      covers_scf_ids?: string[];
     }>;
   };
 }
 
 export interface MapperGraphNode {
   id: string;
-  type: 'MasterPolicy' | 'ChildPolicy' | 'OrphanPolicy' | 'SecurityDomain' | 'SecurityFunction';
+  type: 'MasterPolicy' | 'ChildPolicy' | 'OrphanPolicy' | 'SecurityObjective' | 'SCFDomain';
   data: Record<string, any>;
 }
 
@@ -427,7 +471,7 @@ export interface MapperGraphEdge {
   id: string;
   source: string;
   target: string;
-  label: 'DEFINES' | 'CONTAINS' | 'HAS_CHILD' | 'COVERS';
+  label: 'DEFINES' | 'MAPS_TO' | 'HAS_CHILD' | 'COVERS';
   data?: { confidence?: number | null; rationale?: string | null; matched_on?: string | null };
 }
 

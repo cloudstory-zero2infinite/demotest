@@ -437,7 +437,7 @@ export const SEED_CONTROL_REGISTRY: ControlRegistry[] = controlDefs.map((c, i) =
   enforcement_type: c.enf,
   ctl_description: c.name + ' — applied across the ABC News estate.',
   ctld_by: [OWNERS[i % OWNERS.length]],
-  ctl_ref_fw: c.fw,
+  ctl_ref_fw: c.fw ? [c.fw] : [],
   ctl_other_details: null,
   evidence_metadata: null,
   enforced_by: c.status === 'Enforced' ? OWNERS[i % OWNERS.length] : null,

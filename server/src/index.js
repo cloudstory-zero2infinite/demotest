@@ -223,6 +223,8 @@ import { assetTypesRouter } from "./routes/asset-types.js";
 import { checkAllExpiredPolicies } from "./jobs/policy-expiry.js";
 import { scoringRouter } from "./routes/scoring.js";
 import { mapperRouter } from "./routes/mapper.js";
+import { fwcrRouter } from "./routes/fwcr.js";
+import { scfFrameworksRouter } from "./routes/scf-frameworks.js";
 
 
 
@@ -303,6 +305,10 @@ app.use("/api/org-settings", orgSettingsRouter);
 app.use("/api/org-contacts", orgContactsRouter);
 
 app.use("/api/mapper", mapperRouter);
+
+app.use("/api/fwcr", fwcrRouter);
+
+app.use("/api/scf/frameworks", scfFrameworksRouter);
 
 
 

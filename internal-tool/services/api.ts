@@ -8,6 +8,9 @@ import {
   NNControlTemplate,
   NNControlTemplateCreate,
   NNControlTemplateUpdate,
+  ScfFilesResponse,
+  ScfDomain,
+  ScfUploadResult,
 } from '../types';
 
 // Empty string → same-origin (production). Undefined → fall back to localhost (dev).
@@ -124,6 +127,39 @@ export const bulkDeleteNNControls = (ids: string[]) =>
     method: 'DELETE',
     body: JSON.stringify({ ids }),
   });
+
+// ───────── SCF Control Framework (bucket + parsed tables) ─────────
+export const listControlFramework = () =>
+  request<ScfFilesResponse>('/api/internal/control-framework');
+
+export const listScfDomains = () =>
+  request<ScfDomain[]>('/api/internal/control-framework/domains');
+
+export async function uploadControlFramework(file: File): Promise<ScfUploadResult> {
+  const form = new FormData();
+  form.append('file', file);
+  return request<ScfUploadResult>(
+    '/api/internal/control-framework',
+    { method: 'POST', body: form },
+    true
+  );
+}
+
+export const deleteControlFrameworkFile = (name: string) =>
+  request<void>(
+    `/api/internal/control-framework/${encodeURIComponent(name)}`,
+    { method: 'DELETE' }
+  );
+
+export async function downloadControlFramework(name: string): Promise<Blob> {
+  const token = await getToken();
+  const res = await fetch(
+    `${API_BASE_URL}/api/internal/control-framework/${encodeURIComponent(name)}/download`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+  );
+  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+  return res.blob();
+}
 
 // ───────── Auth ─────────
 export async function signInWithGoogle() {
