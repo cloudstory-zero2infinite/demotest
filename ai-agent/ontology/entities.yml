@@ -125,3 +125,95 @@ entities:
         required: true
     id_strategy:
       keys: [org_id, policy_id]
+
+  Control:
+    description: >
+      A row in control_registry that is owned by the Fw-ControlRegistry agent
+      (ctl_type='Standard' AND scf_control_id IS NOT NULL). Attached under
+      the SCFDomain whose scf_id matches the prefix of scf_control_id (e.g.
+      TDA-09.5 attaches under SCFDomain {scf_id: 'TDA'}). Used by the
+      'controls' mapper trigger.
+    source:
+      type: supabase
+      table: control_registry
+      org_scope_column: org_id
+    source_columns:
+      - id
+      - ctl_id
+      - ctl_name
+      - ctl_status
+      - ctl_type
+      - scf_control_id
+      - ctld_by
+      - ctl_ref_fw
+      - org_id
+    neo4j_label: Control
+    properties:
+      - name: ctl_id             # human-friendly id (== scf_control_id for agent rows)
+        required: true
+      - name: ctl_name
+        required: true
+      - name: ctl_status
+      - name: scf_control_id     # stable key linking back to scf_controls
+        required: true
+      - name: scf_id             # derived prefix, e.g. 'TDA'
+        required: true
+      - name: org_id
+        required: true
+    id_strategy:
+      keys: [org_id, scf_control_id]
+
+  Capability:
+    description: >
+      A row in capability_register. Linked to one or more Control nodes when
+      any element of control_registry.ctld_by matches capab_name,
+      capab_provider[], or capab_owner (case-insensitive, first hit wins).
+    source:
+      type: supabase
+      table: capability_register
+      org_scope_column: org_id
+    source_columns:
+      - capab_id
+      - capab_name
+      - capab_provider
+      - capab_owner
+      - capab_cmdb_id
+      - org_id
+    neo4j_label: Capability
+    properties:
+      - name: capab_id
+        required: true
+      - name: capab_name
+        required: true
+      - name: capab_owner
+      - name: org_id
+        required: true
+    id_strategy:
+      keys: [org_id, capab_id]
+
+  Asset:
+    description: >
+      A row in assets. Linked to one or more Capability nodes when any
+      element of capability_register.capab_cmdb_id matches assets.asset_id
+      or assets.name (case-insensitive).
+    source:
+      type: supabase
+      table: assets
+      org_scope_column: org_id
+    source_columns:
+      - id
+      - asset_id
+      - name
+      - category
+      - org_id
+    neo4j_label: Asset
+    properties:
+      - name: asset_id           # structured ID like AST-AP-001
+        required: true
+      - name: name
+        required: true
+      - name: category
+      - name: org_id
+        required: true
+    id_strategy:
+      keys: [org_id, asset_id]

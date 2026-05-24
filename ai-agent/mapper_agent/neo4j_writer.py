@@ -269,6 +269,127 @@ def write_policy_mapping(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def write_controls_mapping(payload: dict[str, Any]) -> dict[str, Any]:
+    """Rebuild the SCFDomain → Control → Capability → Asset chain for one org.
+
+    Wipe scope: Control, Capability, Asset nodes for this org are deleted
+    (DETACH-DELETE removes IMPLEMENTED_BY/ENFORCED_BY/PROVIDED_BY edges).
+    SCFDomain, SecurityObjective and Policy nodes are preserved — they
+    belong to the 'policies' trigger.
+
+    `payload` is the dict returned by controls_extractor.extract_for_org().
+    """
+    org_id = payload["org_id"]
+    controls    = payload["controls"]
+    capabilities = payload["capabilities"]
+    assets      = payload["assets"]
+    enforced    = payload["enforced_by_edges"]
+    provided    = payload["provided_by_edges"]
+
+    with _session() as s:
+        # 1. Wipe prior run for this org (Control/Capability/Asset + their edges).
+        s.run(
+            """
+            MATCH (n {org_id: $org_id})
+            WHERE n:Control OR n:Capability OR n:Asset
+            DETACH DELETE n
+            """,
+            org_id=org_id,
+        )
+
+        # 2. MERGE Control nodes and attach to the matching SCFDomain via
+        #    IMPLEMENTED_BY. Controls whose SCFDomain isn't in the graph
+        #    were already filtered out by the extractor.
+        for c in controls:
+            s.run(
+                """
+                MATCH (sd:SCFDomain {org_id: $org_id, scf_id: $scf_id})
+                MERGE (ctl:Control {org_id: $org_id, scf_control_id: $scf_control_id})
+                SET   ctl.ctl_id      = $ctl_id,
+                      ctl.ctl_name    = $ctl_name,
+                      ctl.ctl_status  = $ctl_status,
+                      ctl.scf_id      = $scf_id
+                MERGE (sd)-[r:IMPLEMENTED_BY {org_id: $org_id}]->(ctl)
+                """,
+                org_id=org_id,
+                scf_id=c["scf_id"],
+                scf_control_id=c["scf_control_id"],
+                ctl_id=c["ctl_id"],
+                ctl_name=c["ctl_name"],
+                ctl_status=c.get("ctl_status"),
+            )
+
+        # 3. MERGE Capability nodes used by at least one Control.
+        for cap in capabilities:
+            s.run(
+                """
+                MERGE (cp:Capability {org_id: $org_id, capab_id: $capab_id})
+                SET   cp.capab_name  = $capab_name,
+                      cp.capab_owner = $capab_owner
+                """,
+                org_id=org_id,
+                capab_id=cap["capab_id"],
+                capab_name=cap.get("capab_name"),
+                capab_owner=cap.get("capab_owner"),
+            )
+
+        # 4. ENFORCED_BY — Control → Capability.
+        for e in enforced:
+            s.run(
+                """
+                MATCH (ctl:Control    {org_id: $org_id, scf_control_id: $scf_control_id})
+                MATCH (cp:Capability  {org_id: $org_id, capab_id: $capab_id})
+                MERGE (ctl)-[r:ENFORCED_BY {org_id: $org_id}]->(cp)
+                SET   r.matched_on = $matched_on
+                """,
+                org_id=org_id,
+                scf_control_id=e["scf_control_id"],
+                capab_id=e["capab_id"],
+                matched_on=e["matched_on"],
+            )
+
+        # 5. MERGE Asset nodes used by at least one Capability.
+        for a in assets:
+            s.run(
+                """
+                MERGE (ast:Asset {org_id: $org_id, asset_id: $asset_id})
+                SET   ast.name     = $name,
+                      ast.category = $category
+                """,
+                org_id=org_id,
+                asset_id=a["asset_id"],
+                name=a.get("name"),
+                category=a.get("category"),
+            )
+
+        # 6. PROVIDED_BY — Capability → Asset.
+        for p in provided:
+            s.run(
+                """
+                MATCH (cp:Capability {org_id: $org_id, capab_id: $capab_id})
+                MATCH (ast:Asset     {org_id: $org_id, asset_id: $asset_id})
+                MERGE (cp)-[r:PROVIDED_BY {org_id: $org_id}]->(ast)
+                SET   r.matched_on = $matched_on
+                """,
+                org_id=org_id,
+                capab_id=p["capab_id"],
+                asset_id=p["asset_id"],
+                matched_on=p["matched_on"],
+            )
+
+    stats = payload.get("stats") or {}
+    return {
+        "controls":               len(controls),
+        "capabilities":           len(capabilities),
+        "assets":                 len(assets),
+        "implemented_by_edges":   len(controls),
+        "enforced_by_edges":      len(enforced),
+        "provided_by_edges":      len(provided),
+        "controls_with_capabilities": stats.get("controls_with_capabilities", 0),
+        "total_standard_controls":    stats.get("total_standard_controls", 0),
+    }
+
+
 def read_graph(org_id: str, master_policy_id: str | None = None) -> dict[str, Any]:
     """Return ReactFlow-shaped {nodes, edges} for the visualizer.
 
@@ -278,8 +399,12 @@ def read_graph(org_id: str, master_policy_id: str | None = None) -> dict[str, An
         OrphanPolicy      — an unlinked child Policy
         SecurityObjective — LLM-extracted objective, scoped per master
         SCFDomain         — one of the 33 SCF domains (per-org materialisation)
+        Control           — agent-managed control_registry row
+        Capability        — capability_register row used by ≥1 Control
+        Asset             — assets row used by ≥1 Capability
 
-    Emitted edge labels: DEFINES, MAPS_TO, HAS_CHILD, COVERS.
+    Emitted edge labels: DEFINES, MAPS_TO, HAS_CHILD, COVERS,
+                          IMPLEMENTED_BY, ENFORCED_BY, PROVIDED_BY.
 
     NOTE: one query per relationship type — combining them in a single Cypher
     with stacked OPTIONAL MATCH clauses creates a Cartesian product and blows
@@ -409,5 +534,62 @@ def read_graph(org_id: str, master_policy_id: str | None = None) -> dict[str, An
         ):
             p = record["p"]
             _push_node(f"policy:{p['policy_id']}", "OrphanPolicy", dict(p.items()))
+
+        # 7. IMPLEMENTED_BY — SCFDomain → Control.
+        for record in s.run(
+            "MATCH (sd:SCFDomain {org_id: $org_id})-[r:IMPLEMENTED_BY]->(ctl:Control) "
+            "RETURN sd, ctl, r",
+            org_id=org_id,
+        ):
+            sd = record["sd"]; ctl = record["ctl"]
+            dom_id = f"scfdomain:{sd['scf_id']}"
+            ctl_id = f"control:{ctl['scf_control_id']}"
+            _push_node(dom_id, "SCFDomain", dict(sd.items()))
+            _push_node(ctl_id, "Control", dict(ctl.items()))
+            _push_edge({
+                "id": f"e:IMPLEMENTED_BY:{sd['scf_id']}->{ctl['scf_control_id']}",
+                "source": dom_id,
+                "target": ctl_id,
+                "label": "IMPLEMENTED_BY",
+                "data": {},
+            })
+
+        # 8. ENFORCED_BY — Control → Capability.
+        for record in s.run(
+            "MATCH (ctl:Control {org_id: $org_id})-[r:ENFORCED_BY]->(cp:Capability) "
+            "RETURN ctl, cp, r",
+            org_id=org_id,
+        ):
+            ctl = record["ctl"]; cp = record["cp"]; r = record["r"]
+            ctl_id = f"control:{ctl['scf_control_id']}"
+            cap_id = f"capability:{cp['capab_id']}"
+            _push_node(ctl_id, "Control", dict(ctl.items()))
+            _push_node(cap_id, "Capability", dict(cp.items()))
+            _push_edge({
+                "id": f"e:ENFORCED_BY:{ctl['scf_control_id']}->{cp['capab_id']}",
+                "source": ctl_id,
+                "target": cap_id,
+                "label": "ENFORCED_BY",
+                "data": {"matched_on": r.get("matched_on")},
+            })
+
+        # 9. PROVIDED_BY — Capability → Asset.
+        for record in s.run(
+            "MATCH (cp:Capability {org_id: $org_id})-[r:PROVIDED_BY]->(ast:Asset) "
+            "RETURN cp, ast, r",
+            org_id=org_id,
+        ):
+            cp = record["cp"]; ast = record["ast"]; r = record["r"]
+            cap_id = f"capability:{cp['capab_id']}"
+            ast_id = f"asset:{ast['asset_id']}"
+            _push_node(cap_id, "Capability", dict(cp.items()))
+            _push_node(ast_id, "Asset", dict(ast.items()))
+            _push_edge({
+                "id": f"e:PROVIDED_BY:{cp['capab_id']}->{ast['asset_id']}",
+                "source": cap_id,
+                "target": ast_id,
+                "label": "PROVIDED_BY",
+                "data": {"matched_on": r.get("matched_on")},
+            })
 
     return {"nodes": nodes, "edges": edges}

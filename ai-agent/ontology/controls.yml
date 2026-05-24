@@ -1,0 +1,69 @@
+# Mapper Agent — Recipe for the "controls" trigger.
+#
+# Invoked from the Mapper Visualizer screen ("Run Mapper" button). Adds the
+# SCFDomain → Control → Capability → Asset layer on top of the existing
+# policy subgraph. Deterministic — pure SQL joins, no LLM.
+#
+# Prerequisite: the 'policies' trigger must have been run first so that
+# SCFDomain nodes exist in Neo4j for this org. The router returns a
+# `needs_policies_first` response if not.
+
+version: 1
+trigger: controls
+
+inputs:
+  scf_domains_in_graph:
+    description: SCFDomain nodes that already exist in Neo4j for this org.
+    entity: SCFDomain
+    where:
+      org_id: ${org_id}
+    cardinality: at_least_one
+    on_missing: needs_policies_first_response
+
+  standard_controls:
+    description: >
+      Agent-owned control_registry rows (ctl_type='Standard' AND
+      scf_control_id IS NOT NULL). Their scf_id (parsed prefix of
+      scf_control_id) anchors them under the matching SCFDomain.
+    entity: Control
+    where:
+      org_id: ${org_id}
+      ctl_type: Standard
+      scf_control_id__not_null: true
+
+  capabilities:
+    description: capability_register rows for the org.
+    entity: Capability
+    where:
+      org_id: ${org_id}
+
+  assets:
+    description: assets rows for the org. asset_id resolves capab_cmdb_id refs.
+    entity: Asset
+    where:
+      org_id: ${org_id}
+
+outputs:
+  entities:
+    - Control
+    - Capability
+    - Asset
+  relationships:
+    - IMPLEMENTED_BY            # SCFDomain → Control (prefix match)
+    - ENFORCED_BY               # Control   → Capability (name|provider|owner)
+    - PROVIDED_BY               # Capability → Asset (asset_id|name)
+
+# No LLM involvement.
+extraction:
+  mode: deterministic
+
+# Per-org scope. Wipes Control / Capability / Asset nodes for this org
+# before rebuilding so re-runs are idempotent. SCFDomain nodes are preserved
+# (they belong to the 'policies' trigger).
+write_strategy:
+  mode: wipe_and_rewrite
+  scope: per_org_controls_subgraph
+  preserve:
+    - Policy
+    - SCFDomain
+    - SecurityObjective

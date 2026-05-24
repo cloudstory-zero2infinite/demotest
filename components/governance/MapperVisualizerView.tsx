@@ -56,46 +56,64 @@ function useIsDarkMode(): boolean {
 // ── Config ────────────────────────────────────────────────────────────────
 const GROUP_THRESHOLD = 3;
 const CONF_THRESHOLD = 0.5;
-// Tree relationships build the visible spine: master -DEFINES-> objective
-// -MAPS_TO-> SCFDomain, and master -HAS_CHILD-> child policy. COVERS is a
-// cross-link overlay (child -> SCFDomain) and is NOT part of the tree.
-const TREE_RELATIONS = new Set(['DEFINES', 'MAPS_TO', 'HAS_CHILD']);
+// Tree spine includes the 'controls' chain so SCF Domain → Control →
+// Capability → Asset shows as a continuous expandable tree. COVERS is a
+// cross-link overlay (child Policy → SCFDomain) and stays off-tree.
+const TREE_RELATIONS = new Set([
+    'DEFINES', 'MAPS_TO', 'HAS_CHILD',
+    'IMPLEMENTED_BY', 'ENFORCED_BY', 'PROVIDED_BY',
+]);
 
 const HUB_LABELS: Record<string, string> = {
-    DEFINES:   'objectives',
-    MAPS_TO:   'SCF domains',
-    HAS_CHILD: 'child policies',
-    COVERS:    'domains covered',
+    DEFINES:        'objectives',
+    MAPS_TO:        'SCF domains',
+    HAS_CHILD:      'child policies',
+    COVERS:         'domains covered',
+    IMPLEMENTED_BY: 'controls',
+    ENFORCED_BY:    'capabilities',
+    PROVIDED_BY:    'assets',
 };
 
 // Per-node-type colour for icon background.
 const ICON_BG: Record<string, string> = {
-    MasterPolicy: 'bg-amber-500',
-    ChildPolicy: 'bg-blue-500',
-    OrphanPolicy: 'bg-gray-500',
+    MasterPolicy:      'bg-amber-500',
+    ChildPolicy:       'bg-blue-500',
+    OrphanPolicy:      'bg-gray-500',
     SecurityObjective: 'bg-purple-500',
-    SCFDomain: 'bg-emerald-500',
+    SCFDomain:         'bg-emerald-500',
+    Control:           'bg-indigo-500',
+    Capability:        'bg-cyan-500',
+    Asset:             'bg-orange-500',
 };
 const ICON_RING: Record<string, string> = {
-    MasterPolicy: 'ring-amber-300',
-    ChildPolicy: 'ring-blue-300',
-    OrphanPolicy: 'ring-gray-500',
+    MasterPolicy:      'ring-amber-300',
+    ChildPolicy:       'ring-blue-300',
+    OrphanPolicy:      'ring-gray-500',
     SecurityObjective: 'ring-purple-300',
-    SCFDomain: 'ring-emerald-300',
+    SCFDomain:         'ring-emerald-300',
+    Control:           'ring-indigo-300',
+    Capability:        'ring-cyan-300',
+    Asset:             'ring-orange-300',
 };
 
 const HUB_STYLE: Record<string, { bg: string; ring: string; text: string }> = {
-    DEFINES:   { bg: 'bg-purple-700',  ring: 'ring-purple-400',  text: 'text-purple-50' },
-    MAPS_TO:   { bg: 'bg-emerald-700', ring: 'ring-emerald-400', text: 'text-emerald-50' },
-    HAS_CHILD: { bg: 'bg-blue-700',    ring: 'ring-blue-400',    text: 'text-blue-50' },
-    COVERS:    { bg: 'bg-slate-700',   ring: 'ring-slate-400',   text: 'text-slate-50' },
+    DEFINES:        { bg: 'bg-purple-700',  ring: 'ring-purple-400',  text: 'text-purple-50' },
+    MAPS_TO:        { bg: 'bg-emerald-700', ring: 'ring-emerald-400', text: 'text-emerald-50' },
+    HAS_CHILD:      { bg: 'bg-blue-700',    ring: 'ring-blue-400',    text: 'text-blue-50' },
+    COVERS:         { bg: 'bg-slate-700',   ring: 'ring-slate-400',   text: 'text-slate-50' },
+    IMPLEMENTED_BY: { bg: 'bg-indigo-700',  ring: 'ring-indigo-400',  text: 'text-indigo-50' },
+    ENFORCED_BY:    { bg: 'bg-cyan-700',    ring: 'ring-cyan-400',    text: 'text-cyan-50' },
+    PROVIDED_BY:    { bg: 'bg-orange-700',  ring: 'ring-orange-400',  text: 'text-orange-50' },
 };
 
 const EDGE_COLOR: Record<string, string> = {
-    DEFINES:   '#a855f7',
-    MAPS_TO:   '#10b981',
-    HAS_CHILD: '#3b82f6',
-    COVERS:    '#94a3b8',
+    DEFINES:        '#a855f7',
+    MAPS_TO:        '#10b981',
+    HAS_CHILD:      '#3b82f6',
+    COVERS:         '#94a3b8',
+    IMPLEMENTED_BY: '#6366f1',
+    ENFORCED_BY:    '#06b6d4',
+    PROVIDED_BY:    '#f97316',
 };
 
 // ── Icons (Lucide-style) ──────────────────────────────────────────────────
@@ -133,13 +151,45 @@ const TargetIcon: React.FC<{ className?: string }> = ({ className }) => (
         <circle cx="12" cy="12" r="1.5" fill="currentColor" />
     </svg>
 );
+const ChecklistIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className}>
+        <rect x="4" y="3" width="16" height="18" rx="2" />
+        <path d="M8 8l2 2 4-4" />
+        <line x1="8" y1="14" x2="16" y2="14" />
+        <line x1="8" y1="18" x2="14" y2="18" />
+    </svg>
+);
+const ChipIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className}>
+        <rect x="6" y="6" width="12" height="12" rx="2" />
+        <line x1="9" y1="3"  x2="9"  y2="6" />
+        <line x1="15" y1="3" x2="15" y2="6" />
+        <line x1="9" y1="18" x2="9"  y2="21" />
+        <line x1="15" y1="18" x2="15" y2="21" />
+        <line x1="3" y1="9"  x2="6"  y2="9" />
+        <line x1="3" y1="15" x2="6"  y2="15" />
+        <line x1="18" y1="9" x2="21" y2="9" />
+        <line x1="18" y1="15" x2="21" y2="15" />
+    </svg>
+);
+const ServerIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className}>
+        <rect x="3" y="4"  width="18" height="6" rx="1" />
+        <rect x="3" y="14" width="18" height="6" rx="1" />
+        <circle cx="7" cy="7"  r="0.5" fill="currentColor" />
+        <circle cx="7" cy="17" r="0.5" fill="currentColor" />
+    </svg>
+);
 
 const ICONS: Record<string, React.FC<{ className?: string }>> = {
-    MasterPolicy: ShieldIcon,
-    ChildPolicy: FileIcon,
-    OrphanPolicy: FileQuestionIcon,
+    MasterPolicy:      ShieldIcon,
+    ChildPolicy:       FileIcon,
+    OrphanPolicy:      FileQuestionIcon,
     SecurityObjective: TargetIcon,
-    SCFDomain: FolderIcon,
+    SCFDomain:         FolderIcon,
+    Control:           ChecklistIcon,
+    Capability:        ChipIcon,
+    Asset:             ServerIcon,
 };
 
 // ── Handles ──────────────────────────────────────────────────────────────
@@ -259,9 +309,10 @@ function labelFor(n: MapperGraphNode): string {
     if (n.type === 'SCFDomain' && d.scf_id) {
         return d.domain_name ? `${d.scf_id} — ${d.domain_name}` : d.scf_id;
     }
-    if (n.type === 'SecurityObjective') {
-        return d.name || n.id;
-    }
+    if (n.type === 'SecurityObjective') return d.name || n.id;
+    if (n.type === 'Control')    return d.ctl_id ? `${d.ctl_id}` : (d.scf_control_id || n.id);
+    if (n.type === 'Capability') return d.capab_name || d.capab_id || n.id;
+    if (n.type === 'Asset')      return d.asset_id ? `${d.asset_id}${d.name ? ` · ${d.name}` : ''}` : (d.name || n.id);
     return d.name || d.policy_id || n.id;
 }
 function rfTypeFor(n: MapperGraphNode): 'icon' {
@@ -566,6 +617,21 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
     const [hiddenNodes, setHiddenNodes] = useState<Set<string>>(new Set());
     const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
 
+    // Run-Mapper UI state for the 'controls' trigger (SCFDomain → Control →
+    // Capability → Asset). Deterministic — just a small status toast.
+    const [runState, setRunState] = useState<
+        | { kind: 'idle' }
+        | { kind: 'running' }
+        | { kind: 'done'; message: string }
+        | { kind: 'error'; message: string }
+    >({ kind: 'idle' });
+
+    useEffect(() => {
+        if (runState.kind !== 'done' && runState.kind !== 'error') return;
+        const t = setTimeout(() => setRunState({ kind: 'idle' }), 6000);
+        return () => clearTimeout(t);
+    }, [runState.kind]);
+
     const [selected, setSelected] = useState<RFNode | null>(null);
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId?: string } | null>(null);
 
@@ -593,6 +659,35 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
     useEffect(() => {
         if (focusMasterPolicyId) onFocusConsumed?.();
     }, [focusMasterPolicyId]);
+
+    const handleRunControlsMapper = useCallback(async () => {
+        setRunState({ kind: 'running' });
+        try {
+            const res = await SupabaseService.runMapper('controls');
+            if (res.status === 'needs_policies_first') {
+                setRunState({
+                    kind: 'error',
+                    message:
+                        res.message ||
+                        'Run the policy mapper first so SCF domains exist in the graph.',
+                });
+                return;
+            }
+            if (res.status !== 'ok') {
+                setRunState({ kind: 'error', message: res.message || 'Mapper run failed.' });
+                return;
+            }
+            const s = res.summary || {};
+            const msg =
+                `Mapped ${s.controls ?? 0} controls · ` +
+                `${s.capabilities ?? 0} capabilities · ` +
+                `${s.assets ?? 0} assets. Reloading graph…`;
+            setRunState({ kind: 'done', message: msg });
+            await fetchGraph();
+        } catch (e: any) {
+            setRunState({ kind: 'error', message: e?.message || 'Mapper run failed.' });
+        }
+    }, [fetchGraph]);
 
     // Rebuild on any state change.
     useEffect(() => {
@@ -785,9 +880,12 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
         return {
             policies: graph.nodes.filter(n => n.type === 'MasterPolicy' || n.type === 'ChildPolicy' || n.type === 'OrphanPolicy').length,
             objectives: graph.nodes.filter(n => n.type === 'SecurityObjective').length,
-            domains: graph.nodes.filter(n => n.type === 'SCFDomain').length,
-            orphans: graph.nodes.filter(n => n.type === 'OrphanPolicy').length,
-            hidden: hiddenNodes.size,
+            domains:    graph.nodes.filter(n => n.type === 'SCFDomain').length,
+            controls:   graph.nodes.filter(n => n.type === 'Control').length,
+            capabilities: graph.nodes.filter(n => n.type === 'Capability').length,
+            assets:     graph.nodes.filter(n => n.type === 'Asset').length,
+            orphans:    graph.nodes.filter(n => n.type === 'OrphanPolicy').length,
+            hidden:     hiddenNodes.size,
         };
     }, [graph, hiddenNodes]);
 
@@ -802,10 +900,13 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
                 </div>
                 <div className="flex items-center gap-3 text-xs flex-wrap">
                     {stats && (
-                        <div className="flex items-center gap-3 text-gray-600 dark:text-gray-300">
+                        <div className="flex items-center gap-3 text-gray-600 dark:text-gray-300 flex-wrap">
                             <span><strong>{stats.policies}</strong> policies</span>
                             <span><strong>{stats.objectives}</strong> objectives</span>
                             <span><strong>{stats.domains}</strong> SCF domains</span>
+                            <span><strong>{stats.controls}</strong> controls</span>
+                            <span><strong>{stats.capabilities}</strong> capabilities</span>
+                            <span><strong>{stats.assets}</strong> assets</span>
                             <span><strong>{stats.orphans}</strong> orphans</span>
                             {stats.hidden > 0 && <span className="text-amber-600 dark:text-amber-400"><strong>{stats.hidden}</strong> hidden</span>}
                             {focusedNodeId && <span className="text-blue-600 dark:text-blue-400">focused</span>}
@@ -818,9 +919,40 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
                     <button onClick={expandAll} className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">Expand all</button>
                     <button onClick={collapseAll} className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">Collapse all</button>
                     <button onClick={resetView} className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">Reset view</button>
-                    <button onClick={fetchGraph} className="px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">Refresh</button>
+                    <button onClick={fetchGraph} className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">Refresh</button>
+                    <button
+                        onClick={handleRunControlsMapper}
+                        disabled={runState.kind === 'running'}
+                        className="px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:bg-blue-400 inline-flex items-center gap-1"
+                        title="Run the controls mapper: SCFDomain → Control → Capability → Asset"
+                    >
+                        {runState.kind === 'running' ? (
+                            <>
+                                <span className="inline-block h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                Running…
+                            </>
+                        ) : (
+                            <>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+                                    <polygon points="5 3 19 12 5 21 5 3" />
+                                </svg>
+                                Run Mapper
+                            </>
+                        )}
+                    </button>
                 </div>
             </div>
+
+            {runState.kind === 'done' && (
+                <div className="rounded border border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/20 px-3 py-2 text-sm text-green-800 dark:text-green-200">
+                    {runState.message}
+                </div>
+            )}
+            {runState.kind === 'error' && (
+                <div className="rounded border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
+                    {runState.message}
+                </div>
+            )}
 
             {error && (
                 <div className="rounded border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20 px-3 py-2 text-sm text-red-800 dark:text-red-200">{error}</div>
