@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "server": "cd server && npm run dev",
-    "server:install": "cd server && npm install"
+    "server:install": "cd server && npm install",
+    "test:ui": "rm -rf e2e/screenshots/* && npx playwright test --config=playwright.config.ts --headed",
+    "test:ui:reset": "rm -f e2e/fixtures/user.json && rm -rf e2e/screenshots/* && npx playwright test --config=playwright.config.ts --headed"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.101.0",
@@ -31,9 +33,11 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "autoprefixer": "^10.4.27",
+    "dotenv": "^17.4.2",
     "postcss": "^8.5.8",
     "tailwindcss": "^3.4.19",
     "typescript": "~5.8.2",
