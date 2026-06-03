@@ -75,7 +75,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ onComplete }) 
             <img src="/logo.png" alt="Zero to Infinite" className="h-10 w-10 object-contain flex-shrink-0" />
             <div>
               <h1 className="text-xl font-bold text-gray-900 dark:text-white">Welcome to Zero to Infinite</h1>
-              <p className="text-xs text-gray-400 uppercase tracking-widest">Governance Risk Compliance</p>
+              <p className="text-xs text-gray-400 uppercase tracking-widest">Unified Cyber Platform</p>
             </div>
           </div>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">

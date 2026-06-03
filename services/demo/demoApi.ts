@@ -494,6 +494,12 @@ export const handleDemoRequest = async <T>(path: string, options: RequestInit = 
     persist();
     return { deleted: before - store.controlRegistry.length, total: ids.length, errors: 0 } as T;
   }
+  // NN baseline recompute — demo has no real NN templates table; report
+  // nothing to add so the Recompute modal renders cleanly.
+  if (path === '/api/controls/nn-preview' && method === 'GET')
+    return { to_add: 0, total_templates: 0, sample: [] } as T;
+  if (path === '/api/controls/seed-nn' && method === 'POST')
+    return { message: 'No-op in demo', data: 0 } as T;
   {
     const m = matchPath('/api/control-registry/:id', path);
     if (m) {

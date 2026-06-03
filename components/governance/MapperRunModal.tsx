@@ -135,6 +135,14 @@ export const MapperRunModal: React.FC<Props> = ({
                                 <button onClick={onClose} className="px-4 py-2 text-sm rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">
                                     Cancel
                                 </button>
+                                {masterPolicy && (
+                                    <button
+                                        onClick={() => { setSearch(''); setPickedMasterId(null); setPhase('picking_master'); }}
+                                        className="px-4 py-2 text-sm rounded border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30"
+                                    >
+                                        Change master policy
+                                    </button>
+                                )}
                                 <button
                                     onClick={masterPolicy ? handleRun : () => setPhase('picking_master')}
                                     className="px-4 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700"

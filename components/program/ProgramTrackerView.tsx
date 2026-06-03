@@ -147,12 +147,12 @@ const deriveStatus = (progress: number): ProgramStatus => {
 
 // ─── History action labels & colors ──────────────────────────────────────────
 const PROGRAM_ACTION_LABELS: Record<string, string> = {
-    'Created Milestone':  'Milestone created',
-    'Updated Milestone':  'Milestone updated',
-    'Deleted Milestone':  'Milestone deleted',
-    'Imported Milestones': 'Milestones imported',
-    program_created: 'Milestone created',
-    program_updated: 'Milestone updated',
+    'Created Task':  'Task created',
+    'Updated Task':  'Task updated',
+    'Deleted Task':  'Task deleted',
+    'Imported Tasks': 'Tasks imported',
+    program_created: 'Task created',
+    program_updated: 'Task updated',
     status_changed: 'Status changed',
     assignee_changed: 'Assignee changed',
     progress_updated: 'Progress updated',
@@ -162,16 +162,18 @@ const PROGRAM_ACTION_LABELS: Record<string, string> = {
     comment: 'Comment added',
     comment_edited: 'Comment updated',
     comment_deleted: 'Comment deleted',
-    program_deleted: 'Milestone deleted',
+    program_deleted: 'Task deleted',
+    child_attached: 'Attached as child task',
+    child_detached: 'Detached from parent',
     'program_blocked':    'Blocked',
     'program_unblocked':  'Unblocked',
 };
 
 const PROGRAM_ACTION_COLORS: Record<string, string> = {
-    'Created Milestone':  'bg-blue-500',
-    'Updated Milestone':  'bg-purple-500',
-    'Deleted Milestone':  'bg-red-700',
-    'Imported Milestones': 'bg-teal-500',
+    'Created Task':  'bg-blue-500',
+    'Updated Task':  'bg-purple-500',
+    'Deleted Task':  'bg-red-700',
+    'Imported Tasks': 'bg-teal-500',
     program_created: 'bg-blue-500',
     program_updated: 'bg-gray-400',
     status_changed: 'bg-purple-500',
@@ -184,6 +186,8 @@ const PROGRAM_ACTION_COLORS: Record<string, string> = {
     comment_edited: 'bg-yellow-500',
     comment_deleted: 'bg-gray-400',
     program_deleted: 'bg-red-700',
+    child_attached: 'bg-cyan-500',
+    child_detached: 'bg-gray-400',
     'program_blocked':    'bg-red-500',
     'program_unblocked':  'bg-green-500',
 };
@@ -283,7 +287,7 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
         onSave(cleaned);
     };
 
-    const title = mode === 'add' ? 'Add New Milestone' : mode === 'edit' ? 'Edit Milestone' : 'View Milestone';
+    const title = mode === 'add' ? 'Add New Task' : mode === 'edit' ? 'Edit Task' : 'View Task';
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={title}
@@ -301,7 +305,7 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
             <form onSubmit={handleSubmit}>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Milestone Name</label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Task Name</label>
                         <input type="text" name="program_name" value={formData.program_name || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
                     <div>
@@ -455,7 +459,7 @@ const HistoryModal: React.FC<{ task: ProgramTask; onClose: () => void }> = ({ ta
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700">
                     <div>
-                        <h2 className="text-base font-semibold text-gray-900 dark:text-white">Milestone History</h2>
+                        <h2 className="text-base font-semibold text-gray-900 dark:text-white">Task History</h2>
                         <p className="text-xs text-gray-500 mt-0.5">{task.program_name}</p>
                     </div>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">&times;</button>
@@ -578,7 +582,7 @@ const CommentModal: React.FC<{
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                        Milestone: <span className="font-semibold text-blue-600 dark:text-blue-400">{task?.program_name}</span>
+                        Task: <span className="font-semibold text-blue-600 dark:text-blue-400">{task?.program_name}</span>
                     </label>
                     <textarea
                         autoFocus
@@ -661,11 +665,98 @@ const CommentModal: React.FC<{
 };
 
 
-export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: boolean }> = ({ isActive = true, hideEscalated = false }) => {
+// ─── Add / attach child task modal ───────────────────────────────────────────
+const AddChildModal: React.FC<{
+    parent: ProgramTask;
+    allTasks: ProgramTask[];
+    onClose: () => void;
+    onCreate: (data: ProgramTaskCreate) => void;
+    onAttach: (childId: string) => void;
+}> = ({ parent, allTasks, onClose, onCreate, onAttach }) => {
+    const [tab, setTab] = useState<'create' | 'attach'>('create');
+    const [name, setName] = useState('');
+    const [search, setSearch] = useState('');
+    const [selectedId, setSelectedId] = useState<string>('');
+
+    // A task can only become a child if it has no sub-tasks of its own (two-level rule).
+    const childParentIds = useMemo(
+        () => new Set(allTasks.filter(t => t.parent_id).map(t => t.parent_id as string)),
+        [allTasks],
+    );
+    const candidates = useMemo(
+        () => allTasks.filter(t => t.id !== parent.id && t.parent_id !== parent.id && !childParentIds.has(t.id)),
+        [allTasks, parent.id, childParentIds],
+    );
+    const filtered = candidates.filter(t => {
+        const q = search.toLowerCase();
+        return t.program_name.toLowerCase().includes(q) || (t.task_code || '').toLowerCase().includes(q);
+    });
+
+    const submitCreate = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!name.trim()) return;
+        onCreate({ program_name: name.trim(), description: '', month: 'January', due_date: null, assignee: null, status: 'Planned', progress_percent: 0 });
+    };
+
+    return (
+        <Modal isOpen={true} onClose={onClose} title="Add Child Task">
+            <div className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+                Parent: <span className="font-semibold text-gray-800 dark:text-gray-200">{parent.program_name}</span>
+                {parent.task_code && <span className="ml-2 font-mono text-xs text-gray-400">{parent.task_code}</span>}
+            </div>
+            <div className="flex gap-2 mb-4 border-b dark:border-gray-700">
+                <button type="button" onClick={() => setTab('create')} className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px ${tab === 'create' ? 'border-blue-600 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500'}`}>Create new</button>
+                <button type="button" onClick={() => setTab('attach')} className={`px-3 py-1.5 text-sm font-medium border-b-2 -mb-px ${tab === 'attach' ? 'border-blue-600 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500'}`}>Attach existing</button>
+            </div>
+            {tab === 'create' ? (
+                <form onSubmit={submitCreate} className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Task Name</label>
+                        <input autoFocus type="text" value={name} onChange={e => setName(e.target.value)} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                    </div>
+                    <div className="flex justify-end gap-3">
+                        <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500">Cancel</button>
+                        <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700">Create child task</button>
+                    </div>
+                </form>
+            ) : (
+                <div className="space-y-4">
+                    <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tasks by name or code..." className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                    <div className="max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-md divide-y divide-gray-100 dark:divide-gray-700">
+                        {filtered.length === 0 ? (
+                            <p className="px-3 py-3 text-sm text-gray-400">No eligible tasks. A task can only be attached if it has no sub-tasks of its own.</p>
+                        ) : filtered.map(t => (
+                            <button key={t.id} type="button" onClick={() => setSelectedId(t.id)} className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/60 ${selectedId === t.id ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
+                                <span>{t.program_name}{t.parent_id && <span className="ml-2 text-[10px] text-amber-500">(currently a child — will move)</span>}</span>
+                                <span className="text-xs font-mono text-gray-400">{t.task_code || ''}</span>
+                            </button>
+                        ))}
+                    </div>
+                    <div className="flex justify-end gap-3">
+                        <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500">Cancel</button>
+                        <button type="button" disabled={!selectedId} onClick={() => selectedId && onAttach(selectedId)} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300">Attach as child</button>
+                    </div>
+                </div>
+            )}
+        </Modal>
+    );
+};
+
+export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: boolean; isCxo?: boolean }> = ({ isActive = true, hideEscalated = false, isCxo = false }) => {
     const [tasks, setTasks] = useState<ProgramTask[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
-    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | 'log' | 'comment' | null; task?: ProgramTask | null }>({ type: null });
+    const [modalState, setModalState] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | 'log' | 'comment' | 'add-child' | null; task?: ProgramTask | null }>({ type: null });
+    // CXO-only "show escalated issues only" toggle — defaults ON, persisted per session
+    // (sessionStorage is cleared on logout, so it returns to ON on the next login).
+    const [escalatedOnly, setEscalatedOnly] = useState<boolean>(() => {
+        if (!isCxo) return false;
+        const stored = sessionStorage.getItem('program_escalated_only');
+        return stored === null ? true : stored === 'true';
+    });
+    useEffect(() => {
+        if (isCxo) sessionStorage.setItem('program_escalated_only', String(escalatedOnly));
+    }, [isCxo, escalatedOnly]);
     const [filter, setFilter] = useState('');
     const [sortConfig, setSortConfig] = useState<{ key: keyof ProgramTask; direction: 'ascending' | 'descending' } | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -722,7 +813,7 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
             fetchTasks();
             closeModal();
         } catch (err) {
-            setError('Failed to save milestone.');
+            setError('Failed to save task.');
         }
     };
 
@@ -733,8 +824,37 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                 fetchTasks();
                 closeModal();
             } catch (err: any) {
-                setError('Failed to delete milestone.');
+                setError('Failed to delete task.');
             }
+        }
+    };
+
+    const handleCreateChild = async (parentId: string, formData: ProgramTaskCreate) => {
+        try {
+            await SupabaseService.addTask({ ...formData, parent_id: parentId });
+            fetchTasks();
+            closeModal();
+        } catch (err: any) {
+            setError(err?.message || 'Failed to create child task.');
+        }
+    };
+
+    const handleAttachChild = async (parentId: string, childId: string) => {
+        try {
+            await SupabaseService.setTaskParent(childId, parentId);
+            fetchTasks();
+            closeModal();
+        } catch (err: any) {
+            setError(err?.message || 'Failed to attach child task.');
+        }
+    };
+
+    const handleDetachChild = async (childId: string) => {
+        try {
+            await SupabaseService.setTaskParent(childId, null);
+            fetchTasks();
+        } catch (err: any) {
+            setError(err?.message || 'Failed to detach task.');
         }
     };
 
@@ -890,33 +1010,70 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                     alert(`Failed to import: ${err.message}`);
                 }
             } else {
-                alert('No new or updated milestones found in the CSV.');
+                alert('No new or updated tasks found in the CSV.');
             }
         };
         reader.readAsText(file);
         if(fileInputRef.current) fileInputRef.current.value = '';
     };
 
-    const filteredAndSortedTasks = useMemo(() => {
-        let items = [...tasks];
-        if (filter) {
-            const q = filter.toLowerCase();
-            items = items.filter(t =>
-                t.program_name.toLowerCase().includes(q) ||
-                (t.description && t.description.toLowerCase().includes(q))
-            );
-        }
-        if (sortConfig) {
-            items.sort((a, b) => {
-                const aVal = a[sortConfig.key];
-                const bVal = b[sortConfig.key];
+    // Display rows are flattened parent→child groups (two levels). Each carries its
+    // nesting depth and, for parents, the number of children so the UI can render them.
+    const displayRows = useMemo(() => {
+        const q = filter.toLowerCase().trim();
+        const matches = (t: ProgramTask) =>
+            !q ||
+            t.program_name.toLowerCase().includes(q) ||
+            (t.description || '').toLowerCase().includes(q) ||
+            (t.task_code || '').toLowerCase().includes(q);
+        const sortItems = (arr: ProgramTask[]) => {
+            if (!sortConfig) return arr;
+            return [...arr].sort((a, b) => {
+                const aVal = a[sortConfig.key] as any;
+                const bVal = b[sortConfig.key] as any;
                 if (aVal < bVal) return sortConfig.direction === 'ascending' ? -1 : 1;
                 if (aVal > bVal) return sortConfig.direction === 'ascending' ? 1 : -1;
                 return 0;
             });
+        };
+
+        // CXO "escalated only": flat list of escalated tasks, no nesting.
+        if (isCxo && escalatedOnly) {
+            return sortItems(tasks.filter(t => t.status === 'Escalated' && matches(t)))
+                .map(task => ({ task, depth: 0, childCount: 0 }));
         }
-        return items;
-    }, [tasks, filter, sortConfig]);
+
+        const byParent = new Map<string, ProgramTask[]>();
+        const top: ProgramTask[] = [];
+        for (const t of tasks) {
+            if (t.parent_id) {
+                const arr = byParent.get(t.parent_id) || [];
+                arr.push(t);
+                byParent.set(t.parent_id, arr);
+            } else {
+                top.push(t);
+            }
+        }
+        const topIds = new Set(top.map(t => t.id));
+        const rows: { task: ProgramTask; depth: number; childCount: number }[] = [];
+        for (const p of sortItems(top)) {
+            const kids = byParent.get(p.id) || [];
+            const parentMatches = matches(p);
+            const visibleKids = q ? kids.filter(matches) : kids;
+            if (q && !parentMatches && visibleKids.length === 0) continue;
+            rows.push({ task: p, depth: 0, childCount: kids.length });
+            for (const k of sortItems(visibleKids)) rows.push({ task: k, depth: 1, childCount: 0 });
+        }
+        // Defensive: children whose parent isn't a current top-level row show standalone.
+        for (const t of tasks) {
+            if (t.parent_id && !topIds.has(t.parent_id) && matches(t)) {
+                rows.push({ task: t, depth: 0, childCount: 0 });
+            }
+        }
+        return rows;
+    }, [tasks, filter, sortConfig, isCxo, escalatedOnly]);
+
+    const filteredAndSortedTasks = useMemo(() => displayRows.map(r => r.task), [displayRows]);
 
     const requestSort = (key: keyof ProgramTask) => {
         let direction: 'ascending' | 'descending' = 'ascending';
@@ -950,7 +1107,7 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
-        link.download = `milestones-${new Date().toISOString().split('T')[0]}.csv`;
+        link.download = `tasks-${new Date().toISOString().split('T')[0]}.csv`;
         link.click();
     };
 
@@ -981,7 +1138,7 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
             clearAll();
             fetchTasks();
         } catch {
-            setError('Failed to delete selected milestones.');
+            setError('Failed to delete selected tasks.');
         } finally {
             setIsSaving(false);
         }
@@ -999,12 +1156,26 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
         <div className="px-4 py-6 sm:px-0">
             <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
                 <div className="flex items-center gap-3">
-                    <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">GRC Program Tracker</h2>
+                    <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">Program Tracker</h2>
                 </div>
                 <div className="flex items-center gap-3 w-full sm:w-auto">
+                    {isCxo && (
+                        <label className="flex items-center gap-2 cursor-pointer select-none whitespace-nowrap" title="When on, only escalated issues are shown">
+                            <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Show escalated issues only</span>
+                            <button
+                                type="button"
+                                role="switch"
+                                aria-checked={escalatedOnly}
+                                onClick={() => setEscalatedOnly(v => !v)}
+                                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${escalatedOnly ? 'bg-purple-600' : 'bg-gray-300 dark:bg-gray-600'}`}
+                            >
+                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${escalatedOnly ? 'translate-x-4' : 'translate-x-1'}`} />
+                            </button>
+                        </label>
+                    )}
                     <input
                         type="text"
-                        placeholder="Filter milestones..."
+                        placeholder="Filter tasks..."
                         value={filter}
                         onChange={e => setFilter(e.target.value)}
                         className="block w-full sm:w-56 rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
@@ -1017,7 +1188,7 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                         <button onClick={handleExportCSV} title="Export CSV" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                             <DownloadIcon className="h-5 w-5" />
                         </button>
-                        <button onClick={() => setModalState({ type: 'add' })} title="Add Milestone" className="p-2 text-gray-400 hover:text-blue-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <button onClick={() => setModalState({ type: 'add' })} title="Add Task" className="p-2 text-gray-400 hover:text-blue-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                             <PlusIcon className="h-5 w-5" />
                         </button>
                     </div>
@@ -1056,10 +1227,10 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
                             {loading ? (
-                                <tr><td colSpan={7} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading milestones...</td></tr>
-                            ) : filteredAndSortedTasks.length === 0 ? (
-                                <tr><td colSpan={7} className="text-center py-4 text-gray-500 dark:text-gray-400">No milestones found.</td></tr>
-                            ) : filteredAndSortedTasks.map(task => (
+                                <tr><td colSpan={7} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading tasks...</td></tr>
+                            ) : displayRows.length === 0 ? (
+                                <tr><td colSpan={7} className="text-center py-4 text-gray-500 dark:text-gray-400">No tasks found.</td></tr>
+                            ) : displayRows.map(({ task, depth, childCount }) => (
                                 <tr key={task.id}
                                     onClick={() => !isEditing && setModalState({ type: 'view', task })}
                                     className={`cursor-pointer transition-colors ${
@@ -1076,8 +1247,21 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                                         {isEditing && selectedIds.has(task.id) ? (
                                             <input type="text" value={editValues[task.id]?.program_name ?? task.program_name} onChange={e => updateField(task.id, 'program_name', e.target.value)} className={editInputCls} />
                                         ) : (
-                                            <div className="flex items-center gap-3 group">
-                                                <span>{task.program_name}</span>
+                                            <div className="flex items-center gap-3 group" style={depth > 0 ? { paddingLeft: '1.5rem' } : undefined}>
+                                                {depth > 0 && <span className="text-gray-300 dark:text-gray-600 select-none -ml-1">↳</span>}
+                                                <div className="flex flex-col">
+                                                    <span className="flex items-center gap-2">
+                                                        {task.program_name}
+                                                        {childCount > 0 && (
+                                                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300">
+                                                                {childCount} sub-task{childCount > 1 ? 's' : ''}
+                                                            </span>
+                                                        )}
+                                                    </span>
+                                                    {task.task_code && (
+                                                        <span className="text-[10px] font-mono text-gray-400 dark:text-gray-500">{task.task_code}</span>
+                                                    )}
+                                                </div>
                                                 <div className="flex items-center gap-0">
                                                     <button
                                                         onClick={(e) => {
@@ -1099,6 +1283,33 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                                                     >
                                                         <HistoryIcon className="h-4 w-4" />
                                                     </button>
+                                                    {depth === 0 ? (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setModalState({ type: 'add-child', task });
+                                                            }}
+                                                            className="p-0.5 text-gray-400 hover:text-cyan-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-all"
+                                                            title="Add / attach child task"
+                                                        >
+                                                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                                <path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 8a2 2 0 11-4 0 2 2 0 014 0zm0 0v4a2 2 0 002 2h2m6-6v8m0 0a2 2 0 104 0 2 2 0 00-4 0zm-8 0a2 2 0 104 0 2 2 0 00-4 0z" />
+                                                            </svg>
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleDetachChild(task.id);
+                                                            }}
+                                                            className="p-0.5 text-gray-400 hover:text-amber-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-all"
+                                                            title="Detach from parent"
+                                                        >
+                                                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                                <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                                            </svg>
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </div>
                                         )}
@@ -1195,11 +1406,21 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                 currentUserId={currentUserId}
             />
 
+            {modalState.type === 'add-child' && modalState.task && (
+                <AddChildModal
+                    parent={modalState.task}
+                    allTasks={tasks}
+                    onClose={closeModal}
+                    onCreate={(fd) => handleCreateChild(modalState.task!.id, fd)}
+                    onAttach={(childId) => handleAttachChild(modalState.task!.id, childId)}
+                />
+            )}
+
             <DeleteConfirmationModal
                 isOpen={modalState.type === 'delete'}
                 onClose={closeModal}
                 onConfirm={handleDeleteTask}
-                itemName="milestone"
+                itemName="task"
             />
 
             <SelectionActionBar
@@ -1218,7 +1439,7 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
 
             <BulkProgressModal
                 isOpen={isImporting}
-                title="Importing Milestones"
+                title="Importing Tasks"
                 progress={importProgress}
                 onClose={() => setIsImporting(false)}
             />

@@ -242,7 +242,7 @@ export const Header: React.FC<HeaderProps> = ({
                                 </span>
                             </div>
                             <span className="text-[10px] text-gray-500 font-medium tracking-widest uppercase">
-                                Governance Risk Compliance
+                                Unified Cyber Platform
                             </span>
                         </div>
                     </div>
