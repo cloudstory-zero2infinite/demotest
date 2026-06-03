@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useMemo } from 'react';
-import { Compliance, ComplianceStatus } from '../../types';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { Compliance, ComplianceStatus, ScfFrameworkControl } from '../../types';
 import * as SupabaseService from '../../services/supabase';
 import { useDataRefresh } from '../../hooks/useDataRefresh';
 import { SortUpDownIcon, SortUpIcon, SortDownIcon } from '../Icons';
@@ -51,6 +51,18 @@ const ComplianceModal: React.FC<ComplianceModalProps> = ({ isOpen, onClose, comp
     );
 };
 
+const BulbIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 18h6M10 21h4M12 3a6 6 0 00-3.6 10.8c.5.37.9.94 1 1.56l.1.64h5l.1-.64c.1-.62.5-1.19 1-1.56A6 6 0 0012 3z" />
+    </svg>
+);
+
+const ChevronRightIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+    </svg>
+);
+
 export const ComplianceTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
     const [compliances, setCompliances] = useState<Compliance[]>([]);
     const [loading, setLoading] = useState(true);
@@ -59,6 +71,30 @@ export const ComplianceTab: React.FC<{ isActive?: boolean }> = ({ isActive = tru
     const [selectedFramework, setSelectedFramework] = useState<string>('');
     const [sortConfig, setSortConfig] = useState<{ key: keyof Compliance; direction: 'ascending' | 'descending' } | null>(null);
     const [neededFrameworks, setNeededFrameworks] = useState<string[] | null>(null);
+    // SCF-controls-by-framework accordion: one independently-expandable panel per
+    // framework selected in Settings, lazily fetched + cached on first open.
+    const [openFw, setOpenFw] = useState<Set<string>>(new Set());
+    const [scfByFw, setScfByFw] = useState<Record<string, ScfFrameworkControl[]>>({});
+    const [loadingFw, setLoadingFw] = useState<Set<string>>(new Set());
+    const [errFw, setErrFw] = useState<Record<string, string>>({});
+    const [scfSearch, setScfSearch] = useState('');
+
+    const toggleFw = (fw: string) => {
+        const willOpen = !openFw.has(fw);
+        setOpenFw(prev => {
+            const next = new Set(prev);
+            if (next.has(fw)) next.delete(fw); else next.add(fw);
+            return next;
+        });
+        if (willOpen && !scfByFw[fw] && !loadingFw.has(fw)) {
+            setLoadingFw(l => new Set(l).add(fw));
+            setErrFw(m => { const n = { ...m }; delete n[fw]; return n; });
+            SupabaseService.getScfFrameworkControls(fw)
+                .then(rows => setScfByFw(m => ({ ...m, [fw]: rows })))
+                .catch(e => setErrFw(m => ({ ...m, [fw]: e?.message || 'Failed to load SCF controls' })))
+                .finally(() => setLoadingFw(l => { const n = new Set(l); n.delete(fw); return n; }));
+        }
+    };
 
     const complianceStatusStyles: Record<ComplianceStatus, string> = {
         'Achieved': 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
@@ -92,6 +128,18 @@ export const ComplianceTab: React.FC<{ isActive?: boolean }> = ({ isActive = tru
     }, [selectedFramework]);
 
     const { data, refresh } = useDataRefresh(fetchData, [], isActive);
+
+    // Filter helper applied within each open SCF panel.
+    const filterScf = useCallback((rows: ScfFrameworkControl[]) => {
+        const q = scfSearch.toLowerCase().trim();
+        if (!q) return rows;
+        return rows.filter(c =>
+            c.scf_control_id.toLowerCase().includes(q) ||
+            c.control_name.toLowerCase().includes(q) ||
+            c.domain.toLowerCase().includes(q) ||
+            c.refs.some(r => r.toLowerCase().includes(q)),
+        );
+    }, [scfSearch]);
 
     const uniqueFrameworks = useMemo(() => {
         if (!neededFrameworks || neededFrameworks.length === 0) {
@@ -182,6 +230,84 @@ export const ComplianceTab: React.FC<{ isActive?: boolean }> = ({ isActive = tru
                     ))}
                 </div>
             ) : null}
+
+            {neededFrameworks && neededFrameworks.length > 0 && (
+                <div className="mb-6">
+                    <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                            <BulbIcon className="h-4 w-4 text-amber-500" />
+                            SCF controls by framework
+                        </h3>
+                        <input
+                            value={scfSearch}
+                            onChange={e => setScfSearch(e.target.value)}
+                            placeholder="Filter open panels by SCF id, name or ref…"
+                            className="text-sm rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white px-2 py-1 w-64"
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        {neededFrameworks.map(fw => {
+                            const isOpen = openFw.has(fw);
+                            const rows = scfByFw[fw] || [];
+                            const isLoading = loadingFw.has(fw);
+                            const loadErr = errFw[fw];
+                            const filtered = filterScf(rows);
+                            return (
+                                <div key={fw} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                                    <button
+                                        onClick={() => toggleFw(fw)}
+                                        className="w-full flex items-center justify-between px-4 py-2.5 text-left bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700/60 transition-colors"
+                                    >
+                                        <span className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-gray-200">
+                                            <ChevronRightIcon className={`h-4 w-4 text-gray-400 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                                            {fw}
+                                        </span>
+                                        <span className="text-xs text-gray-400">{scfByFw[fw] ? `${rows.length} SCF controls` : (isLoading ? 'Loading…' : '')}</span>
+                                    </button>
+                                    {isOpen && (
+                                        <div className="px-4 py-3 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-700">
+                                            {isLoading ? (
+                                                <p className="text-sm text-gray-500 dark:text-gray-400 py-3 text-center">Loading SCF controls…</p>
+                                            ) : loadErr ? (
+                                                <p className="text-sm text-red-500 py-3 text-center">{loadErr}</p>
+                                            ) : rows.length === 0 ? (
+                                                <p className="text-sm text-gray-500 dark:text-gray-400 py-3 text-center">
+                                                    No SCF controls mapped to {fw}. Ensure the SCF reference workbook is uploaded (internal tool → Control Framework).
+                                                </p>
+                                            ) : (
+                                                <>
+                                                    {scfSearch.trim() && (
+                                                        <div className="text-xs text-gray-400 mb-2">{filtered.length} of {rows.length} match</div>
+                                                    )}
+                                                    <div className="max-h-96 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
+                                                        {filtered.map(c => (
+                                                            <div key={c.scf_control_id} className="py-2">
+                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                    <span className="font-mono text-xs font-semibold text-gray-800 dark:text-gray-200">{c.scf_control_id}</span>
+                                                                    <span className="text-sm text-gray-700 dark:text-gray-300">{c.control_name}</span>
+                                                                    {c.domain && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">{c.domain}</span>}
+                                                                </div>
+                                                                {c.refs.length > 0 && (
+                                                                    <div className="mt-1 flex flex-wrap gap-1 items-center">
+                                                                        <span className="text-[10px] text-gray-400 mr-1">{fw} refs:</span>
+                                                                        {c.refs.map((r, i) => (
+                                                                            <span key={i} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">{r}</span>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
 
             {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">{error}</div>}
 

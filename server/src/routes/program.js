@@ -39,20 +39,63 @@ async function logProgramActivity(req, programId, activityData) {
   }
 }
 
-// GET all program tasks for the org
+// Helper for logging to the global all_activity_log (powers the Activity Logs tab).
+async function logAllActivityServer(req, { action, entity_id, entity_name, event_data }) {
+  try {
+    await supabaseAdmin.from('all_activity_log').insert({
+      action,
+      module: 'Program',
+      entity_id: entity_id ? String(entity_id) : null,
+      entity_name: entity_name || null,
+      event_data: { ...(event_data || {}), user_email: req.user?.email || null },
+      severity: 'info',
+      user_id: req.userId,
+      org_id: req.orgId,
+      user_agent: req.headers['user-agent'] || null,
+    });
+  } catch (err) {
+    console.error('Error logging to all_activity_log:', err);
+  }
+}
+
+// Org prefix: first 2 alphanumeric chars of the org name, uppercased, padded with X.
+// Matches the house style used for Control (CTL-AB-001) and Asset IDs.
+function orgCodePrefix(orgName) {
+  const cleaned = (orgName || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  return (cleaned.substring(0, 2) || '').padEnd(2, 'X');
+}
+
+// Highest existing TSK-<prefix>-<n> sequence number among the given codes.
+function maxTaskNumber(codes, prefix) {
+  const re = new RegExp(`^TSK-${prefix}-(\\d+)$`);
+  let max = 0;
+  for (const c of codes) {
+    const m = re.exec(c || '');
+    if (m) { const n = parseInt(m[1], 10); if (n > max) max = n; }
+  }
+  return max;
+}
+
+// Generate the next per-org task code, e.g. TSK-AB-001.
+async function generateTaskCode(orgId) {
+  const { data: org } = await supabaseAdmin
+    .from('organizations').select('name').eq('id', orgId).single();
+  const prefix = orgCodePrefix(org?.name);
+  const { data: rows } = await supabaseAdmin
+    .from('program').select('task_code').eq('org_id', orgId).not('task_code', 'is', null);
+  const next = maxTaskNumber((rows || []).map(r => r.task_code), prefix) + 1;
+  return `TSK-${prefix}-${String(next).padStart(3, '0')}`;
+}
+
+// GET all program tasks for the org. CXOs read everything; the "escalated only"
+// view is a client-side toggle (default on), so no server-side role filter here.
 router.get('/', requireAuth, async (req, res) => {
   try {
-    let query = supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from('program')
       .select('*')
-      .eq('org_id', req.orgId);
-
-    // Enforce CXO filtering: only see escalated items
-    if (req.userRole === 'cxo') {
-      query = query.eq('status', 'Escalated');
-    }
-
-    const { data, error } = await query.order('last_updated', { ascending: false });
+      .eq('org_id', req.orgId)
+      .order('last_updated', { ascending: false });
     if (error) throw error;
     res.json(data || []);
   } catch (err) {
@@ -65,6 +108,23 @@ router.post('/', requireAuth, async (req, res) => {
   try {
     const payload = { ...req.body, user_id: req.userId, org_id: req.orgId };
     payload.status = deriveStatus(payload.progress_percent, payload.status);
+
+    // Validate parent (two-level only): parent must exist in this org and be top-level.
+    if (payload.parent_id) {
+      const { data: parent } = await supabaseAdmin
+        .from('program').select('id, parent_id')
+        .eq('id', payload.parent_id).eq('org_id', req.orgId).maybeSingle();
+      if (!parent) return res.status(400).json({ message: 'Parent task not found.' });
+      if (parent.parent_id) return res.status(400).json({ message: 'Cannot nest under a child task — only one level of sub-tasks is allowed.' });
+    } else {
+      payload.parent_id = null;
+    }
+
+    // Generate a human-readable per-org task code unless one was supplied.
+    if (!payload.task_code) {
+      payload.task_code = await generateTaskCode(req.orgId);
+    }
+
     const { data, error } = await supabaseAdmin.from('program').insert(payload).select().single();
     if (error) throw error;
 
@@ -74,6 +134,12 @@ router.post('/', requireAuth, async (req, res) => {
         program_name: data.program_name,
         status: data.status
       }
+    });
+    await logAllActivityServer(req, {
+      action: data.parent_id ? 'Created Child Task' : 'Created Task',
+      entity_id: data.id,
+      entity_name: data.task_code || data.program_name,
+      event_data: { task_code: data.task_code, program_name: data.program_name, status: data.status, parent_id: data.parent_id },
     });
 
     res.status(201).json(data);
@@ -91,9 +157,9 @@ router.post('/bulk', requireAuth, async (req, res) => {
     // Fetch existing programs for this org to match by name if ID is missing
     const { data: existingPrograms, error: fetchError } = await supabaseAdmin
       .from('program')
-      .select('id, program_name')
+      .select('id, program_name, task_code')
       .eq('org_id', req.orgId);
-    
+
     if (fetchError) {
       console.error('[bulk-program] Error fetching existing programs:', fetchError);
       // Continue anyway, but matching will fail
@@ -108,15 +174,27 @@ router.post('/bulk', requireAuth, async (req, res) => {
       });
     }
 
+    // Prepare per-org task-code generation for brand-new rows.
+    const { data: orgRow } = await supabaseAdmin
+      .from('organizations').select('name').eq('id', req.orgId).single();
+    const codePrefix = orgCodePrefix(orgRow?.name);
+    let codeCounter = maxTaskNumber((existingPrograms || []).map(p => p.task_code), codePrefix);
+
     const payloads = tasks.map(t => {
       const p = { ...t, user_id: req.userId, org_id: req.orgId };
-      
+
       // If no ID is provided, try to match by name
       if (!p.id && p.program_name) {
         const existingId = nameToIdMap.get(p.program_name.trim().toLowerCase());
         if (existingId) {
           p.id = existingId;
         }
+      }
+
+      // Brand-new row (no matched id) without a code → assign the next sequential one.
+      if (!p.id && !p.task_code) {
+        codeCounter += 1;
+        p.task_code = `TSK-${codePrefix}-${String(codeCounter).padStart(3, '0')}`;
       }
 
       p.status = deriveStatus(p.progress_percent, p.status);
@@ -204,7 +282,6 @@ router.put('/:id', requireAuth, async (req, res) => {
 
     // Log changes
     if (oldRecord) {
-      const changes = [];
       if (oldRecord.status !== data.status) {
         await logProgramActivity(req, data.id, {
           action: 'status_changed',
@@ -259,7 +336,74 @@ router.put('/:id', requireAuth, async (req, res) => {
           }
         });
       }
+
+      // One consolidated entry in the global Activity Logs tab per update.
+      const changes = {};
+      if (oldRecord.status !== data.status) changes.status = { from: oldRecord.status, to: data.status };
+      if (oldRecord.assignee !== data.assignee) changes.assignee = { from: oldRecord.assignee, to: data.assignee };
+      if (oldRecord.progress_percent !== data.progress_percent) changes.progress = { from: oldRecord.progress_percent, to: data.progress_percent };
+      if (oldRecord.program_name !== data.program_name) changes.program_name = { from: oldRecord.program_name, to: data.program_name };
+      if (oldRecord.description !== data.description) changes.description = true;
+      if (oldRecord.due_date !== data.due_date) changes.due_date = { from: oldRecord.due_date, to: data.due_date };
+      if (Object.keys(changes).length > 0) {
+        const escalated = changes.status && changes.status.to === 'Escalated';
+        await logAllActivityServer(req, {
+          action: escalated ? 'Escalated Task' : 'Updated Task',
+          entity_id: data.id,
+          entity_name: data.task_code || data.program_name,
+          event_data: { task_code: data.task_code, program_name: data.program_name, changes },
+        });
+      }
     }
+
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// PUT attach/detach an existing task as a child (two-level only, re-parent on attach).
+router.put('/:id/parent', requireAuth, async (req, res) => {
+  try {
+    const childId = req.params.id;
+    const { parent_id } = req.body; // pass null/empty to detach
+    if (parent_id && parent_id === childId) {
+      return res.status(400).json({ message: 'A task cannot be its own parent.' });
+    }
+
+    const { data: child } = await supabaseAdmin
+      .from('program').select('id, task_code, program_name, parent_id')
+      .eq('id', childId).eq('org_id', req.orgId).maybeSingle();
+    if (!child) return res.status(404).json({ message: 'Task not found.' });
+
+    if (parent_id) {
+      const { data: parent } = await supabaseAdmin
+        .from('program').select('id, parent_id')
+        .eq('id', parent_id).eq('org_id', req.orgId).maybeSingle();
+      if (!parent) return res.status(400).json({ message: 'Parent task not found.' });
+      if (parent.parent_id) return res.status(400).json({ message: 'Cannot nest under a child task — only one level of sub-tasks is allowed.' });
+      // The child can't already have its own sub-tasks (would create a third level).
+      const { count } = await supabaseAdmin
+        .from('program').select('id', { count: 'exact', head: true })
+        .eq('parent_id', childId).eq('org_id', req.orgId);
+      if (count && count > 0) return res.status(400).json({ message: 'This task has sub-tasks of its own, so it cannot become a child task.' });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from('program').update({ parent_id: parent_id || null })
+      .eq('id', childId).eq('org_id', req.orgId).select().single();
+    if (error) throw error;
+
+    await logProgramActivity(req, childId, {
+      action: parent_id ? 'child_attached' : 'child_detached',
+      event_data: { parent_id: parent_id || null },
+    });
+    await logAllActivityServer(req, {
+      action: parent_id ? 'Attached Child Task' : 'Detached Child Task',
+      entity_id: childId,
+      entity_name: child.task_code || child.program_name,
+      event_data: { task_code: child.task_code, parent_id: parent_id || null },
+    });
 
     res.json(data);
   } catch (err) {
@@ -281,7 +425,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
     const { error } = req.orgId ? await query.eq('org_id', req.orgId) : await query;
     if (error) {
       if (error.code === '23503') {
-        return res.status(409).json({ message: 'Milestone is still referenced by another table.' });
+        return res.status(409).json({ message: 'Task is still referenced by another table.' });
       }
       throw error;
     }
@@ -292,6 +436,12 @@ router.delete('/:id', requireAuth, async (req, res) => {
         event_data: {
           program_name: record.program_name
         }
+      });
+      await logAllActivityServer(req, {
+        action: 'Deleted Task',
+        entity_id: record.id,
+        entity_name: record.task_code || record.program_name,
+        event_data: { task_code: record.task_code, program_name: record.program_name },
       });
     }
 

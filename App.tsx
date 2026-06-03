@@ -409,6 +409,8 @@ const App: React.FC = () => {
       }
 
       sessionStorage.removeItem("grcUserName");
+      // Reset the CXO "escalated only" toggle so it defaults back ON next login.
+      sessionStorage.removeItem("program_escalated_only");
 
       setUserName(null);
 
@@ -562,7 +564,7 @@ const App: React.FC = () => {
         </div>
 
         <div className={activeTab === "program" ? "" : "hidden"}>
-          <ProgramTab userRole={userRole} isActive={activeTab === "program"} />
+          <ProgramTab userRole={platformAdminRole ?? 'user'} isActive={activeTab === "program"} />
         </div>
 
         <div className={activeTab === "governance" ? "" : "hidden"}>
@@ -665,7 +667,7 @@ const App: React.FC = () => {
                                 <img src="/logo.png" alt="Zero to Infinite" className="h-10 w-10 object-contain flex-shrink-0" />
                                 <div>
                                     <h2 className="text-lg font-bold text-gray-900 dark:text-white">Zero to Infinite</h2>
-                                    <p className="text-xs text-gray-400 uppercase tracking-widest">Governance Risk Compliance</p>
+                                    <p className="text-xs text-gray-400 uppercase tracking-widest">Unified Cyber Platform</p>
                                 </div>
                             </div>
                             <div className="mb-5">

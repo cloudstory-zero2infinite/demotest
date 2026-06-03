@@ -12,6 +12,9 @@ import { FrameworkComplianceGrid } from '../dashboard/FrameworkComplianceGrid';
 import { SankeyMappingCard } from '../dashboard/SankeyMappingCard';
 import { DataIntegrityCard } from '../dashboard/DataIntegrityCard';
 import { ScoringTrendCard } from '../dashboard/ScoringTrendCard';
+import { PolicyStatusCard } from '../dashboard/PolicyStatusCard';
+import { ControlsCoverageCard } from '../dashboard/ControlsCoverageCard';
+import { POLICY_STATUS_COLORS, POLICY_STATUS_LABELS } from '../dashboard/chartTheme';
 
 type DerivedComplianceStatus = 'Compliant' | 'NonCompliant' | 'NotMapped';
 
@@ -126,6 +129,45 @@ export const DashboardTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
         return Object.entries(counts).map(([name, value]) => ({ name, value }));
     }, [currentStats.tasks]);
 
+    // Policy status breakdown (PolicyV2.policy_status) for the stacked-bar card.
+    const policyStatusData = useMemo(() => {
+        const order = ['approved', 'reviewed', 'in_approval', 'to_review', 'draft'];
+        const counts: Record<string, number> = {};
+        for (const p of currentStats.policies as any[]) {
+            const s = (p?.policy_status as string) || 'draft';
+            counts[s] = (counts[s] || 0) + 1;
+        }
+        const total = currentStats.policies.length;
+        const approved = counts['approved'] || 0;
+        const segments = order.map(k => ({
+            key: k,
+            label: POLICY_STATUS_LABELS[k] || k,
+            value: counts[k] || 0,
+            color: POLICY_STATUS_COLORS[k] || '#9ca3af',
+        }));
+        return { segments, total, approvedPct: total > 0 ? (approved / total) * 100 : 0 };
+    }, [currentStats.policies]);
+
+    // Controls grouped by category (ctl_type) with enforcement breakdown for the
+    // Controls Coverage sunburst. Custom (and anything unexpected) → 'Other'.
+    const controlCategories = useMemo(() => {
+        const mk = (name: string) => ({ name, total: 0, enforced: 0, inReview: 0, notEnforced: 0 });
+        const map: Record<string, ReturnType<typeof mk>> = {
+            Standard: mk('Standard'), Regulatory: mk('Regulatory'), NN: mk('NN'), Other: mk('Other'),
+        };
+        for (const c of currentStats.controlRegistry) {
+            const cat = c.ctl_type === 'Standard' ? 'Standard'
+                : c.ctl_type === 'Regulatory' ? 'Regulatory'
+                : c.ctl_type === 'NN' ? 'NN' : 'Other';
+            const b = map[cat];
+            b.total++;
+            if (c.ctl_status === 'Enforced') b.enforced++;
+            else if (c.ctl_status === 'In-Review') b.inReview++;
+            else b.notEnforced++;
+        }
+        return Object.values(map);
+    }, [currentStats.controlRegistry]);
+
     const filteredAssets = useMemo(() => {
         return assetFilter === 'All' ? currentStats.assets : currentStats.assets.filter(a => a.criticality === assetFilter);
     }, [currentStats.assets, assetFilter]);
@@ -166,46 +208,34 @@ export const DashboardTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
         return { data, percent };
     }, [currentStats.vulnerabilities]);
 
+    // Per-framework control enforcement, driven by control_registry: for each
+    // selected framework, how many of its required controls are enforced. NN is
+    // always shown (baseline), identified by ctl_type rather than framework name.
     const frameworkComplianceData = useMemo(() => {
-        if (!currentStats.compliances) return {};
+        const reg = currentStats.controlRegistry || [];
         const { neededFrameworks } = currentStats;
-        // Build a lookup from ctl_id → enforcement status using both sources
-        // control_registry is the source of truth for enforcement status
-        const registryStatusMap = new Map<string, string>(currentStats.controlRegistry.map(c => [c.ctl_id, c.ctl_status]));
-        const controlsMap = new Map<string, InternalControl>(currentStats.controls.map(c => [c.ctl_id, c]));
+        const out: Record<string, { enforced: number; inReview: number; notEnforced: number; total: number }> = {};
+        const bump = (key: string, status: string) => {
+            if (!out[key]) out[key] = { enforced: 0, inReview: 0, notEnforced: 0, total: 0 };
+            out[key].total++;
+            if (status === 'Enforced') out[key].enforced++;
+            else if (status === 'In-Review') out[key].inReview++;
+            else out[key].notEnforced++;
+        };
 
-        return currentStats.compliances.reduce((acc, compliance) => {
-            const frameworkKey = compliance.framework;
-            // Skip frameworks not selected in org settings
-            if (neededFrameworks.length > 0 && !neededFrameworks.includes(frameworkKey)) return acc;
-            if (!acc[frameworkKey]) acc[frameworkKey] = { 'Compliant': 0, 'NonCompliant': 0, 'NotMapped': 0, total: 0 };
-
-            let status: DerivedComplianceStatus;
-            const associatedCtls = compliance.associated_int_ctls;
-
-            if (!associatedCtls || associatedCtls.length === 0) {
-                status = 'NotMapped';
-            } else {
-                // Check if any associated control is enforced (via registry or internal catalogue)
-                const anyFound = associatedCtls.some(id => registryStatusMap.has(id) || controlsMap.has(id));
-                if (!anyFound) {
-                    status = 'NonCompliant';
-                } else {
-                    const allEnforced = associatedCtls.every(id => {
-                        const regStatus = registryStatusMap.get(id);
-                        if (regStatus) return regStatus === 'Enforced';
-                        const ctrl = controlsMap.get(id);
-                        if (ctrl) return ctrl.status === 'Enforced';
-                        return false;
-                    });
-                    status = allEnforced ? 'Compliant' : 'NonCompliant';
-                }
+        // NN baseline — always present.
+        for (const c of reg) {
+            if (c.ctl_type === 'NN') bump('Non-Negotiables (NN)', c.ctl_status);
+        }
+        // Selected frameworks — a control counts if its ctl_ref_fw names the framework.
+        for (const fw of neededFrameworks) {
+            for (const c of reg) {
+                const refs = Array.isArray(c.ctl_ref_fw) ? c.ctl_ref_fw : [];
+                if (refs.includes(fw)) bump(fw, c.ctl_status);
             }
-            acc[frameworkKey][status]++;
-            acc[frameworkKey].total++;
-            return acc;
-        }, {} as Record<string, { 'Compliant': number; 'NonCompliant': number; 'NotMapped': number; total: number }>);
-    }, [currentStats.compliances, currentStats.controls, currentStats.controlRegistry]);
+        }
+        return out;
+    }, [currentStats.controlRegistry, currentStats.neededFrameworks]);
 
     const frameworkNames = useMemo(() => new Set(currentStats.compliances.map(c => c.framework)), [currentStats.compliances]);
     const internalControlNames = useMemo(() => new Set(currentStats.controls.map(c => c.ctl_id)), [currentStats.controls]);
@@ -292,6 +322,16 @@ export const DashboardTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
                     <FrameworkComplianceGrid data={frameworkComplianceData} />
                 </div>
             </div>
+            {/* Row 2b: Policy Status + Controls Coverage */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <PolicyStatusCard
+                    segments={policyStatusData.segments}
+                    total={policyStatusData.total}
+                    approvedPct={policyStatusData.approvedPct}
+                />
+                <ControlsCoverageCard categories={controlCategories} />
+            </div>
+
             {/* Row 3: Scoring Trend + Mapping Chart */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 <ScoringTrendCard 

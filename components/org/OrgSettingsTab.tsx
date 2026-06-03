@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import * as SupabaseService from '../../services/supabase';
-import { ScfFramework, FwcrPreview, FwcrApplyResult } from '../../types';
+import { ScfFramework, FwcrPreview, FwcrApplyResult, NnPreview } from '../../types';
 
 interface OrgSettingsTabProps {
     isActive?: boolean;
@@ -10,9 +10,9 @@ interface OrgSettingsTabProps {
 type RecomputeUiState =
     | { kind: 'idle' }
     | { kind: 'previewing' }
-    | { kind: 'confirm'; preview: FwcrPreview }
+    | { kind: 'confirm'; preview: FwcrPreview; nn: NnPreview }
     | { kind: 'applying' }
-    | { kind: 'done'; result: FwcrApplyResult }
+    | { kind: 'done'; result: FwcrApplyResult; nnAdded: number }
     | { kind: 'error'; message: string };
 
 export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true, readOnly = false }) => {
@@ -127,8 +127,12 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
         }
         setRecomputeState({ kind: 'previewing' });
         try {
-            const preview = await SupabaseService.recomputeControlRegistryPreview();
-            setRecomputeState({ kind: 'confirm', preview });
+            // Framework standards (fwcr agent) + NN baseline gap, in parallel.
+            const [preview, nn] = await Promise.all([
+                SupabaseService.recomputeControlRegistryPreview(),
+                SupabaseService.recomputeNnPreview(),
+            ]);
+            setRecomputeState({ kind: 'confirm', preview, nn });
         } catch (e: any) {
             setRecomputeState({ kind: 'error', message: e?.message || 'Preview failed' });
         }
@@ -137,7 +141,14 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
     const handleConfirmApply = async () => {
         setRecomputeState({ kind: 'applying' });
         try {
-            const result = await SupabaseService.recomputeControlRegistry();
+            // Apply the framework-standard diff and re-seed any missing NN
+            // baseline controls. NN seeding is idempotent + additive (never
+            // deletes), so it only fills gaps — safe to run on every recompute.
+            const [result, nnRes] = await Promise.all([
+                SupabaseService.recomputeControlRegistry(),
+                SupabaseService.reseedNnControls(),
+            ]);
+            const nnAdded = typeof nnRes?.data === 'number' ? nnRes.data : 0;
             // Activity log: single summary row per recompute (don't spam one
             // per affected control). The agent's per-row diff is recoverable
             // from event_data + the preview if needed.
@@ -150,9 +161,10 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                     updated: result.applied.updated,
                     deleted: result.applied.deleted,
                     kept_orphan_enforced: result.kept_orphan_enforced,
+                    nn_added: nnAdded,
                 },
             });
-            setRecomputeState({ kind: 'done', result });
+            setRecomputeState({ kind: 'done', result, nnAdded });
         } catch (e: any) {
             setRecomputeState({ kind: 'error', message: e?.message || 'Apply failed' });
         }
@@ -200,21 +212,23 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 mb-6">
                 <div className="flex items-center justify-between mb-1">
                     <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                        Frameworks &amp; Regulations
+                        Framework, Regulations &amp; NN controls
                     </h3>
                     <span className="text-xs text-gray-400 dark:text-gray-500">
-                        {selected.size} selected · {frameworks.length} available in SCF catalog
+                        {selected.size} selected + NN baseline · {frameworks.length} available in SCF catalog
                     </span>
                 </div>
                 <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">
-                    Picks the frameworks your organisation must comply with. Drives the Compliance tab and the
-                    Fw-ControlRegistry recompute below.
+                    Picks the frameworks your organisation must comply with. Non-Negotiables (NN) are baseline
+                    controls applied to every organisation and cannot be removed. Drives the Compliance tab and the
+                    Control Registry recompute below.
                 </p>
 
                 {frameworks.length === 0 ? (
                     <p className="text-sm text-amber-600 dark:text-amber-400 italic">
                         No SCF framework catalog found. Ask an SME to upload the SCF reference workbook via
-                        the internal tool's Control Framework tab.
+                        the internal tool's Control Framework tab. The NN baseline still applies and can be
+                        recomputed below.
                     </p>
                 ) : (
                     <>
@@ -263,30 +277,39 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
 
                         {/* Selected panel */}
                         <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-                            <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Selected ({selected.size})</div>
-                            {selected.size === 0 ? (
-                                <p className="text-sm text-gray-500 dark:text-gray-400 italic">No frameworks selected.</p>
-                            ) : (
-                                <div className="flex flex-wrap gap-2">
-                                    {[...selected].sort().map((name) => {
-                                        const fw = frameworks.find((f) => f.name === name);
-                                        const label = fw?.display_name || name;
-                                        return (
-                                            <span key={name} className="inline-flex items-center gap-1 pl-3 pr-1 py-1 rounded-full text-sm bg-blue-600 text-white">
-                                                {label}
-                                                {!readOnly && (
-                                                    <button
-                                                        onClick={() => toggle(name)}
-                                                        className="ml-1 w-5 h-5 rounded-full hover:bg-white/20 inline-flex items-center justify-center"
-                                                        title="Remove"
-                                                    >
-                                                        ×
-                                                    </button>
-                                                )}
-                                            </span>
-                                        );
-                                    })}
-                                </div>
+                            <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Selected ({selected.size} + NN baseline)</div>
+                            <div className="flex flex-wrap gap-2">
+                                {/* Non-Negotiables: baseline, always applied, cannot be removed. */}
+                                <span
+                                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium bg-gray-200 text-gray-500 border border-gray-300 cursor-not-allowed dark:bg-gray-700 dark:text-gray-400 dark:border-gray-600"
+                                    title="Non-Negotiables are baseline controls applied to every organisation. Always selected — cannot be removed."
+                                >
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                    </svg>
+                                    Non-Negotiables
+                                </span>
+                                {[...selected].sort().map((name) => {
+                                    const fw = frameworks.find((f) => f.name === name);
+                                    const label = fw?.display_name || name;
+                                    return (
+                                        <span key={name} className="inline-flex items-center gap-1 pl-3 pr-1 py-1 rounded-full text-sm bg-blue-600 text-white">
+                                            {label}
+                                            {!readOnly && (
+                                                <button
+                                                    onClick={() => toggle(name)}
+                                                    className="ml-1 w-5 h-5 rounded-full hover:bg-white/20 inline-flex items-center justify-center"
+                                                    title="Remove"
+                                                >
+                                                    ×
+                                                </button>
+                                            )}
+                                        </span>
+                                    );
+                                })}
+                            </div>
+                            {selected.size === 0 && (
+                                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 italic">No frameworks selected — the NN baseline still applies.</p>
                             )}
                             {orphanSelected.length > 0 && (
                                 <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
@@ -312,16 +335,17 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                     >
                         {saving ? 'Saving…' : 'Save Settings'}
                     </button>
-                    {(hasUnsavedSelection || savedSelected.size > 0) && (
-                        <button
-                            onClick={handleRecompute}
-                            disabled={saving || recomputeState.kind === 'previewing' || recomputeState.kind === 'applying'}
-                            className="px-4 py-1.5 text-sm font-medium text-white bg-emerald-600 rounded-md hover:bg-emerald-700 disabled:bg-gray-300 transition-colors"
-                            title="Saves selection then asks the Fw-ControlRegistry agent for a diff"
-                        >
-                            Recompute Control Registry and Save
-                        </button>
-                    )}
+                    {/* Always available: recompute re-seeds the NN baseline (covering a
+                        new NN release or accidental deletion) and rebuilds framework
+                        standards — even when the framework selection hasn't changed. */}
+                    <button
+                        onClick={handleRecompute}
+                        disabled={saving || recomputeState.kind === 'previewing' || recomputeState.kind === 'applying'}
+                        className="px-4 py-1.5 text-sm font-medium text-white bg-emerald-600 rounded-md hover:bg-emerald-700 disabled:bg-gray-300 transition-colors"
+                        title="Saves selection, re-seeds the NN baseline, and rebuilds framework-standard controls (shows a diff to confirm first)"
+                    >
+                        Recompute Control Registry and Save
+                    </button>
                     {saveMsg && <span className="text-sm text-gray-600 dark:text-gray-300">{saveMsg}</span>}
                 </div>
             )}
@@ -410,11 +434,17 @@ const RecomputeModal: React.FC<{
                                 <SummaryCard label="Unenforced — to delete" value={state.preview.summary.to_delete_unenforced} tone="red" />
                                 <SummaryCard label="Enforced — keep as-is" value={state.preview.summary.keep_orphan_enforced} tone="amber" />
                                 <SummaryCard label="Unchanged" value={state.preview.summary.unchanged} tone="gray" />
+                                <SummaryCard label="NN — to (re)add" value={state.nn.to_add} tone="green" />
                             </div>
                             <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
                                 Enforced controls (status ≠ NotEnforced OR evidence attached) survive even when their
                                 framework is deselected. Their <span className="font-mono">ctl_ref_fw</span> retains the
                                 original framework names.
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                                <span className="font-semibold">NN baseline:</span> {state.nn.to_add === 0
+                                    ? 'all Non-Negotiable controls are already present — nothing to add.'
+                                    : `${state.nn.to_add} Non-Negotiable control(s) missing for this org will be re-added. NN is only ever added, never removed.`}
                             </p>
                             <details className="text-xs">
                                 <summary className="cursor-pointer text-gray-500 dark:text-gray-400">Show sample changes (max 10 per bucket)</summary>
@@ -427,11 +457,12 @@ const RecomputeModal: React.FC<{
                             <div className="rounded border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 p-3 text-green-800 dark:text-green-200">
                                 Control registry rebuilt successfully.
                             </div>
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                                 <SummaryCard label="Added"   value={state.result.applied.added}   tone="green" />
                                 <SummaryCard label="Updated" value={state.result.applied.updated} tone="blue" />
                                 <SummaryCard label="Deleted" value={state.result.applied.deleted} tone="red" />
                                 <SummaryCard label="Kept (enforced)" value={state.result.kept_orphan_enforced} tone="amber" />
+                                <SummaryCard label="NN added" value={state.nnAdded} tone="green" />
                             </div>
                         </div>
                     )}

@@ -1,6 +1,5 @@
 import React from 'react';
 import { ProgramTrackerView } from '../program/ProgramTrackerView';
-import { LeadershipView } from '../program/LeadershipView';
 import { UserRole } from '../../types';
 
 interface ProgramTabProps {
@@ -8,23 +7,9 @@ interface ProgramTabProps {
     isActive?: boolean;
 }
 
+// Everyone now uses the full Program Tracker. CXOs get a "Show escalated issues
+// only" toggle (default ON, per-session) instead of the old escalated-only
+// LeadershipView, so they can switch to the full task list when they want.
 export const ProgramTab: React.FC<ProgramTabProps> = ({ userRole, isActive = true }) => {
-    console.log('🔍 DEBUG: ProgramTab - userRole:', userRole);
-    
-    if (userRole === 'user' || userRole === 'admin' || userRole === 'tenant_admin') {
-        console.log('🔍 DEBUG: ProgramTab - Rendering ProgramTrackerView with hideEscalated=true');
-        return <ProgramTrackerView isActive={isActive} hideEscalated={true} />;
-    }
-
-    if (userRole === 'cxo') {
-        console.log('🔍 DEBUG: ProgramTab - Rendering LeadershipView for CXO role');
-        return (
-            <div className="px-4 py-6 sm:px-0">
-                <LeadershipView isActive={isActive} />
-            </div>
-        );
-    }
-
-    console.log('🔍 DEBUG: ProgramTab - Default case - Rendering ProgramTrackerView with hideEscalated=true');
-    return <ProgramTrackerView isActive={isActive} hideEscalated={true} />;
+    return <ProgramTrackerView isActive={isActive} isCxo={userRole === 'cxo'} />;
 };

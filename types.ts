@@ -3,6 +3,8 @@ export type ProgramStatus = 'Planned' | 'InProgress' | 'Completed' | 'Blocked' |
 
 export interface ProgramTask {
   id: string;
+  task_code: string | null;
+  parent_id: string | null;
   program_name: string;
   description: string;
   month: string;
@@ -14,7 +16,8 @@ export interface ProgramTask {
   last_updated: string;
 }
 
-export type ProgramTaskCreate = Omit<ProgramTask, 'id' | 'last_updated'>;
+// task_code is server-generated; parent_id is optional (set when creating a child task).
+export type ProgramTaskCreate = Omit<ProgramTask, 'id' | 'last_updated' | 'task_code' | 'parent_id'> & { parent_id?: string | null };
 
 export type ProgramTaskUpdate = Partial<Omit<ProgramTask, 'id' | 'last_updated'>>;
 
@@ -240,6 +243,16 @@ export interface ScfFramework {
   sort_order: number;
 }
 
+// An SCF control as claimed by a specific framework, with that framework's
+// native reference IDs (e.g. ISO clauses). Used by the Compliance SCF browser.
+export interface ScfFrameworkControl {
+  scf_control_id: string;   // SCF control key, e.g. "GOV-01.1"
+  scf_id: string;           // SCF id
+  control_name: string;
+  domain: string;           // SCF domain label
+  refs: string[];           // framework-native reference IDs (e.g. ["4.4", "5.1", ...])
+}
+
 export interface FwcrPreviewSummary {
   to_add: number;
   to_update: number;
@@ -264,6 +277,15 @@ export interface FwcrApplyResult {
   applied: { added: number; updated: number; deleted: number };
   kept_orphan_enforced: number;
   unchanged: number;
+}
+
+// Dry-run of the NN baseline re-seed (Settings → Org "Recompute" button).
+// NN controls are baseline and always applied; recompute only ever *adds* the
+// ones missing for the org (never deletes), so to_add is the full delta.
+export interface NnPreview {
+  to_add: number;
+  total_templates: number;
+  sample: string[];
 }
 
 export interface EvidenceFileMetadata {
