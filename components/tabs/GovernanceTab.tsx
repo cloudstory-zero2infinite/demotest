@@ -16,6 +16,8 @@ import { ControlRegistryView } from '../governance/ControlRegistryView';
 
 import { MapperVisualizerView } from '../governance/MapperVisualizerView';
 
+import { DueDiligenceTPRMView } from '../governance/DueDiligenceTPRMView';
+
 
 
 
@@ -29,7 +31,7 @@ interface GovernanceTabProps {
 
     onExternalSubTabConsumed?: () => void;
 
-    activeGovernanceSubTab?: 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry' | 'mapper_visualizer';
+    activeGovernanceSubTab?: 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry' | 'due_diligence' | 'mapper_visualizer';
 
 }
 
@@ -49,7 +51,7 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
 
 }) => {
 
-    type SubTab = 'controls' | 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry' | 'mapper_visualizer';
+    type SubTab = 'controls' | 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry' | 'due_diligence' | 'mapper_visualizer';
 
     const [activeSubTab, setActiveSubTab] = useState<SubTab>(activeGovernanceSubTab);
 
@@ -154,6 +156,7 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
         { id: 'relationships', label: 'Asset Relationships' },
         { id: 'capabilities', label: 'Capability Register' },
         { id: 'control_registry', label: 'Control Registry' },
+        { id: 'due_diligence', label: 'Due Diligence & TPRM' },
         { id: 'mapper_visualizer', label: 'Mapper Visualizer' },
     ];
 
@@ -218,6 +221,16 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
                     <div className={activeSubTab === 'control_registry' ? '' : 'hidden'}>
 
                         <ControlRegistryView isActive={isActive && activeSubTab === 'control_registry'} autoOpenControlId={openControlId} onAutoOpenConsumed={() => setOpenControlId(null)} />
+
+                    </div>
+
+                )}
+
+                {mountedSubTabs.has('due_diligence') && (
+
+                    <div className={activeSubTab === 'due_diligence' ? '' : 'hidden'}>
+
+                        <DueDiligenceTPRMView isActive={isActive && activeSubTab === 'due_diligence'} />
 
                     </div>
 
