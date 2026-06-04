@@ -124,7 +124,11 @@ export const ScoringTrendCard: React.FC<ScoringTrendCardProps> = ({
     const score = (successCount: number, total: number, weight: number) =>
         total > 0 ? (successCount / total) * weight : 0;
 
-    const controlsScore = score(controls.filter(c => c.ctl_status === 'Enforced').length, controls.length, 30);
+    const totalControlScore = controls.reduce((acc, c) => {
+        const val = c.ctl_status === 'Enforced' ? 1 : (c.maturity_score != null ? c.maturity_score / 100 : 0);
+        return acc + val;
+    }, 0);
+    const controlsScore = controls.length > 0 ? (totalControlScore / controls.length) * 30 : 0;
     const programScore = score(tasks.filter(t => t.status === 'Completed').length, tasks.length, 25);
     const vulnerabilitiesScore = score(vulnerabilities.filter(v => v.status === 'Remediated').length, vulnerabilities.length, 20);
     const assetsScore = score(assets.filter(a => a.governed_status === 'Governed').length, assets.length, 15);

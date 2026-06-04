@@ -3,6 +3,8 @@ export type ProgramStatus = 'Planned' | 'InProgress' | 'Completed' | 'Blocked' |
 
 export interface ProgramTask {
   id: string;
+  task_code: string | null;
+  parent_id: string | null;
   program_name: string;
   description: string;
   month: string;
@@ -14,7 +16,8 @@ export interface ProgramTask {
   last_updated: string;
 }
 
-export type ProgramTaskCreate = Omit<ProgramTask, 'id' | 'last_updated'>;
+// task_code is server-generated; parent_id is optional (set when creating a child task).
+export type ProgramTaskCreate = Omit<ProgramTask, 'id' | 'last_updated' | 'task_code' | 'parent_id'> & { parent_id?: string | null };
 
 export type ProgramTaskUpdate = Partial<Omit<ProgramTask, 'id' | 'last_updated'>>;
 
@@ -210,7 +213,12 @@ export interface ControlRegistry {
     enforcement_type: EnforcementType;
     ctl_description: string | null;
     ctld_by: string[];
-    ctl_ref_fw: string | null;
+    /**
+     * Array of framework canonical names that claim this control. Migrated
+     * from TEXT to JSONB in 2026-05; the Fw-ControlRegistry agent manages this
+     * for rows where scf_control_id is set.
+     */
+    ctl_ref_fw: string[];
     ctl_other_details: string | null;
     evidence_metadata: EvidenceFileMetadata[] | null;
     enforced_by: string | null;
@@ -219,7 +227,65 @@ export interface ControlRegistry {
     user_id: string | null;
     created_at: string;
     updated_at: string;
+    maturity_score?: number | null;
     custom_fields?: Record<string, any>;
+    /** Set only on rows owned by the Fw-ControlRegistry agent. */
+    scf_control_id?: string | null;
+}
+
+// ── SCF Frameworks & Fw-ControlRegistry recompute ────────────────────────────
+
+export interface ScfFramework {
+  name: string;          // canonical key, e.g. "ISO 27001 2022"
+  display_name: string;  // shown in the UI
+  region: 'Global' | 'US' | 'EMEA' | 'APAC' | 'Americas' | string;
+  is_common: boolean;
+  sort_order: number;
+}
+
+// An SCF control as claimed by a specific framework, with that framework's
+// native reference IDs (e.g. ISO clauses). Used by the Compliance SCF browser.
+export interface ScfFrameworkControl {
+  scf_control_id: string;   // SCF control key, e.g. "GOV-01.1"
+  scf_id: string;           // SCF id
+  control_name: string;
+  domain: string;           // SCF domain label
+  refs: string[];           // framework-native reference IDs (e.g. ["4.4", "5.1", ...])
+}
+
+export interface FwcrPreviewSummary {
+  to_add: number;
+  to_update: number;
+  to_delete_unenforced: number;
+  keep_orphan_enforced: number;
+  unchanged: number;
+}
+
+export interface FwcrPreview {
+  selected_frameworks: string[];
+  summary: FwcrPreviewSummary;
+  samples: {
+    to_add: Array<{ scf_control_id: string; ctl_name: string; ctl_ref_fw: string[] }>;
+    to_update: Array<{ scf_control_id: string; ctl_ref_fw_old: string[]; ctl_ref_fw_new: string[] }>;
+    to_delete_unenforced: Array<{ scf_control_id: string; ctl_name: string }>;
+    keep_orphan_enforced: Array<{ scf_control_id: string; ctl_name: string }>;
+  };
+}
+
+export interface FwcrApplyResult {
+  selected_frameworks: string[];
+  applied: { added: number; updated: number; deleted: number };
+  kept_orphan_enforced: number;
+  unchanged: number;
+}
+
+// Dry-run of the NN baseline re-seed (Settings → Org "Recompute" button).
+// NN controls are baseline and always applied; recompute only ever *adds* the
+// ones missing for the org (never deletes), so to_add is the full delta.
+export interface NnPreview {
+  to_add: number;
+  total_templates: number;
+  sample: string[];
 }
 
 export interface EvidenceFileMetadata {
@@ -387,38 +453,60 @@ export interface PolicyV2 {
   updated_at: string;
 }
 
-// Mapper Agent — Phase 1: triggered from the Policy tab.
+// Mapper Agent — two triggers:
+//   'policies' (from Policy tab):  Master Policy → Security Objectives → SCF Domains + child policies
+//   'controls' (from Visualizer):  SCFDomain → Control → Capability → Asset (deterministic joins)
 export interface MapperRunResult {
-  status: 'ok' | 'needs_master';
+  status: 'ok' | 'needs_master' | 'needs_scf_reference' | 'needs_policies_first';
   message?: string;
   trigger?: string;
   master_policy_id?: string;
+  // Loosely typed because keys differ per trigger; consumers read specific
+  // keys with `?? 0` and render only what they expect.
   summary?: {
-    domains: number;
-    functions: number;
-    child_links: number;
-    orphans: number;
+    // 'policies' trigger
+    objectives?: number;
+    scf_domains?: number;
+    child_links?: number;
+    orphans?: number;
+    // 'controls' trigger
+    controls?: number;
+    capabilities?: number;
+    assets?: number;
+    implemented_by_edges?: number;
+    enforced_by_edges?: number;
+    provided_by_edges?: number;
+    controls_with_capabilities?: number;
+    total_standard_controls?: number;
   };
   extraction?: {
-    security_domains: Array<{
+    security_objectives: Array<{
       name: string;
       description?: string | null;
       confidence?: number | null;
-      functions?: Array<{ name: string; description?: string | null; confidence?: number | null }>;
+      scf_ids: string[];
     }>;
     child_policy_links: Array<{
       policy_id: string;
       confidence: number;
       rationale?: string | null;
       matched_on?: string | null;
-      covers_domains?: string[];
+      covers_scf_ids?: string[];
     }>;
   };
 }
 
 export interface MapperGraphNode {
   id: string;
-  type: 'MasterPolicy' | 'ChildPolicy' | 'OrphanPolicy' | 'SecurityDomain' | 'SecurityFunction';
+  type:
+    | 'MasterPolicy'
+    | 'ChildPolicy'
+    | 'OrphanPolicy'
+    | 'SecurityObjective'
+    | 'SCFDomain'
+    | 'Control'
+    | 'Capability'
+    | 'Asset';
   data: Record<string, any>;
 }
 
@@ -426,7 +514,14 @@ export interface MapperGraphEdge {
   id: string;
   source: string;
   target: string;
-  label: 'DEFINES' | 'CONTAINS' | 'HAS_CHILD' | 'COVERS';
+  label:
+    | 'DEFINES'
+    | 'MAPS_TO'
+    | 'HAS_CHILD'
+    | 'COVERS'
+    | 'IMPLEMENTED_BY'
+    | 'ENFORCED_BY'
+    | 'PROVIDED_BY';
   data?: { confidence?: number | null; rationale?: string | null; matched_on?: string | null };
 }
 

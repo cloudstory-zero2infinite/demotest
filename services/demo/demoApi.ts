@@ -494,6 +494,12 @@ export const handleDemoRequest = async <T>(path: string, options: RequestInit = 
     persist();
     return { deleted: before - store.controlRegistry.length, total: ids.length, errors: 0 } as T;
   }
+  // NN baseline recompute — demo has no real NN templates table; report
+  // nothing to add so the Recompute modal renders cleanly.
+  if (path === '/api/controls/nn-preview' && method === 'GET')
+    return { to_add: 0, total_templates: 0, sample: [] } as T;
+  if (path === '/api/controls/seed-nn' && method === 'POST')
+    return { message: 'No-op in demo', data: 0 } as T;
   {
     const m = matchPath('/api/control-registry/:id', path);
     if (m) {
@@ -604,6 +610,8 @@ export const handleDemoRequest = async <T>(path: string, options: RequestInit = 
   }
 
   // ─── Mapper (knowledge graph) ──────────────────────────────────────────────
+  // Synthesises a small SCF-shaped graph from the in-memory policies so the
+  // visualizer renders without hitting the real Neo4j/Supabase backends.
   if (path === '/api/mapper/run' && method === 'POST') {
     const master = store.policies.find(p => p.is_master);
     if (!master) return { status: 'needs_master', message: 'No master policy set.' } as T;
@@ -611,32 +619,66 @@ export const handleDemoRequest = async <T>(path: string, options: RequestInit = 
       status: 'ok',
       trigger: 'policies',
       master_policy_id: master.policy_id,
-      summary: { domains: 6, functions: 18, child_links: 12, orphans: 2 },
-      extraction: { security_domains: [], child_policy_links: [] },
+      summary: { objectives: 6, scf_domains: 6, child_links: 12, orphans: 2 },
+      extraction: { security_objectives: [], child_policy_links: [] },
     } as T;
   }
   if (path.startsWith('/api/mapper/graph')) {
-    // Minimal graph derived from policies — enough for the visualizer to render
     const master = store.policies.find(p => p.is_master);
     if (!master) return { nodes: [], edges: [] } as T;
-    const domains = [
-      'Access Control', 'Data Protection', 'Network Security',
-      'Incident Response', 'Business Continuity', 'Vendor Risk',
+    // Subset of the real SCF domain list — keeps the demo aligned with the
+    // production ontology without depending on a populated scf_domains table.
+    const scfDomains = [
+      { scf_id: 'IAC', domain_name: 'Identification & Authentication' },
+      { scf_id: 'DCH', domain_name: 'Data Classification & Handling' },
+      { scf_id: 'NET', domain_name: 'Network Security' },
+      { scf_id: 'IRO', domain_name: 'Incident Response' },
+      { scf_id: 'BCD', domain_name: 'Business Continuity & Disaster Recovery' },
+      { scf_id: 'TPM', domain_name: 'Third-Party Management' },
+    ];
+    const objectives = [
+      { name: 'Authenticate Workforce',              scf_id: 'IAC' },
+      { name: 'Protect Sensitive Data at Rest',      scf_id: 'DCH' },
+      { name: 'Segment the Network',                 scf_id: 'NET' },
+      { name: 'Respond to Security Incidents',       scf_id: 'IRO' },
+      { name: 'Recover Business-Critical Functions', scf_id: 'BCD' },
+      { name: 'Govern Third-Party Risk',             scf_id: 'TPM' },
     ];
     const nodes: any[] = [
-      { id: `m:${master.policy_id}`, type: 'MasterPolicy', data: { name: master.name, is_master: true } },
-      ...domains.map((d, i) => ({ id: `d:${i}`, type: 'SecurityDomain', data: { name: d } })),
+      { id: `m:${master.policy_id}`, type: 'MasterPolicy', data: { name: master.name, policy_id: master.policy_id, is_master: true } },
+      ...scfDomains.map(d => ({ id: `scfdomain:${d.scf_id}`, type: 'SCFDomain', data: d })),
+      ...objectives.map(o => ({
+        id: `objective:${master.policy_id}:${o.name}`,
+        type: 'SecurityObjective',
+        data: { name: o.name, master_policy_id: master.policy_id, confidence: 0.9 },
+      })),
       ...store.policies.filter(p => !p.is_master).slice(0, 10).map(p => ({
-        id: `c:${p.policy_id}`, type: 'ChildPolicy', data: { name: p.name, policy_status: p.policy_status },
+        id: `policy:${p.policy_id}`, type: 'ChildPolicy', data: { name: p.name, policy_id: p.policy_id, policy_status: p.policy_status },
       })),
     ];
     const edges: any[] = [
-      ...domains.map((_, i) => ({ id: `e-d-${i}`, source: `m:${master.policy_id}`, target: `d:${i}`, label: 'DEFINES' })),
-      ...store.policies.filter(p => !p.is_master).slice(0, 10).map((p, i) => ({
-        id: `e-c-${i}`, source: `m:${master.policy_id}`, target: `c:${p.policy_id}`, label: 'HAS_CHILD',
+      ...objectives.map(o => ({
+        id: `e-def-${o.name}`,
+        source: `m:${master.policy_id}`,
+        target: `objective:${master.policy_id}:${o.name}`,
+        label: 'DEFINES',
+        data: { confidence: 0.9 },
+      })),
+      ...objectives.map(o => ({
+        id: `e-map-${o.name}`,
+        source: `objective:${master.policy_id}:${o.name}`,
+        target: `scfdomain:${o.scf_id}`,
+        label: 'MAPS_TO',
+        data: { confidence: 0.9 },
+      })),
+      ...store.policies.filter(p => !p.is_master).slice(0, 10).map(p => ({
+        id: `e-has-${p.policy_id}`, source: `m:${master.policy_id}`, target: `policy:${p.policy_id}`, label: 'HAS_CHILD',
       })),
       ...store.policies.filter(p => !p.is_master).slice(0, 8).map((p, i) => ({
-        id: `e-cov-${i}`, source: `c:${p.policy_id}`, target: `d:${i % domains.length}`, label: 'COVERS',
+        id: `e-cov-${p.policy_id}`,
+        source: `policy:${p.policy_id}`,
+        target: `scfdomain:${scfDomains[i % scfDomains.length].scf_id}`,
+        label: 'COVERS',
         data: { confidence: 0.7 + (i % 3) * 0.1 },
       })),
     ];

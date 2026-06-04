@@ -50,6 +50,38 @@ router.get('/', requireAuth, async (req, res) => {
   }
 });
 
+// Dry-run for the NN baseline re-seed: how many NN templates are missing for
+// this org. NN controls are baseline (ctl_type='NN', scf_control_id IS NULL)
+// and are re-added by seed_nn_controls_for_org, which only inserts templates
+// whose ctl_name isn't already present — so this count is exactly what an
+// "apply" would add (new NN release, or restoring accidentally-deleted rows).
+router.get('/nn-preview', requireAuth, async (req, res) => {
+  try {
+    const { data: templates, error: tErr } = await supabaseAdmin
+      .from('nn_control_templates')
+      .select('ctl_name');
+    if (tErr) throw tErr;
+
+    const { data: existing, error: eErr } = await supabaseAdmin
+      .from('control_registry')
+      .select('ctl_name')
+      .eq('org_id', req.orgId)
+      .eq('ctl_type', 'NN');
+    if (eErr) throw eErr;
+
+    const existingNames = new Set((existing || []).map((r) => r.ctl_name));
+    const missing = (templates || []).filter((t) => !existingNames.has(t.ctl_name));
+    res.json({
+      to_add: missing.length,
+      total_templates: (templates || []).length,
+      sample: missing.slice(0, 10).map((t) => t.ctl_name),
+    });
+  } catch (err) {
+    console.error('NN preview error:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // Endpoint to check and seed controls if needed
 router.post('/seed-nn', requireAuth, async (req, res) => {
   try {

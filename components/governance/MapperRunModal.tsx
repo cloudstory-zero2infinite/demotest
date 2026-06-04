@@ -59,6 +59,12 @@ export const MapperRunModal: React.FC<Props> = ({
             setResult(res);
             if (res.status === 'needs_master') {
                 setPhase('picking_master');
+            } else if (res.status === 'needs_scf_reference') {
+                setErrorMsg(
+                    res.message ||
+                        'No SCF reference uploaded yet. Ask an internal SME to upload the latest SCF workbook via the ZTI Internal Tool → SME → Control Framework tab, then re-run the mapper.'
+                );
+                setPhase('error');
             } else {
                 setPhase('done');
             }
@@ -90,7 +96,7 @@ export const MapperRunModal: React.FC<Props> = ({
                             Mapper Agent — Policy
                         </h2>
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                            Reads your master Information Security policy and links related child policies + security domains.
+                            Reads your master Information Security policy, extracts Security Objectives, and maps each to the SCF (Secure Controls Framework) domains. Also links related child policies.
                         </p>
                     </div>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
@@ -129,6 +135,14 @@ export const MapperRunModal: React.FC<Props> = ({
                                 <button onClick={onClose} className="px-4 py-2 text-sm rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">
                                     Cancel
                                 </button>
+                                {masterPolicy && (
+                                    <button
+                                        onClick={() => { setSearch(''); setPickedMasterId(null); setPhase('picking_master'); }}
+                                        className="px-4 py-2 text-sm rounded border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30"
+                                    >
+                                        Change master policy
+                                    </button>
+                                )}
                                 <button
                                     onClick={masterPolicy ? handleRun : () => setPhase('picking_master')}
                                     className="px-4 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700"
@@ -191,7 +205,7 @@ export const MapperRunModal: React.FC<Props> = ({
                     {phase === 'running' && (
                         <div className="py-8 flex flex-col items-center gap-3 text-gray-700 dark:text-gray-200">
                             <div className="animate-spin h-8 w-8 border-2 border-blue-500 border-t-transparent rounded-full" />
-                            <div className="text-sm">Reading the master policy and mapping security domains + child policies…</div>
+                            <div className="text-sm">Reading the master policy, extracting Security Objectives, and mapping them to SCF domains…</div>
                         </div>
                     )}
 
@@ -201,20 +215,23 @@ export const MapperRunModal: React.FC<Props> = ({
                                 Mapping complete. The graph has been rewritten in Neo4j.
                             </div>
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                                <SummaryCard label="Security domains" value={result.summary?.domains ?? 0} />
-                                <SummaryCard label="Functions" value={result.summary?.functions ?? 0} />
+                                <SummaryCard label="Security objectives" value={result.summary?.objectives ?? 0} />
+                                <SummaryCard label="SCF domains" value={result.summary?.scf_domains ?? 0} />
                                 <SummaryCard label="Child links" value={result.summary?.child_links ?? 0} />
                                 <SummaryCard label="Orphans" value={result.summary?.orphans ?? 0} />
                             </div>
-                            {result.extraction && result.extraction.security_domains.length > 0 && (
+                            {result.extraction && result.extraction.security_objectives.length > 0 && (
                                 <details className="text-sm">
-                                    <summary className="cursor-pointer text-gray-600 dark:text-gray-300">Show extracted domains</summary>
+                                    <summary className="cursor-pointer text-gray-600 dark:text-gray-300">Show extracted objectives</summary>
                                     <ul className="mt-2 space-y-1">
-                                        {result.extraction.security_domains.map(d => (
-                                            <li key={d.name} className="text-gray-700 dark:text-gray-200">
-                                                <span className="font-medium">{d.name}</span>
-                                                {typeof d.confidence === 'number' && (
-                                                    <span className="ml-2 text-xs text-gray-500">conf {d.confidence.toFixed(2)}</span>
+                                        {result.extraction.security_objectives.map(o => (
+                                            <li key={o.name} className="text-gray-700 dark:text-gray-200">
+                                                <span className="font-medium">{o.name}</span>
+                                                {o.scf_ids?.length > 0 && (
+                                                    <span className="ml-2 text-xs text-gray-500 font-mono">→ {o.scf_ids.join(', ')}</span>
+                                                )}
+                                                {typeof o.confidence === 'number' && (
+                                                    <span className="ml-2 text-xs text-gray-500">conf {o.confidence.toFixed(2)}</span>
                                                 )}
                                             </li>
                                         ))}

@@ -8,11 +8,13 @@
 #   2. For source-backed entities, only the columns listed in `source_columns`
 #      may be read from Supabase. All other columns are off-limits.
 #   3. Only properties listed under `properties` may be written to Neo4j nodes.
-#   4. Every node must carry `org_id` (multi-tenant scoping).
+#   4. Every node must carry `org_id` (multi-tenant scoping) — even nodes
+#      mirroring globally-scoped tables (e.g. SCFDomain), so the visualizer's
+#      per-org subgraph queries stay simple.
 #   5. `id_strategy` describes how the agent computes the unique key used in
 #      `MERGE` statements — never rely on Neo4j-internal ids.
 
-version: 1
+version: 2
 
 entities:
 
@@ -39,7 +41,7 @@ entities:
       - updated_at
     neo4j_label: Policy
     properties:
-      - name: policy_id          # primary key (mirrors Supabase policy_id)
+      - name: policy_id
         required: true
       - name: name
         required: true
@@ -53,44 +55,61 @@ entities:
         required: true
       - name: updated_at
     id_strategy:
-      keys: [org_id, policy_id]   # composite — guarantees per-org uniqueness
+      keys: [org_id, policy_id]
 
-  SecurityDomain:
+  SCFDomain:
     description: >
-      A top-level security area asserted by the master policy
-      (e.g. "Incident Response", "Vulnerability Management", "Access Control").
-      Inferred by the LLM from the master policy markdown.
+      One of the 33 Secure Controls Framework domains (e.g. GOV — Cybersecurity
+      & Data Protection Governance, CHG — Change Management, THR — Threat
+      Management). Sourced from the SCF reference workbook the SME uploads via
+      the internal-tool Control Framework tab; mirrored into `public.scf_domains`.
+      Materialised per-org in Neo4j (every node carries org_id) so per-tenant
+      visualizer queries stay clean.
     source:
-      type: llm_inferred
-    neo4j_label: SecurityDomain
+      type: supabase
+      table: scf_domains
+      org_scope_column: null              # global — same set of rows for every org
+    source_columns:
+      - scf_id
+      - domain_name
+      - principle
+      - principle_intent
+      - control_count
+      - sort_order
+    neo4j_label: SCFDomain
     properties:
-      - name: name               # canonical name, Title Case
+      - name: scf_id                      # 'GOV', 'CHG', 'THR', ...
         required: true
-      - name: description        # short, derived from the master policy
+      - name: domain_name                 # 'Change Management'
+        required: true
+      - name: principle
+      - name: sort_order
       - name: org_id
         required: true
-      - name: confidence         # 0..1, optional; toggleable in visualizer
     id_strategy:
-      keys: [org_id, name]
+      keys: [org_id, scf_id]
 
-  SecurityFunction:
+  SecurityObjective:
     description: >
-      A finer-grained capability sitting under a SecurityDomain
-      (e.g. under "Incident Response": "Detection", "Containment", "Recovery").
-      Inferred by the LLM from the master policy markdown. Optional —
-      domains without enumerated functions are valid.
+      A security objective the master policy asserts (e.g. "Ensure all
+      production change requests are reviewed and approved by the CAB before
+      deployment"). Extracted by the LLM from the master policy markdown.
+      Each objective is mapped by the LLM to one or more SCFDomain ids
+      (constrained to the SCF reference list — no free-form domains).
     source:
       type: llm_inferred
-    neo4j_label: SecurityFunction
+    neo4j_label: SecurityObjective
     properties:
-      - name: name
+      - name: name                        # short title, Title Case
         required: true
-      - name: description
+      - name: description                 # one-sentence elaboration
+      - name: master_policy_id            # scoped under one master per org
+        required: true
       - name: org_id
         required: true
       - name: confidence
     id_strategy:
-      keys: [org_id, domain_name, name]
+      keys: [org_id, master_policy_id, name]
 
   OrphanPolicy:
     description: >
@@ -106,3 +125,95 @@ entities:
         required: true
     id_strategy:
       keys: [org_id, policy_id]
+
+  Control:
+    description: >
+      A row in control_registry that is owned by the Fw-ControlRegistry agent
+      (ctl_type='Standard' AND scf_control_id IS NOT NULL). Attached under
+      the SCFDomain whose scf_id matches the prefix of scf_control_id (e.g.
+      TDA-09.5 attaches under SCFDomain {scf_id: 'TDA'}). Used by the
+      'controls' mapper trigger.
+    source:
+      type: supabase
+      table: control_registry
+      org_scope_column: org_id
+    source_columns:
+      - id
+      - ctl_id
+      - ctl_name
+      - ctl_status
+      - ctl_type
+      - scf_control_id
+      - ctld_by
+      - ctl_ref_fw
+      - org_id
+    neo4j_label: Control
+    properties:
+      - name: ctl_id             # human-friendly id (== scf_control_id for agent rows)
+        required: true
+      - name: ctl_name
+        required: true
+      - name: ctl_status
+      - name: scf_control_id     # stable key linking back to scf_controls
+        required: true
+      - name: scf_id             # derived prefix, e.g. 'TDA'
+        required: true
+      - name: org_id
+        required: true
+    id_strategy:
+      keys: [org_id, scf_control_id]
+
+  Capability:
+    description: >
+      A row in capability_register. Linked to one or more Control nodes when
+      any element of control_registry.ctld_by matches capab_name,
+      capab_provider[], or capab_owner (case-insensitive, first hit wins).
+    source:
+      type: supabase
+      table: capability_register
+      org_scope_column: org_id
+    source_columns:
+      - capab_id
+      - capab_name
+      - capab_provider
+      - capab_owner
+      - capab_cmdb_id
+      - org_id
+    neo4j_label: Capability
+    properties:
+      - name: capab_id
+        required: true
+      - name: capab_name
+        required: true
+      - name: capab_owner
+      - name: org_id
+        required: true
+    id_strategy:
+      keys: [org_id, capab_id]
+
+  Asset:
+    description: >
+      A row in assets. Linked to one or more Capability nodes when any
+      element of capability_register.capab_cmdb_id matches assets.asset_id
+      or assets.name (case-insensitive).
+    source:
+      type: supabase
+      table: assets
+      org_scope_column: org_id
+    source_columns:
+      - id
+      - asset_id
+      - name
+      - category
+      - org_id
+    neo4j_label: Asset
+    properties:
+      - name: asset_id           # structured ID like AST-AP-001
+        required: true
+      - name: name
+        required: true
+      - name: category
+      - name: org_id
+        required: true
+    id_strategy:
+      keys: [org_id, asset_id]

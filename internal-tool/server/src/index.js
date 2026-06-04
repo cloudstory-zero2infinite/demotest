@@ -8,6 +8,7 @@ import { policyCorpusRouter } from './routes/policy-corpus.js';
 import { ontologyRouter } from './routes/ontology.js';
 import { complianceRouter } from './routes/compliance.js';
 import { nnControlsRouter } from './routes/nn-controls.js';
+import { controlFrameworkRouter } from './routes/control-framework.js';
 
 dotenv.config();
 
@@ -33,6 +34,7 @@ app.use('/api/internal/policy-corpus', policyCorpusRouter);
 app.use('/api/internal/ontology', ontologyRouter);
 app.use('/api/internal/compliance', complianceRouter);
 app.use('/api/internal/nn-controls', nnControlsRouter);
+app.use('/api/internal/control-framework', controlFrameworkRouter);
 
 // Serve the built frontend (production). In dev the Vite server handles this.
 const __filename = fileURLToPath(import.meta.url);

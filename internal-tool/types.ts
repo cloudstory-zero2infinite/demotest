@@ -46,3 +46,32 @@ export interface NNControlTemplate {
 
 export type NNControlTemplateCreate = Omit<NNControlTemplate, 'id' | 'created_at' | 'updated_at'>;
 export type NNControlTemplateUpdate = Partial<NNControlTemplateCreate>;
+
+export interface ScfFile {
+  name: string;
+  size: number;
+  contentType: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface ScfDomain {
+  scf_id: string;
+  domain_name: string;
+  principle: string | null;
+  principle_intent: string | null;
+  control_count: number | null;
+  sort_order: number | null;
+}
+
+export interface ScfFilesResponse {
+  files: ScfFile[];
+  counts: { domains: number; controls: number };
+}
+
+export interface ScfUploadResult {
+  name: string;
+  counts: { domains: number; controls: number };
+  skipped_controls: number;
+  skipped_sample: { scfControlId: string; scfId: string }[];
+}

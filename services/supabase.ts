@@ -504,6 +504,14 @@ export const deleteTask = async (id: string): Promise<void> => {
     return apiRequest<void>(`/api/program/${id}`, { method: 'DELETE' });
 };
 
+// Attach (or, with null, detach) an existing task under a parent. Two-level only.
+export const setTaskParent = async (childId: string, parentId: string | null): Promise<ProgramTask> => {
+    return apiRequest<ProgramTask>(`/api/program/${childId}/parent`, {
+        method: 'PUT',
+        body: JSON.stringify({ parent_id: parentId }),
+    });
+};
+
 
 
 export const getActivityLogs = async (programId: string): Promise<ActivityLog[]> => {
@@ -2017,6 +2025,34 @@ export const updateOrgSettings = async (settings: { policy_refresh_months?: numb
 export const getAvailableFrameworks = async (): Promise<string[]> =>
 
   apiRequest('/api/org-settings/available-frameworks');
+
+
+
+// ── SCF Frameworks catalog (Settings → Org framework picker) ────────────────
+
+export const getScfFrameworks = async (): Promise<import('../types').ScfFramework[]> =>
+  apiRequest('/api/scf/frameworks');
+
+// SCF controls (with framework-native reference IDs) for one framework.
+export const getScfFrameworkControls = async (framework: string): Promise<import('../types').ScfFrameworkControl[]> =>
+  apiRequest(`/api/scf/frameworks/controls?framework=${encodeURIComponent(framework)}`);
+
+
+
+// ── Fw-ControlRegistry recompute (Settings → Org "Recompute" button) ────────
+
+export const recomputeControlRegistryPreview = async (): Promise<import('../types').FwcrPreview> =>
+  apiRequest('/api/fwcr/recompute-preview', { method: 'POST' });
+
+export const recomputeControlRegistry = async (): Promise<import('../types').FwcrApplyResult> =>
+  apiRequest('/api/fwcr/recompute', { method: 'POST' });
+
+// ── NN baseline re-seed (folded into the Settings → Org "Recompute" button) ──
+export const recomputeNnPreview = async (): Promise<import('../types').NnPreview> =>
+  apiRequest('/api/controls/nn-preview');
+
+export const reseedNnControls = async (): Promise<{ message: string; data: number }> =>
+  apiRequest('/api/controls/seed-nn', { method: 'POST' });
 
 
 

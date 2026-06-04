@@ -8,16 +8,16 @@
 #   - llm_inferred: at least one endpoint or the edge itself is inferred by
 #                   the LLM from policy text. Confidence must be recorded.
 
-version: 1
+version: 2
 
 relationships:
 
   DEFINES:
     description: >
-      The master policy defines the security domains the organisation
-      recognises. Edge runs from the master Policy to a SecurityDomain.
-    from_entity: Policy            # must have is_master=true
-    to_entity: SecurityDomain
+      The master policy defines the security objectives the organisation
+      commits to. Edge runs from the master Policy to a SecurityObjective.
+    from_entity: Policy                  # must have is_master=true
+    to_entity: SecurityObjective
     neo4j_type: DEFINES
     cardinality: one_to_many
     derivation: llm_inferred
@@ -26,13 +26,16 @@ relationships:
         required: true
       - name: confidence
 
-  CONTAINS:
+  MAPS_TO:
     description: >
-      A SecurityDomain contains zero or more SecurityFunctions.
-    from_entity: SecurityDomain
-    to_entity: SecurityFunction
-    neo4j_type: CONTAINS
-    cardinality: one_to_many
+      A SecurityObjective extracted from the master policy is mapped by the
+      LLM to one or more SCFDomain entries. The list of allowed SCFDomains
+      is supplied to the LLM at extract time (from public.scf_domains) and
+      the agent rejects any scf_id outside that list.
+    from_entity: SecurityObjective
+    to_entity: SCFDomain
+    neo4j_type: MAPS_TO
+    cardinality: many_to_many
     derivation: llm_inferred
     properties:
       - name: org_id
@@ -45,8 +48,8 @@ relationships:
       semantically related. The LLM assigns a confidence score and a short
       rationale. Edges below a confidence threshold may still be written but
       are hidden from the visualizer by default.
-    from_entity: Policy            # must have is_master=true
-    to_entity: Policy              # must have is_master=false
+    from_entity: Policy                  # must have is_master=true
+    to_entity: Policy                    # must have is_master=false
     neo4j_type: HAS_CHILD
     cardinality: one_to_many
     derivation: llm_inferred
@@ -55,16 +58,16 @@ relationships:
         required: true
       - name: confidence
         required: true
-      - name: rationale            # one sentence from the LLM
-      - name: matched_on           # e.g. "name", "policy_ref", "topic"
+      - name: rationale                  # one sentence from the LLM
+      - name: matched_on                 # e.g. "name", "policy_ref", "topic"
 
   COVERS:
     description: >
-      A child Policy covers a SecurityDomain. Useful for cross-cutting view:
-      "which child policies address Incident Response?". Inferred when the
-      LLM links a child policy to one or more domains.
-    from_entity: Policy            # is_master=false
-    to_entity: SecurityDomain
+      A child Policy covers an SCFDomain. Useful for the cross-cutting view
+      "which child policies address Change Management?". Endpoint is the SCF
+      domain by scf_id (e.g. CHG), not a free-form name.
+    from_entity: Policy                  # is_master=false
+    to_entity: SCFDomain
     neo4j_type: COVERS
     cardinality: many_to_many
     derivation: llm_inferred
@@ -72,3 +75,48 @@ relationships:
       - name: org_id
         required: true
       - name: confidence
+
+  IMPLEMENTED_BY:
+    description: >
+      An SCFDomain is implemented by the standard Controls whose
+      scf_control_id starts with that domain's scf_id. Created by the
+      'controls' mapper trigger by deterministic prefix-match — no LLM.
+    from_entity: SCFDomain
+    to_entity: Control
+    neo4j_type: IMPLEMENTED_BY
+    cardinality: one_to_many
+    derivation: from_source
+    properties:
+      - name: org_id
+        required: true
+
+  ENFORCED_BY:
+    description: >
+      A Control is enforced by a Capability when any element of
+      control_registry.ctld_by case-insensitively matches the Capability's
+      capab_name, an entry in capab_provider[], or capab_owner (first hit).
+      Matched via SQL by the 'controls' trigger — no LLM.
+    from_entity: Control
+    to_entity: Capability
+    neo4j_type: ENFORCED_BY
+    cardinality: many_to_many
+    derivation: from_source
+    properties:
+      - name: org_id
+        required: true
+      - name: matched_on                 # 'capab_name' | 'capab_provider' | 'capab_owner'
+
+  PROVIDED_BY:
+    description: >
+      A Capability is provided by Assets matched via capap_cmdb_id elements.
+      Match is case-insensitive against assets.asset_id, then assets.name.
+      Matched via SQL by the 'controls' trigger — no LLM.
+    from_entity: Capability
+    to_entity: Asset
+    neo4j_type: PROVIDED_BY
+    cardinality: many_to_many
+    derivation: from_source
+    properties:
+      - name: org_id
+        required: true
+      - name: matched_on                 # 'asset_id' | 'asset_name'

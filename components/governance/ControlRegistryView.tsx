@@ -18,6 +18,26 @@ import { CustomField } from '../../services/supabase';
 
 
 
+// ctl_ref_fw moved from TEXT to JSONB (array of framework names) in 2026-05.
+// The legacy form/edit UIs still keep the field as a CSV-style string for
+// human editing; convert at the API boundary using these helpers.
+const toFwArray = (v: unknown): string[] => {
+    if (v == null) return [];
+    if (Array.isArray(v)) return v.map(s => String(s).trim()).filter(Boolean);
+    return String(v)
+        .split(/[,;\n]/)
+        .map(s => s.trim())
+        .filter(Boolean);
+};
+
+const fwToString = (v: unknown): string => {
+    if (v == null) return '';
+    if (Array.isArray(v)) return v.join(', ');
+    return String(v);
+};
+
+
+
 import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, BotIcon, FunnelIcon } from '../Icons';
 import { FilterDropdown } from '../common/FilterDropdown';
 
@@ -2168,6 +2188,10 @@ type FormData = {
 
 
 
+    maturity_score?: number | null;
+
+
+
     custom_fields?: Record<string, any>;
 
 
@@ -2220,6 +2244,10 @@ const DEFAULT_FORM: FormData = {
 
 
 
+    maturity_score: 0,
+
+
+
     custom_fields: {},
 
 
@@ -2268,19 +2296,27 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
 
 
-    // System types (NN, Regulatory, Standard): only status, controlled by, other details are editable
-    // For NN/Custom controls: only status, controlled by, other details, and evidence files are editable
-    // All other fields are system generated and should not be editable
+    // System types (NN, Regulatory, Standard): the descriptive fields (name,
+    // type, description, ref_fw, enforcement_type) are system-generated and
+    // frozen. But for NN, Custom, AND Standard, the OPERATIONAL fields —
+    // status, controlled by, other details, maturity, evidence — must stay
+    // editable so the user can actually enforce the control. Otherwise the
+    // Fw-ControlRegistry agent's "enforced controls survive FW deselection"
+    // promise is unreachable (the user could never mark a Standard control as
+    // Enforced). Only 'Regulatory' is fully frozen on edit.
     const isNNType = mode === 'edit' && controlToEdit?.ctl_type === 'NN';
     const isCustomType = mode === 'edit' && controlToEdit?.ctl_type === 'Custom';
+    const isStandardType = mode === 'edit' && controlToEdit?.ctl_type === 'Standard';
     const isSystemType = mode === 'edit' && SYSTEM_CTL_TYPES.includes(controlToEdit?.ctl_type as ControlType);
 
-    // For NN or Custom controls: freeze all fields except status, controlled by, other details, and evidence files
-    const isNNFieldFrozen = isNNType || isCustomType;
-    
-    // For other system types (Regulatory, Standard): freeze all fields (existing behavior)
-    const isOtherSystemFieldFrozen = isSystemType && !isNNType;
-    
+    // Freeze descriptive fields (name, type, description, ref_fw, ...) for
+    // NN / Custom / Standard. The operational carve-out is applied per-field
+    // below (status select, controlled-by, maturity slider, etc.).
+    const isNNFieldFrozen = isNNType || isCustomType || isStandardType;
+
+    // Regulatory still freezes everything (legacy behavior — out of scope here).
+    const isOtherSystemFieldFrozen = isSystemType && !isNNType && !isStandardType;
+
     const isSystemFieldFrozen = isFieldFrozen || isOtherSystemFieldFrozen;
 
 
@@ -2303,8 +2339,9 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
                     enforcement_type: controlToEdit.enforcement_type,
                     ctl_description: controlToEdit.ctl_description ?? '',
                     ctld_by: controlToEdit.ctld_by ?? [],
-                    ctl_ref_fw: controlToEdit.ctl_ref_fw ?? '',
+                    ctl_ref_fw: fwToString(controlToEdit.ctl_ref_fw),
                     ctl_other_details: controlToEdit.ctl_other_details ?? '',
+                    maturity_score: controlToEdit.maturity_score ?? 0,
                     custom_fields: customFieldsData,
                 });
             } else {
@@ -2446,21 +2483,23 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
         }
 
-        // If it's an NN or Custom control and editable fields (status, controlled by, other details) have changed,
-        // we must trigger the evidence submission flow (Peer Review).
-        if ((isNNType || isCustomType) && controlToEdit) {
-            const hasEditableChanges = 
+        // Evidence / peer-review gate. Only ENFORCING a control needs review —
+        // un-enforcing or editing fields while staying NotEnforced saves
+        // directly. Applies to NN, Custom, and (agent-managed) Standard rows.
+        if ((isNNType || isCustomType || isStandardType) && controlToEdit) {
+            const hasEditableChanges =
                 formData.ctl_status !== controlToEdit.ctl_status ||
                 JSON.stringify(formData.ctld_by) !== JSON.stringify(controlToEdit.ctld_by || []) ||
                 formData.ctl_other_details !== (controlToEdit.ctl_other_details || '');
 
-            if (hasEditableChanges && onRequestEnforcement) {
-                // Trigger enforcement modal but also pass the pending form data
-                // We use the current status as requested status if it didn't change
-                const reqStatus = (formData.ctl_status === 'Enforced' || formData.ctl_status === 'NotEnforced') 
-                    ? formData.ctl_status 
-                    : (controlToEdit.ctl_status === 'Enforced' ? 'Enforced' : 'NotEnforced');
-                
+            const reqStatus = (formData.ctl_status === 'Enforced' || formData.ctl_status === 'NotEnforced')
+                ? formData.ctl_status
+                : (controlToEdit.ctl_status === 'Enforced' ? 'Enforced' : 'NotEnforced');
+
+            // Only the Enforced direction requires evidence + reviewer
+            // sign-off. Going to NotEnforced (or any change while NotEnforced)
+            // falls through to the normal direct-save path below.
+            if (hasEditableChanges && onRequestEnforcement && reqStatus === 'Enforced') {
                 onRequestEnforcement(controlToEdit, reqStatus as any, formData);
                 return;
             }
@@ -2762,7 +2801,44 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
                     </div>
 
-
+                    {(formData.ctl_type === 'NN' || formData.ctl_type === 'Custom' || formData.ctl_type === 'Standard') && (
+                        <div className="md:col-span-2 mt-2 mb-2 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600">
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
+                                Control Maturity Score
+                                <span className="ml-2 text-xs font-normal text-blue-600 dark:text-blue-400 font-bold">{formData.ctl_status === 'Enforced' ? 100 : (formData.maturity_score || 0)}%</span>
+                            </label>
+                            
+                            <input
+                                type="range"
+                                name="maturity_score"
+                                min="0"
+                                max="100"
+                                step="1"
+                                value={formData.ctl_status === 'Enforced' ? 100 : (formData.maturity_score || 0)}
+                                onChange={e => {
+                                    const v = Number(e.target.value);
+                                    // Slider hitting 100 auto-promotes status to Enforced. The
+                                    // submit handler then triggers the same peer-review evidence
+                                    // gate NN/Custom use (see handleSubmit's enforcement check).
+                                    setFormData(prev => ({
+                                        ...prev,
+                                        maturity_score: v,
+                                        ctl_status: v === 100 ? 'Enforced' : prev.ctl_status,
+                                    }));
+                                }}
+                                disabled={isView || isSystemFieldFrozen || formData.ctl_status === 'Enforced'}
+                                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-600 accent-blue-600"
+                            />
+                            
+                            <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-2 px-1">
+                                <span className="w-1/5 text-left">Not Implemented (0%)</span>
+                                <span className="w-1/5 text-center">Initial (25%)</span>
+                                <span className="w-1/5 text-center">Partial (50%)</span>
+                                <span className="w-1/5 text-center">Mostly Implemented (75%)</span>
+                                <span className="w-1/5 text-right">Fully Implemented (100%)</span>
+                            </div>
+                        </div>
+                    )}
 
                     <div className="md:col-span-2">
 
@@ -3694,7 +3770,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                (c.ctl_ref_fw ?? '').toLowerCase().includes(q) ||
+                fwToString(c.ctl_ref_fw).toLowerCase().includes(q) ||
 
 
 
@@ -3874,7 +3950,9 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
     const handleSave = async (data: ControlRegistryCreate | ControlRegistryUpdate) => {
 
-
+        // Form keeps ctl_ref_fw as a CSV-style string for human editing; the
+        // DB expects JSONB (array). Normalise at the API boundary.
+        const normalized: any = { ...data, ctl_ref_fw: toFwArray((data as any).ctl_ref_fw) };
 
         try {
 
@@ -3884,11 +3962,11 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                const updated = await SupabaseService.updateControlRegistry(modalState.item.id, data as ControlRegistryUpdate);
+                const updated = await SupabaseService.updateControlRegistry(modalState.item.id, normalized as ControlRegistryUpdate);
 
 
 
-                await SupabaseService.logAllActivity({ action: 'Updated Control', module: 'Governance', entity_id: updated.id, entity_name: updated.ctl_name, event_data: { changes: data } });
+                await SupabaseService.logAllActivity({ action: 'Updated Control', module: 'Governance', entity_id: updated.id, entity_name: updated.ctl_name, event_data: { changes: normalized } });
 
 
 
@@ -3896,11 +3974,11 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                const created = await SupabaseService.addControlRegistry(data as ControlRegistryCreate);
+                const created = await SupabaseService.addControlRegistry(normalized as ControlRegistryCreate);
 
 
 
-                await SupabaseService.logAllActivity({ action: 'Created Control', module: 'Governance', entity_id: created.id, entity_name: created.ctl_name, event_data: { details: data } });
+                await SupabaseService.logAllActivity({ action: 'Created Control', module: 'Governance', entity_id: created.id, entity_name: created.ctl_name, event_data: { details: normalized } });
 
 
 
@@ -4089,9 +4167,12 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
             for (const [id, changes] of Object.entries(editValues)) {
 
+                // Inline edits store ctl_ref_fw as a CSV string for the input;
+                // convert to array before the API call.
+                const c: any = { ...changes };
+                if (c.ctl_ref_fw !== undefined) c.ctl_ref_fw = toFwArray(c.ctl_ref_fw);
 
-
-                await SupabaseService.updateControlRegistry(id, changes as ControlRegistryUpdate);
+                await SupabaseService.updateControlRegistry(id, c as ControlRegistryUpdate);
 
 
 
@@ -4175,7 +4256,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                ctl_ref_fw: r.ctl_ref_fw ? String(r.ctl_ref_fw) : null,
+                ctl_ref_fw: toFwArray(r.ctl_ref_fw),
 
 
 
@@ -4360,7 +4441,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                     c.enforcement_type,
                     `"${(c.ctl_description || '').replace(/"/g, '""')}"`,
                     `"{${(c.ctld_by ?? []).join(';')}}"`,
-                    `"${(c.ctl_ref_fw || '').replace(/"/g, '""')}"`,
+                    `"${(c.ctl_ref_fw ?? []).join(';').replace(/"/g, '""')}"`,
                     `"${(c.ctl_other_details || '').replace(/"/g, '""')}"`,
                 ];
 
@@ -4674,6 +4755,20 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                                             hasFilter={true}
                                         />
                                     )}
+                                </th>
+
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
+                                    <div className="flex items-center">
+                                        <button 
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                requestSort('maturity_score' as keyof ControlRegistry);
+                                            }}
+                                            className={`flex items-center text-left focus:outline-none flex-grow ${sortConfig?.key === 'maturity_score' ? 'text-blue-600 font-semibold' : ''}`}
+                                        >
+                                            Maturity Score {getSortIconFor('maturity_score' as keyof ControlRegistry)}
+                                        </button>
+                                    </div>
                                 </th>
 
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">
@@ -4996,11 +5091,35 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
                                     </td>
 
-
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                        {(ctl.ctl_type === 'NN' || ctl.ctl_type === 'Custom' || ctl.ctl_type === 'Standard') ? (
+                                            <div className="flex items-center space-x-2 w-32">
+                                                {isEditing && selectedIds.has(ctl.id) ? (
+                                                    <input 
+                                                        type="range" 
+                                                        min="0" max="100" step="1"
+                                                        value={ctl.ctl_status === 'Enforced' ? 100 : (editValues[ctl.id]?.maturity_score ?? ctl.maturity_score ?? 0)}
+                                                        onChange={e => updateField(ctl.id, 'maturity_score', Number(e.target.value))}
+                                                        disabled={ctl.ctl_status === 'Enforced'}
+                                                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700 accent-blue-600"
+                                                    />
+                                                ) : (
+                                                    <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700 mt-1">
+                                                        <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${ctl.ctl_status === 'Enforced' ? 100 : (ctl.maturity_score ?? 0)}%` }}></div>
+                                                    </div>
+                                                )}
+                                                <span className="text-xs font-medium text-gray-700 dark:text-gray-300 w-8 text-right">
+                                                    {ctl.ctl_status === 'Enforced' ? '100%' : (isEditing && selectedIds.has(ctl.id) 
+                                                        ? `${editValues[ctl.id]?.maturity_score ?? ctl.maturity_score ?? 0}%` 
+                                                        : `${ctl.maturity_score ?? 0}%`)}
+                                                </span>
+                                            </div>
+                                        ) : (
+                                            <span className="text-xs text-gray-400">—</span>
+                                        )}
+                                    </td>
 
                                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-
-
 
                                         {isEditing && selectedIds.has(ctl.id) ? (
 
@@ -5131,7 +5250,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 max-w-[150px] truncate" title={ctl.ctl_ref_fw ?? ''}>
+                                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 max-w-[150px] truncate" title={fwToString(ctl.ctl_ref_fw)}>
 
 
 
@@ -5139,11 +5258,11 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                                            <input type="text" value={editValues[ctl.id]?.ctl_ref_fw ?? ctl.ctl_ref_fw ?? ''} onChange={e => updateField(ctl.id, 'ctl_ref_fw', e.target.value)} className={editInputCls} />
+                                            <input type="text" value={fwToString((editValues[ctl.id] as any)?.ctl_ref_fw ?? ctl.ctl_ref_fw)} onChange={e => updateField(ctl.id, 'ctl_ref_fw', e.target.value as any)} className={editInputCls} />
 
 
 
-                                        ) : (ctl.ctl_ref_fw || '---')}
+                                        ) : (fwToString(ctl.ctl_ref_fw) || '---')}
 
 
 
