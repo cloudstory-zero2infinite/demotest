@@ -99,5 +99,5 @@ jobs:
             --platform managed \
             --allow-unauthenticated \
             --set-env-vars \
-              SUPABASE_URL=${{ secrets.SUPABASE_URL }},SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }},AI_AGENT_URL=${{ secrets.AI_AGENT_URL }},FRONTEND_URL=${{ env.DEPLOY_FRONTEND_URL }}
+              SUPABASE_URL=${{ secrets.SUPABASE_URL }},SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }},AI_AGENT_URL=${{ secrets.AI_AGENT_URL }},FRONTEND_URL=${{ env.DEPLOY_FRONTEND_URL }},SMTP_HOST=${{ secrets.SMTP_HOST }},SMTP_PORT=${{ secrets.SMTP_PORT}},SMTP_USER=${{ secrets.SMTP_USER }},SMTP_PASS=${{ secrets.SMTP_PASS}},SMTP_FROM=${{ secrets.SMTP_FROM }}
 

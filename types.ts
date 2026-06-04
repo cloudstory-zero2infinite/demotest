@@ -434,7 +434,7 @@ export interface AllActivityLog {
 
 // --- Policy V2 Types (Markdown-first workflow) ---
 
-export type PolicyWorkflowStatus = 'draft' | 'to_review' | 'in_approval' | 'approved' | 'reviewed';
+export type PolicyWorkflowStatus = 'draft' | 'to_review' | 'in_approval' | 'approved' | 'reviewed' | 'overdue';
 
 export interface PolicyV2 {
   policy_id: string;
@@ -549,11 +549,23 @@ export interface PolicyNotification {
   recipient_id: string;
   policy_id: string;
   policy_name: string;
-  type: 'approval_requested' | 'approved' | 'rejected' | 'reviewed';
+  type: 'approval_requested' | 'approved' | 'rejected' | 'reviewed' | 'policy_expired';
   message: string;
   read: boolean;
   org_id: string;
   created_at: string;
+}
+
+// --- Email Templates (Organisation → Templates) ---
+
+export interface EmailTemplate {
+  id: string;
+  org_id: string;
+  name: string;
+  subject: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // --- Policy Manager Types ---

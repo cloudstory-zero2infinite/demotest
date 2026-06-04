@@ -159,12 +159,18 @@ export const Header: React.FC<HeaderProps> = ({
 
     const handleNotificationClick = async (notif: UnifiedNotification) => {
         if (!notif.read) {
-            if (notif.source === 'policy') {
-                await SupabaseService.markPolicyNotificationRead(notif.id);
-            } else if (notif.source === 'control') {
-                await SupabaseService.markControlNotificationRead(notif.id);
-            } else if (notif.source === 'org') {
-                await SupabaseService.markOrgNotificationRead(notif.id);
+            // Mark-as-read must never block navigation — wrap in try/catch so a
+            // failed/missing read call still lets the user land on the target.
+            try {
+                if (notif.source === 'policy') {
+                    await SupabaseService.markPolicyNotificationRead(notif.id);
+                } else if (notif.source === 'control') {
+                    await SupabaseService.markControlNotificationRead(notif.id);
+                } else if (notif.source === 'org') {
+                    await SupabaseService.markOrgNotificationRead(notif.id);
+                }
+            } catch (err) {
+                console.error('Failed to mark notification as read:', err);
             }
             setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, read: true } : n));
         }

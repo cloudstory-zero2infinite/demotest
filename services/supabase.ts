@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate, MapperRunResult, MapperGraph } from '../types';
+import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate, MapperRunResult, MapperGraph, EmailTemplate } from '../types';
 import { isDemoEnabled } from './demo/demoMode';
 import { handleDemoRequest } from './demo/demoApi';
 
@@ -246,6 +246,10 @@ export const getOrgNotifications = async (): Promise<OrgNotification[]> => {
 };
 
 
+
+export const markOrgNotificationRead = async (id: string): Promise<void> => {
+  return apiRequest<void>(`/api/org/notifications/${id}/read`, { method: 'PUT' });
+};
 
 export const markAllNotificationsRead = async (): Promise<void> => {
   return apiRequest<void>('/api/org/notifications/read-all', { method: 'PUT' });
@@ -2010,15 +2014,30 @@ export const deleteAssetRelationshipsBulk = async (ids: string[]): Promise<{ del
 
 
 
-export const getOrgSettings = async (): Promise<{ policy_refresh_months: number; needed_framework: string[] }> =>
+export const getOrgSettings = async (): Promise<{ policy_refresh_months: number; policy_expiry_template_id: string | null; needed_framework: string[] }> =>
 
   apiRequest('/api/org-settings');
 
 
 
-export const updateOrgSettings = async (settings: { policy_refresh_months?: number; needed_framework?: string[] }): Promise<{ policy_refresh_months: number; needed_framework?: string[] }> =>
+export const updateOrgSettings = async (settings: { policy_refresh_months?: number; needed_framework?: string[]; policy_expiry_template_id?: string | null }): Promise<{ policy_refresh_months: number; policy_expiry_template_id: string | null; needed_framework?: string[] }> =>
 
   apiRequest('/api/org-settings', { method: 'PUT', body: JSON.stringify(settings) });
+
+
+
+// ── Email Templates (Organisation → Templates) ─────────────────────────────
+export const getEmailTemplates = async (): Promise<EmailTemplate[]> =>
+  apiRequest('/api/email-templates');
+
+export const createEmailTemplate = async (t: { name: string; subject: string; body: string }): Promise<EmailTemplate> =>
+  apiRequest('/api/email-templates', { method: 'POST', body: JSON.stringify(t) });
+
+export const updateEmailTemplate = async (id: string, t: { name?: string; subject?: string; body?: string }): Promise<EmailTemplate> =>
+  apiRequest(`/api/email-templates/${id}`, { method: 'PUT', body: JSON.stringify(t) });
+
+export const deleteEmailTemplate = async (id: string): Promise<void> =>
+  apiRequest(`/api/email-templates/${id}`, { method: 'DELETE' });
 
 
 

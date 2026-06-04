@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 
 export type MainTab = 'dashboard' | 'organisation' | 'program' | 'governance' | 'compliance' | 'logs';
 
-export type OrgSubTab = 'view_org' | 'tenant_admin' | 'settings';
+export type OrgSubTab = 'view_org' | 'tenant_admin' | 'templates' | 'settings';
 
 export type GovernanceSubTab = 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry' | 'due_diligence';
 

@@ -156,6 +156,29 @@ def write_policy_mapping(payload: dict[str, Any]) -> dict[str, Any]:
                 document_type=c.get("document_type"),
             )
 
+        # 3b. Upsert the tenant ROOT node and own every policy under it.
+        #     The Org node (keyed by org_id) is the single root of this
+        #     tenant's subgraph — every Policy hangs off it via HAS_POLICY.
+        #     This is the structural guarantee against cross-tenant leakage:
+        #     the whole graph for a tenant is reachable from, and anchored to,
+        #     its Org node. The Org node is NOT emitted by read_graph(), so the
+        #     visualizer still appears rooted at the master policy.
+        s.run(
+            """
+            MERGE (o:Org {org_id: $org_id})
+            SET   o.name = $org_name
+            """,
+            org_id=org_id, org_name=master.get("org_name") or org_id,
+        )
+        s.run(
+            """
+            MATCH (o:Org    {org_id: $org_id})
+            MATCH (p:Policy {org_id: $org_id})
+            MERGE (o)-[:HAS_POLICY {org_id: $org_id}]->(p)
+            """,
+            org_id=org_id,
+        )
+
         # 4. MERGE the SCFDomain nodes referenced in this run (per-org).
         for scf_id in referenced_scf_ids:
             meta = scf_index.get(scf_id) or {}
@@ -442,7 +465,7 @@ def read_graph(org_id: str, master_policy_id: str | None = None) -> dict[str, An
 
         # 2. DEFINES — master → SecurityObjective.
         for record in s.run(
-            "MATCH (m:Policy {org_id: $org_id, is_master: true})-[d:DEFINES]->(so:SecurityObjective) "
+            "MATCH (m:Policy {org_id: $org_id, is_master: true})-[d:DEFINES]->(so:SecurityObjective {org_id: $org_id}) "
             + ("WHERE m.policy_id = $master_id " if master_policy_id else "")
             + "RETURN m.policy_id AS master_id, so, d",
             **master_params,
@@ -461,7 +484,7 @@ def read_graph(org_id: str, master_policy_id: str | None = None) -> dict[str, An
 
         # 3. MAPS_TO — SecurityObjective → SCFDomain.
         for record in s.run(
-            "MATCH (so:SecurityObjective {org_id: $org_id})-[mt:MAPS_TO]->(sd:SCFDomain) "
+            "MATCH (so:SecurityObjective {org_id: $org_id})-[mt:MAPS_TO]->(sd:SCFDomain {org_id: $org_id}) "
             + ("WHERE so.master_policy_id = $master_id " if master_policy_id else "")
             + "RETURN so, sd, mt",
             **master_params,
@@ -482,7 +505,7 @@ def read_graph(org_id: str, master_policy_id: str | None = None) -> dict[str, An
 
         # 4. HAS_CHILD — master → child Policy.
         for record in s.run(
-            "MATCH (m:Policy {org_id: $org_id, is_master: true})-[r:HAS_CHILD]->(c:Policy) "
+            "MATCH (m:Policy {org_id: $org_id, is_master: true})-[r:HAS_CHILD]->(c:Policy {org_id: $org_id}) "
             + ("WHERE m.policy_id = $master_id " if master_policy_id else "")
             + "RETURN m.policy_id AS master_id, c, r, labels(c) AS clabels",
             **master_params,
@@ -509,7 +532,7 @@ def read_graph(org_id: str, master_policy_id: str | None = None) -> dict[str, An
 
         # 5. COVERS — child Policy → SCFDomain.
         for record in s.run(
-            "MATCH (c:Policy {org_id: $org_id, is_master: false})-[cv:COVERS]->(sd:SCFDomain) "
+            "MATCH (c:Policy {org_id: $org_id, is_master: false})-[cv:COVERS]->(sd:SCFDomain {org_id: $org_id}) "
             "RETURN c, sd, cv",
             org_id=org_id,
         ):
@@ -537,7 +560,7 @@ def read_graph(org_id: str, master_policy_id: str | None = None) -> dict[str, An
 
         # 7. IMPLEMENTED_BY — SCFDomain → Control.
         for record in s.run(
-            "MATCH (sd:SCFDomain {org_id: $org_id})-[r:IMPLEMENTED_BY]->(ctl:Control) "
+            "MATCH (sd:SCFDomain {org_id: $org_id})-[r:IMPLEMENTED_BY]->(ctl:Control {org_id: $org_id}) "
             "RETURN sd, ctl, r",
             org_id=org_id,
         ):
@@ -556,7 +579,7 @@ def read_graph(org_id: str, master_policy_id: str | None = None) -> dict[str, An
 
         # 8. ENFORCED_BY — Control → Capability.
         for record in s.run(
-            "MATCH (ctl:Control {org_id: $org_id})-[r:ENFORCED_BY]->(cp:Capability) "
+            "MATCH (ctl:Control {org_id: $org_id})-[r:ENFORCED_BY]->(cp:Capability {org_id: $org_id}) "
             "RETURN ctl, cp, r",
             org_id=org_id,
         ):
@@ -575,7 +598,7 @@ def read_graph(org_id: str, master_policy_id: str | None = None) -> dict[str, An
 
         # 9. PROVIDED_BY — Capability → Asset.
         for record in s.run(
-            "MATCH (cp:Capability {org_id: $org_id})-[r:PROVIDED_BY]->(ast:Asset) "
+            "MATCH (cp:Capability {org_id: $org_id})-[r:PROVIDED_BY]->(ast:Asset {org_id: $org_id}) "
             "RETURN cp, ast, r",
             org_id=org_id,
         ):

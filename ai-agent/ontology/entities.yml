@@ -18,6 +18,30 @@ version: 2
 
 entities:
 
+  Org:
+    description: >
+      The tenant / organisation ROOT node — exactly one per org_id. Every
+      Policy the org owns hangs off it via HAS_POLICY, so the Org node is the
+      single, unambiguous root of that tenant's subgraph. It is the structural
+      anchor for multi-tenant isolation: writes create it, every Policy is
+      owned by it, and reads stay scoped to org_id. The Org node is deliberately
+      NOT emitted by `read_graph` — the visualizer stays rooted at the master
+      Information Security policy, as if the org root were invisible above it.
+    source:
+      type: supabase
+      table: organizations
+      org_scope_column: id
+    source_columns:
+      - id
+      - name
+    neo4j_label: Org
+    properties:
+      - name: org_id
+        required: true
+      - name: name
+    id_strategy:
+      keys: [org_id]
+
   Policy:
     description: >
       A policy document owned by an organisation. Two flavours coexist with the
