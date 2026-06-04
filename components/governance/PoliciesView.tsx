@@ -48,13 +48,17 @@ const STATUS_META: Record<string, { label: string; border: string; badge: string
     in_approval: { label: 'In Approval', border: 'border-l-yellow-500', badge: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300', dot: 'bg-yellow-500' },
     approved:    { label: 'Approved',    border: 'border-l-green-500',  badge: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',     dot: 'bg-green-500' },
     reviewed:    { label: 'Reviewed',    border: 'border-l-blue-500',   badge: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',         dot: 'bg-blue-500' },
-    expired:     { label: 'Expired',     border: 'border-l-red-900',    badge: 'bg-red-200 text-red-900 dark:bg-red-900/40 dark:text-red-200',             dot: 'bg-red-900' },
+    overdue:     { label: 'Overdue',     border: 'border-l-red-600',    badge: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',             dot: 'bg-red-600' },
 };
 
+// A policy is overdue once its due date has lapsed. The cron flips approved →
+// 'overdue', but we also treat an approved policy whose date has just passed
+// (before the cron runs) as overdue so the UI is never stale. Only 'approved'
+// policies carry a due date, so 'reviewed'/others can never be overdue.
 const isExpired = (p: PolicyV2) =>
-    (p.policy_status === 'approved' || p.policy_status === 'reviewed') && !!p.refresh_date && new Date(p.refresh_date) < new Date();
+    p.policy_status === 'approved' && !!p.refresh_date && new Date(p.refresh_date) < new Date();
 
-const effectiveStatus = (p: PolicyV2) => (isExpired(p) ? 'expired' : p.policy_status);
+const effectiveStatus = (p: PolicyV2) => (p.policy_status === 'overdue' || isExpired(p)) ? 'overdue' : p.policy_status;
 
 const StatusBadge: React.FC<{ policy: PolicyV2 }> = ({ policy }) => {
     const s = effectiveStatus(policy);
@@ -884,7 +888,7 @@ interface PolicyCardProps {
 const PolicyCard: React.FC<PolicyCardProps> = ({ policy, selected, onToggleSelect, onView }) => {
     const s = effectiveStatus(policy);
     const meta = STATUS_META[s] || STATUS_META.draft;
-    const expired = isExpired(policy);
+    const expired = s === 'overdue';
 
     return (
         <div
@@ -914,7 +918,7 @@ const PolicyCard: React.FC<PolicyCardProps> = ({ policy, selected, onToggleSelec
                     <StatusBadge policy={policy} />
                     {policy.refresh_date && (
                         <span className={`text-[10px] ${expired ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
-                            {expired ? '⚠ Expired' : 'Refresh'}: {new Date(policy.refresh_date).toLocaleDateString()}
+                            {expired ? '⚠ Overdue' : 'Refresh'}: {new Date(policy.refresh_date).toLocaleDateString()}
                         </span>
                     )}
                 </div>

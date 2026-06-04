@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import * as SupabaseService from '../../services/supabase';
-import { ScfFramework, FwcrPreview, FwcrApplyResult, NnPreview } from '../../types';
+import { ScfFramework, FwcrPreview, FwcrApplyResult, NnPreview, EmailTemplate } from '../../types';
 
 interface OrgSettingsTabProps {
     isActive?: boolean;
@@ -17,6 +17,8 @@ type RecomputeUiState =
 
 export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true, readOnly = false }) => {
     const [policyRefreshMonths, setPolicyRefreshMonths] = useState(3);
+    const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([]);
+    const [policyExpiryTemplateId, setPolicyExpiryTemplateId] = useState<string>('');
     const [frameworks, setFrameworks] = useState<ScfFramework[]>([]);
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [savedSelected, setSavedSelected] = useState<Set<string>>(new Set());
@@ -32,13 +34,16 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
         Promise.all([
             SupabaseService.getOrgSettings(),
             SupabaseService.getScfFrameworks(),
+            SupabaseService.getEmailTemplates(),
         ])
-            .then(([settings, fws]) => {
+            .then(([settings, fws, templates]) => {
                 setPolicyRefreshMonths(settings.policy_refresh_months);
+                setPolicyExpiryTemplateId(settings.policy_expiry_template_id || '');
                 const saved = new Set(settings.needed_framework || []);
                 setSelected(saved);
                 setSavedSelected(new Set(saved));
                 setFrameworks(fws || []);
+                setEmailTemplates(templates || []);
             })
             .catch(() => {})
             .finally(() => setLoading(false));
@@ -90,8 +95,10 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
             const res = await SupabaseService.updateOrgSettings({
                 policy_refresh_months: policyRefreshMonths,
                 needed_framework: [...selected],
+                policy_expiry_template_id: policyExpiryTemplateId || null,
             });
             setPolicyRefreshMonths(res.policy_refresh_months);
+            setPolicyExpiryTemplateId(res.policy_expiry_template_id || '');
             const newSaved = new Set(res.needed_framework || []);
             setSavedSelected(newSaved);
             setSelected(new Set(newSaved));
@@ -204,7 +211,29 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                     </div>
                 </div>
                 <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
-                    Approved policies will automatically expire and move to "In Review" status after this period.
+                    Approved policies will automatically expire and move to "Overdue" status after this period.
+                </p>
+
+                <div className="mt-5 pt-5 border-t border-gray-100 dark:border-gray-700 flex items-center gap-4">
+                    <label htmlFor="policy-expiry-template" className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                        Policy expiry email template
+                    </label>
+                    <select
+                        id="policy-expiry-template"
+                        value={policyExpiryTemplateId}
+                        onChange={(e) => setPolicyExpiryTemplateId(e.target.value)}
+                        disabled={readOnly}
+                        className={`min-w-[16rem] px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    >
+                        <option value="">Built-in default</option>
+                        {emailTemplates.map((t) => (
+                            <option key={t.id} value={t.id}>{t.name}</option>
+                        ))}
+                    </select>
+                </div>
+                <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                    Drives the 14 / 7 / 1-day expiry reminder emails. Create templates under
+                    Organisation → Templates. Leave as "Built-in default" to use the standard wording.
                 </p>
             </div>
 

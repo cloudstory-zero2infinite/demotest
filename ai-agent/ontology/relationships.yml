@@ -12,6 +12,23 @@ version: 2
 
 relationships:
 
+  HAS_POLICY:
+    description: >
+      The tenant Org node owns a Policy (master or child). Created for EVERY
+      policy in the org so the Org node is the structural root of the tenant's
+      subgraph — this is what guarantees a tenant's nodes/edges never leak into
+      another tenant's graph. Deterministic: both endpoints are Supabase-backed
+      Policy rows, no LLM. Filtered out of the visualizer (which stays rooted at
+      the master policy).
+    from_entity: Org
+    to_entity: Policy
+    neo4j_type: HAS_POLICY
+    cardinality: one_to_many
+    derivation: from_source
+    properties:
+      - name: org_id
+        required: true
+
   DEFINES:
     description: >
       The master policy defines the security objectives the organisation

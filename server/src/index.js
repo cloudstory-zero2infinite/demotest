@@ -211,6 +211,7 @@ import { capabilitiesRouter } from "./routes/capabilities.js";
 import { controlRegistryRouter } from "./routes/control-registry.js";
 
 import { orgSettingsRouter } from "./routes/org-settings.js";
+import { emailTemplatesRouter } from "./routes/email-templates.js";
 
 import { orgContactsRouter } from "./routes/org-contacts.js";
 
@@ -220,7 +221,7 @@ import { customFieldsRouter } from "./routes/custom-fields.js";
 
 import { assetTypesRouter } from "./routes/asset-types.js";
 
-import { checkAllExpiredPolicies } from "./jobs/policy-expiry.js";
+import { checkAllExpiredPolicies, sendExpiryReminders } from "./jobs/policy-expiry.js";
 import { scoringRouter } from "./routes/scoring.js";
 import { mapperRouter } from "./routes/mapper.js";
 import { fwcrRouter } from "./routes/fwcr.js";
@@ -301,6 +302,7 @@ app.use("/api/capabilities", capabilitiesRouter);
 app.use("/api/control-registry", controlRegistryRouter);
 
 app.use("/api/org-settings", orgSettingsRouter);
+app.use("/api/email-templates", emailTemplatesRouter);
 
 app.use("/api/org-contacts", orgContactsRouter);
 
@@ -348,10 +350,13 @@ app.get("*", (req, res) => {
 
 
 
-// Check for expired policies every 6 hours
+// Check for expired policies + send expiry reminders every 6 hours.
+// Reminder sends are idempotent (reminder_*_sent_at flags), so the 6h cadence
+// is safe — each of the 14d/7d/1d reminders goes out at most once per cycle.
 cron.schedule('0 */6 * * *', () => {
-  console.log('[cron] Running policy expiry check...');
+  console.log('[cron] Running policy expiry check + reminders...');
   checkAllExpiredPolicies();
+  sendExpiryReminders();
 });
 
 
