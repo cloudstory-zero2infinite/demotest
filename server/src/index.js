@@ -226,6 +226,8 @@ import { scoringRouter } from "./routes/scoring.js";
 import { mapperRouter } from "./routes/mapper.js";
 import { fwcrRouter } from "./routes/fwcr.js";
 import { scfFrameworksRouter } from "./routes/scf-frameworks.js";
+import { ddRouter } from "./routes/dd.js";
+import { riskRouter } from "./routes/risk.js";
 
 
 
@@ -311,6 +313,10 @@ app.use("/api/mapper", mapperRouter);
 app.use("/api/fwcr", fwcrRouter);
 
 app.use("/api/scf/frameworks", scfFrameworksRouter);
+
+app.use("/api/dd", ddRouter);
+
+app.use("/api/risk", riskRouter);
 
 
 

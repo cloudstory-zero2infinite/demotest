@@ -33,6 +33,11 @@ app.include_router(mapper_router, prefix="/mapper")
 from fwcr_agent.router import router as fwcr_router
 app.include_router(fwcr_router, prefix="/fwcr")
 
+# Due Diligence & TPRM Agent — auto-answers uploaded questionnaires and answers
+# short security-posture questions, grounded in the org's GRC data. Stateless.
+from dd_agent.router import router as dd_router
+app.include_router(dd_router, prefix="/dd")
+
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 

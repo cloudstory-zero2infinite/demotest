@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate, MapperRunResult, MapperGraph, EmailTemplate } from '../types';
+import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate, MapperRunResult, MapperGraph, EmailTemplate, QuestionnaireResult, DueDiligenceChatResult, RiskRegisterEntry, RiskComputeResult, ManualRiskInput } from '../types';
 import { isDemoEnabled } from './demo/demoMode';
 import { handleDemoRequest } from './demo/demoApi';
 
@@ -857,6 +857,55 @@ export const runMapper = async (trigger: string = 'policies'): Promise<MapperRun
 export const getMapperGraph = async (masterPolicyId?: string): Promise<MapperGraph> => {
   const qs = masterPolicyId ? `?master_policy_id=${encodeURIComponent(masterPolicyId)}` : '';
   return apiRequest<MapperGraph>(`/api/mapper/graph${qs}`);
+};
+
+// ─── Due Diligence & TPRM ─────────────────────────────────────────────────
+export const answerQuestionnaire = async (
+  headers: string[],
+  rows: Record<string, any>[],
+  questionColumn?: string | null,
+): Promise<QuestionnaireResult> => {
+  return apiRequest<QuestionnaireResult>('/api/dd/answer-questionnaire', {
+    method: 'POST',
+    body: JSON.stringify({ headers, rows, question_column: questionColumn ?? null }),
+  });
+};
+
+export const askDueDiligence = async (
+  question: string,
+  history?: { role: string; text: string }[],
+): Promise<DueDiligenceChatResult> => {
+  return apiRequest<DueDiligenceChatResult>('/api/dd/ask', {
+    method: 'POST',
+    body: JSON.stringify({ question, history: history ?? null }),
+  });
+};
+
+// ─── Risk Registry ─────────────────────────────────────────────────────────
+export const computeRisk = async (): Promise<RiskComputeResult> => {
+  return apiRequest<RiskComputeResult>('/api/risk/compute', { method: 'POST' });
+};
+
+export const getRiskRegister = async (): Promise<{ computed_at: string | null; register: RiskRegisterEntry[] }> => {
+  return apiRequest<{ computed_at: string | null; register: RiskRegisterEntry[] }>('/api/risk/register');
+};
+
+export const addManualRisk = async (risk: ManualRiskInput): Promise<RiskRegisterEntry> => {
+  return apiRequest<RiskRegisterEntry>('/api/risk/manual', {
+    method: 'POST',
+    body: JSON.stringify(risk),
+  });
+};
+
+export const updateManualRisk = async (id: string, risk: ManualRiskInput): Promise<RiskRegisterEntry> => {
+  return apiRequest<RiskRegisterEntry>(`/api/risk/manual/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(risk),
+  });
+};
+
+export const deleteManualRisk = async (id: string): Promise<void> => {
+  return apiRequest<void>(`/api/risk/manual/${id}`, { method: 'DELETE' });
 };
 
 export const deletePolicy = async (id: string): Promise<void> => {
