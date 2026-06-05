@@ -10,7 +10,7 @@ router.get('/', requireAuth, async (req, res) => {
     // Fetch org_settings row
     const { data, error } = await supabaseAdmin
       .from('org_settings')
-      .select('policy_refresh_months')
+      .select('policy_refresh_months, policy_expiry_template_id')
       .eq('org_id', req.orgId)
       .maybeSingle();
 
@@ -21,7 +21,7 @@ router.get('/', requireAuth, async (req, res) => {
       const { data: created, error: createErr } = await supabaseAdmin
         .from('org_settings')
         .upsert({ org_id: req.orgId, policy_refresh_months: 3 }, { onConflict: 'org_id' })
-        .select('policy_refresh_months')
+        .select('policy_refresh_months, policy_expiry_template_id')
         .single();
       if (createErr) throw createErr;
       settings = created;
@@ -36,6 +36,7 @@ router.get('/', requireAuth, async (req, res) => {
 
     res.json({
       policy_refresh_months: settings.policy_refresh_months,
+      policy_expiry_template_id: settings.policy_expiry_template_id ?? null,
       needed_framework: org?.needed_framework ?? [],
     });
   } catch (err) {
@@ -66,7 +67,7 @@ router.put('/', requireAuth, async (req, res) => {
       return res.status(403).json({ message: 'Only admins, tenant_admins, and CXOs can update organisation settings' });
     }
 
-    const { policy_refresh_months, needed_framework } = req.body;
+    const { policy_refresh_months, needed_framework, policy_expiry_template_id } = req.body;
 
     if (policy_refresh_months !== undefined) {
       if (!Number.isInteger(policy_refresh_months) || policy_refresh_months < 1) {
@@ -81,11 +82,13 @@ router.put('/', requireAuth, async (req, res) => {
     // Update org_settings table
     const settingsPayload = { org_id: req.orgId, updated_at: new Date().toISOString() };
     if (policy_refresh_months !== undefined) settingsPayload.policy_refresh_months = policy_refresh_months;
+    // null clears the selection → reminders fall back to the built-in default.
+    if (policy_expiry_template_id !== undefined) settingsPayload.policy_expiry_template_id = policy_expiry_template_id || null;
 
     const { data, error } = await supabaseAdmin
       .from('org_settings')
       .upsert(settingsPayload, { onConflict: 'org_id' })
-      .select('policy_refresh_months')
+      .select('policy_refresh_months, policy_expiry_template_id')
       .single();
 
     if (error) throw error;
@@ -106,6 +109,7 @@ router.put('/', requireAuth, async (req, res) => {
 
     res.json({
       policy_refresh_months: data.policy_refresh_months,
+      policy_expiry_template_id: data.policy_expiry_template_id ?? null,
       needed_framework: needed_framework !== undefined ? savedFrameworks : undefined,
     });
   } catch (err) {

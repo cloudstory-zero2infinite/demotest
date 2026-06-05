@@ -18,9 +18,10 @@ function formatBytes(n: number): string {
 
 export const ControlFrameworkManager: React.FC = () => {
   const [files, setFiles] = useState<ScfFile[]>([]);
-  const [counts, setCounts] = useState<{ domains: number; controls: number }>({
+  const [counts, setCounts] = useState<{ domains: number; controls: number; risks?: number }>({
     domains: 0,
     controls: 0,
+    risks: 0,
   });
   const [domains, setDomains] = useState<ScfDomain[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,7 +54,7 @@ export const ControlFrameworkManager: React.FC = () => {
     try {
       const result = await uploadControlFramework(file);
       push(
-        `Uploaded ${result.name} — ${result.counts.domains} domains, ${result.counts.controls} controls` +
+        `Uploaded ${result.name} — ${result.counts.domains} domains, ${result.counts.controls} controls, ${result.counts.risks ?? 0} risks` +
           (result.skipped_controls
             ? ` (${result.skipped_controls} controls skipped — unknown domain prefix)`
             : ''),
@@ -147,7 +148,7 @@ export const ControlFrameworkManager: React.FC = () => {
           </div>
         </div>
 
-        <div className="px-5 py-3 grid grid-cols-2 gap-3 text-sm border-b border-gray-200 dark:border-gray-700">
+        <div className="px-5 py-3 grid grid-cols-3 gap-3 text-sm border-b border-gray-200 dark:border-gray-700">
           <div>
             <div className="text-gray-500 dark:text-gray-400 text-xs uppercase">Parsed domains</div>
             <div className="text-2xl font-semibold">{counts.domains}</div>
@@ -155,6 +156,10 @@ export const ControlFrameworkManager: React.FC = () => {
           <div>
             <div className="text-gray-500 dark:text-gray-400 text-xs uppercase">Parsed controls</div>
             <div className="text-2xl font-semibold">{counts.controls}</div>
+          </div>
+          <div>
+            <div className="text-gray-500 dark:text-gray-400 text-xs uppercase">Parsed risks</div>
+            <div className="text-2xl font-semibold">{counts.risks ?? 0}</div>
           </div>
         </div>
 

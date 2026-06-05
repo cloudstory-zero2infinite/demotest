@@ -35,17 +35,17 @@ export const ControlsCoverageCard: React.FC<Props> = ({ categories }) => {
 
     return (
         <ChartCard title="Controls Coverage" right={right}>
-            <div className="relative flex-1" style={{ height: '190px' }}>
+            <div className="relative" style={{ height: '170px' }}>
                 {total === 0 ? (
                     <p className="text-sm text-gray-400 dark:text-gray-500 py-8 text-center">No controls yet.</p>
                 ) : (
                     <>
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
-                                <Pie data={inner} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={55} stroke="none">
+                                <Pie data={inner} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={48} stroke="none">
                                     {inner.map((e, i) => <Cell key={`in-${i}`} fill={e.color} />)}
                                 </Pie>
-                                <Pie data={outer} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={82} paddingAngle={1} stroke="none">
+                                <Pie data={outer} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={52} outerRadius={70} paddingAngle={1} stroke="none">
                                     {outer.map((e, i) => <Cell key={`out-${i}`} fill={e.color} />)}
                                 </Pie>
                                 <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(v: any, n: any) => [v, n]} />

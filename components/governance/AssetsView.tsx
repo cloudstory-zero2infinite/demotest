@@ -2497,6 +2497,8 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                         value={filter}
                         onChange={e => setFilter(e.target.value)}
                         className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        aria-label="Filter assets"
+                        data-testid="asset-filter-input"
                     />
                 </div>
                 <div className="flex space-x-2">
@@ -2510,7 +2512,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                     <button onClick={handleExportCSV} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <DownloadIcon className="h-5 w-5" />
                     </button>
-                    <button onClick={() => setModalState({ type: 'add' })} title="Add Asset" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                    <button onClick={() => setModalState({ type: 'add' })} title="Add Asset" aria-label="Add new asset" data-testid="asset-add-btn" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <PlusIcon className="h-5 w-5" />
                     </button>
                 </div>
@@ -2533,7 +2535,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
 
 
-                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    <table data-testid="asset-table" data-loading={loading ? "true" : "false"} className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
 
 
 

@@ -434,7 +434,7 @@ export interface AllActivityLog {
 
 // --- Policy V2 Types (Markdown-first workflow) ---
 
-export type PolicyWorkflowStatus = 'draft' | 'to_review' | 'in_approval' | 'approved' | 'reviewed';
+export type PolicyWorkflowStatus = 'draft' | 'to_review' | 'in_approval' | 'approved' | 'reviewed' | 'overdue';
 
 export interface PolicyV2 {
   policy_id: string;
@@ -530,6 +530,78 @@ export interface MapperGraph {
   edges: MapperGraphEdge[];
 }
 
+// ─── Due Diligence & TPRM ─────────────────────────────────────────────────
+// Maps each of our four canonical answer fields to an existing questionnaire
+// column header (or null when none exists and we should append a column).
+export interface DueDiligenceColumnMap {
+  answer: string | null;
+  comments: string | null;
+  evidence: string | null;
+  rationale: string | null;
+}
+
+export interface DueDiligenceAnswer {
+  row_index: number;
+  answer: string;
+  comments: string;
+  evidence: string;
+  rationale: string;
+}
+
+export interface QuestionnaireResult {
+  status: string;
+  question_column: string;
+  column_map: DueDiligenceColumnMap;
+  answers: DueDiligenceAnswer[];
+  questions_answered: number;
+}
+
+export interface DueDiligenceChatResult {
+  status: string;
+  answer: string;
+  sources: string[];
+}
+
+// ─── Risk Registry ────────────────────────────────────────────────────────
+export type RiskLevel = 'Critical' | 'High' | 'Medium' | 'Low' | 'None';
+
+export interface RiskRegisterEntry {
+  id: string;
+  org_id: string;
+  risk_id: string;
+  risk_grouping: string | null;
+  risk_name: string | null;
+  risk_description: string | null;
+  nist_csf_function: string | null;
+  total_controls: number;
+  enforced_controls: number;
+  total_weight: number;
+  enforced_weight: number;
+  gap: number;
+  inherent_score: number;
+  residual_score: number;
+  inherent_level: RiskLevel | null;
+  residual_level: RiskLevel | null;
+  source: 'computed' | 'manual';
+  computed_at: string;
+}
+
+export interface ManualRiskInput {
+  risk_name: string;
+  risk_grouping?: string;
+  risk_description?: string;
+  nist_csf_function?: string;
+  inherent_level: RiskLevel;
+  residual_level: RiskLevel;
+}
+
+export interface RiskComputeResult {
+  status: string;
+  computed_at: string;
+  count: number;
+  register: RiskRegisterEntry[];
+}
+
 export interface PolicyApproval {
   id: string;
   policy_id: string;
@@ -549,11 +621,23 @@ export interface PolicyNotification {
   recipient_id: string;
   policy_id: string;
   policy_name: string;
-  type: 'approval_requested' | 'approved' | 'rejected' | 'reviewed';
+  type: 'approval_requested' | 'approved' | 'rejected' | 'reviewed' | 'policy_expired';
   message: string;
   read: boolean;
   org_id: string;
   created_at: string;
+}
+
+// --- Email Templates (Organisation → Templates) ---
+
+export interface EmailTemplate {
+  id: string;
+  org_id: string;
+  name: string;
+  subject: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // --- Policy Manager Types ---

@@ -7,6 +7,7 @@ import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
 import { PlatformAdminTab } from '../admin/PlatformAdminTab';
 import { ViewOrganizationTab } from '../org/ViewOrganizationTab';
 import { OrgSettingsTab } from '../org/OrgSettingsTab';
+import { OrgTemplatesTab } from '../org/OrgTemplatesTab';
 import { parseCSVLine } from '../../utils/csvParser';
 
 interface ContactModalProps {
@@ -313,7 +314,7 @@ interface OrganisationTabProps {
     isActive?: boolean;
 }
 
-type OrgSubTabId = 'tenant_admin' | 'view_org' | 'settings';
+type OrgSubTabId = 'tenant_admin' | 'view_org' | 'templates' | 'settings';
 
 export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, isActive = true }) => {
     const isPlatformAdmin = userRole === 'tenant_admin' || userRole === 'admin' || userRole === 'cxo';
@@ -338,6 +339,7 @@ export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, isAc
     const subTabs: { id: OrgSubTabId; label: string; adminOnly?: boolean }[] = [
         { id: 'tenant_admin', label: 'Manage Members', adminOnly: true },
         { id: 'view_org', label: 'View Organisation' },
+        { id: 'templates', label: 'Templates', adminOnly: true },
         { id: 'settings', label: 'Settings', adminOnly: true },
     ];
 
@@ -374,6 +376,11 @@ export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, isAc
                 {mountedTabs.has('view_org') && (
                     <div className={activeSubTab === 'view_org' ? '' : 'hidden'}>
                         <ViewOrganizationTab isActive={isActive && activeSubTab === 'view_org'} />
+                    </div>
+                )}
+                {mountedTabs.has('templates') && (
+                    <div className={activeSubTab === 'templates' ? '' : 'hidden'}>
+                        <OrgTemplatesTab isActive={isActive && activeSubTab === 'templates'} readOnly={!canManageSettings} />
                     </div>
                 )}
                 {mountedTabs.has('settings') && (

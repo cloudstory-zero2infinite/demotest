@@ -44,9 +44,11 @@ inputs:
 # entities.yml and relationships.yml.
 outputs:
   entities:
+    - Org                                  # tenant root (NOT shown in visualizer)
     - SecurityObjective
     - SCFDomain                            # materialised per-org in Neo4j
   relationships:
+    - HAS_POLICY                           # org     -> every policy (tenant root)
     - DEFINES                              # master  -> objective
     - MAPS_TO                              # objective -> SCFDomain
     - HAS_CHILD                            # master  -> child policy

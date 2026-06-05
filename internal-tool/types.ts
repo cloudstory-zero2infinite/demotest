@@ -64,14 +64,23 @@ export interface ScfDomain {
   sort_order: number | null;
 }
 
+export interface ScfCounts {
+  domains: number;
+  controls: number;
+  frameworks?: number;
+  control_framework_pairs?: number;
+  risks?: number;
+  control_risk_pairs?: number;
+}
+
 export interface ScfFilesResponse {
   files: ScfFile[];
-  counts: { domains: number; controls: number };
+  counts: ScfCounts;
 }
 
 export interface ScfUploadResult {
   name: string;
-  counts: { domains: number; controls: number };
+  counts: ScfCounts;
   skipped_controls: number;
   skipped_sample: { scfControlId: string; scfId: string }[];
 }

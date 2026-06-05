@@ -16,6 +16,8 @@ import { ControlRegistryView } from '../governance/ControlRegistryView';
 
 import { MapperVisualizerView } from '../governance/MapperVisualizerView';
 
+import { DueDiligenceTPRMView } from '../governance/DueDiligenceTPRMView';
+
 
 
 
@@ -29,7 +31,7 @@ interface GovernanceTabProps {
 
     onExternalSubTabConsumed?: () => void;
 
-    activeGovernanceSubTab?: 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry' | 'mapper_visualizer';
+    activeGovernanceSubTab?: 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry' | 'due_diligence' | 'mapper_visualizer';
 
 }
 
@@ -49,7 +51,7 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
 
 }) => {
 
-    type SubTab = 'controls' | 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry' | 'mapper_visualizer';
+    type SubTab = 'controls' | 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry' | 'due_diligence' | 'mapper_visualizer';
 
     const [activeSubTab, setActiveSubTab] = useState<SubTab>(activeGovernanceSubTab);
 
@@ -154,11 +156,12 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
         { id: 'relationships', label: 'Asset Relationships' },
         { id: 'capabilities', label: 'Capability Register' },
         { id: 'control_registry', label: 'Control Registry' },
+        { id: 'due_diligence', label: 'Due Diligence & TPRM' },
         { id: 'mapper_visualizer', label: 'Mapper Visualizer' },
     ];
 
     return (
-        <div className="px-4 py-6 sm:px-0">
+        <div className="py-2">
             <div className="border-b border-gray-200 dark:border-gray-700">
                 <nav className="-mb-px flex space-x-8 overflow-x-auto scrollbar-none" aria-label="Tabs">
                     {subTabs.map(tab => (
@@ -169,7 +172,7 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
                                 activeSubTab === tab.id
                                     ? 'border-blue-500 text-blue-600 dark:text-blue-400 border-b-2'
                                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-200'
-                            } whitespace-nowrap py-4 px-1 font-medium text-sm transition-colors duration-150`}
+                            } whitespace-nowrap py-2.5 px-1 font-medium text-sm transition-colors duration-150`}
                         >
                             {tab.label}
                         </button>
@@ -177,7 +180,7 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
                 </nav>
             </div>
 
-            <div className="mt-6">
+            <div className="mt-4">
 
                 {mountedSubTabs.has('assets') && (
 
@@ -218,6 +221,16 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
                     <div className={activeSubTab === 'control_registry' ? '' : 'hidden'}>
 
                         <ControlRegistryView isActive={isActive && activeSubTab === 'control_registry'} autoOpenControlId={openControlId} onAutoOpenConsumed={() => setOpenControlId(null)} />
+
+                    </div>
+
+                )}
+
+                {mountedSubTabs.has('due_diligence') && (
+
+                    <div className={activeSubTab === 'due_diligence' ? '' : 'hidden'}>
+
+                        <DueDiligenceTPRMView isActive={isActive && activeSubTab === 'due_diligence'} />
 
                     </div>
 
