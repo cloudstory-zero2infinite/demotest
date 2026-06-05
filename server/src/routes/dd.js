@@ -19,7 +19,10 @@ async function proxy(path, body, res) {
   });
   const payload = await upstream.json().catch(() => ({}));
   if (!upstream.ok) {
-    return res.status(upstream.status).json(payload);
+    // FastAPI reports errors as { detail }, and an unhandled 500 has no JSON
+    // body at all. Normalise to { message } so the frontend surfaces a reason.
+    const message = payload.message || payload.detail || `AI service error (status ${upstream.status}).`;
+    return res.status(upstream.status).json({ message });
   }
   res.json(payload);
 }
