@@ -404,7 +404,11 @@ export const handleDemoRequest = async <T>(path: string, options: RequestInit = 
   }
   {
     const m = matchPath('/api/policies/:id/history', path);
-    if (m && method === 'GET') return [] as T;
+    if (m && method === 'GET') {
+      return store.policyHistory
+        .filter(h => h.entity_id === m.id)
+        .sort((a, b) => (a.created_at < b.created_at ? -1 : 1)) as T;
+    }
   }
 
   // ─── Vulnerabilities ───────────────────────────────────────────────────────

@@ -25,11 +25,29 @@ const OWNERS = [
 ];
 
 // ─── Asset generator helpers ──────────────────────────────────────────────────
+// NN (Non-Negotiable) controls referenced by assets — these mirror NN rows in
+// SEED_CONTROL_REGISTRY below. The story: an asset is *Governed* when all of its
+// NN controls are Enforced. Governed assets carry the all-Enforced set;
+// Non-Governed assets carry a set that includes an unenforced (In-Review) gap.
+const NN_ALL_ENFORCED = [
+  { ctl_id: 'CTL-002', ctl_name: 'Privileged Access Workstation for admins' },
+  { ctl_id: 'CTL-008', ctl_name: 'Web Application Firewall in front of public CMS' },
+  { ctl_id: 'CTL-009', ctl_name: 'SAST + secret scanning on all repos' },
+  { ctl_id: 'CTL-020', ctl_name: 'Hardware-backed FIDO2 keys for journalists in hostile regions' },
+];
+const NN_WITH_GAP = [
+  { ctl_id: 'CTL-002', ctl_name: 'Privileged Access Workstation for admins' },
+  { ctl_id: 'CTL-009', ctl_name: 'SAST + secret scanning on all repos' },
+  { ctl_id: 'CTL-014', ctl_name: 'Just-in-time elevation for cloud admin roles' },          // In-Review
+  { ctl_id: 'CTL-025', ctl_name: 'Network egress filtering on production VPCs' },            // In-Review
+];
+
 type PartialAsset = Partial<Asset> & Pick<Asset, 'asset_id' | 'name' | 'category' | 'criticality' | 'exposure'>;
 let _assetIdx = 0;
 const mkAsset = (p: PartialAsset): Asset => {
   _assetIdx += 1;
   const idx = _assetIdx;
+  const gov = p.governed_status ?? (idx % 3 === 0 ? 'Non-Governed' : 'Governed');
   return {
     id: `demo-asset-${String(idx).padStart(4, '0')}`,
     asset_id: p.asset_id,
@@ -39,14 +57,20 @@ const mkAsset = (p: PartialAsset): Asset => {
     physical_location: p.physical_location ?? SITES[idx % SITES.length],
     criticality: p.criticality,
     details: p.details ?? '',
-    governed_status: p.governed_status ?? (idx % 3 === 0 ? 'Non-Governed' : 'Governed'),
+    governed_status: gov,
     vulnerability_count: p.vulnerability_count ?? 0,
     exposure: p.exposure,
     category: p.category,
     ip_address: p.ip_address ?? null,
     mac_id: p.mac_id ?? null,
     source: p.source ?? 'Manual',
-    nn_controls: p.nn_controls ?? null,
+    // Roots (BU/SITE) are structural — no NN controls; real assets get a set
+    // consistent with their governed status.
+    nn_controls: p.nn_controls ?? (
+      p.asset_id.startsWith('BU-') || p.asset_id.startsWith('SITE-')
+        ? null
+        : (gov === 'Governed' ? [...NN_ALL_ENFORCED] : [...NN_WITH_GAP])
+    ),
     org_id: DEMO_ORG_ID,
     user_id: DEMO_USER_ID,
     created_at: ts(-90 + (idx % 60)),
@@ -294,12 +318,13 @@ chain([
 export { SEED_ASSET_RELATIONSHIPS };
 
 // ─── Policies (~15) — one master + a mix of statuses ──────────────────────────
-const policyDefs: { name: string; status: PolicyV2['policy_status']; isMaster?: boolean }[] = [
+const policyDefs: { name: string; status: PolicyV2['policy_status']; isMaster?: boolean; overdue?: boolean }[] = [
   { name: 'Information Security Policy', status: 'approved', isMaster: true },
   { name: 'Acceptable Use Policy', status: 'approved' },
   { name: 'Access Control Policy', status: 'approved' },
   { name: 'Data Classification & Handling Policy', status: 'approved' },
-  { name: 'Cryptography & Key Management Policy', status: 'approved' },
+  // Approved but its refresh date has lapsed -> renders as Overdue (red) via effectiveStatus.
+  { name: 'Cryptography & Key Management Policy', status: 'approved', overdue: true },
   { name: 'Incident Response Policy', status: 'approved' },
   { name: 'Business Continuity & DR Policy', status: 'in_approval' },
   { name: 'Vendor & Third-Party Risk Policy', status: 'in_approval' },
@@ -318,7 +343,10 @@ export const SEED_POLICIES: PolicyV2[] = policyDefs.map((p, i) => ({
   markdown: `# ${p.name}\n\n## Purpose\nThis policy establishes the ABC News standard for ${p.name.toLowerCase()}.\n\n## Scope\nApplies to all ABC News employees, contractors, and third parties accessing ABC News systems.\n\n## Policy\n${'- Statement of intent and applicability.\n'.repeat(3)}\n## Roles & Responsibilities\n- **CISO** — owns this policy.\n- **Department Heads** — enforce within their teams.\n\n## Review\nReviewed annually. Last review: ${ts(-90 + i * 5).split('T')[0]}.`,
   policy_ref: `POL-${String(i + 1).padStart(3, '0')}`,
   policy_status: p.status,
-  refresh_date: ts(270 + i * 5).split('T')[0],
+  // Only 'approved' policies carry a due date. The overdue one is in the past.
+  refresh_date: p.status === 'approved'
+    ? (p.overdue ? ts(-12).split('T')[0] : ts(270 + i * 5).split('T')[0])
+    : null,
   version: i === 0 ? '2.1' : '1.0',
   document_type: 'Policy',
   owner_name: OWNERS[i % OWNERS.length],
@@ -328,6 +356,58 @@ export const SEED_POLICIES: PolicyV2[] = policyDefs.map((p, i) => ({
   created_at: ts(-180 + i * 7),
   updated_at: ts(-30 + i),
 }));
+
+// ─── Policy history — a lifecycle audit trail per policy (created → reviewed →
+// approved, with the overdue one flipping to overdue). Drives the History modal
+// (GET /api/policies/:id/history). ────────────────────────────────────────────
+let _histId = 1;
+const REVIEWERS = ['Priya Nair', 'Marcus Webb', 'Elena Rossi'];
+const APPROVERS = ['Sarah Chen (CISO)', 'David Okafor (CISO)'];
+const mkHist = (
+  policyId: string, policyName: string, action: string,
+  from: string | null, to: string | null, actor: string, comment: string | null, daysAgo: number,
+): AllActivityLog => ({
+  id: _histId++,
+  user_id: DEMO_USER_ID,
+  org_id: DEMO_ORG_ID,
+  action,
+  module: 'policies',
+  entity_id: policyId,
+  entity_name: policyName,
+  event_data: { actor_name: actor, from_status: from, to_status: to, comment },
+  ip_address: null,
+  user_agent: null,
+  severity: 'info',
+  source: 'demo',
+  created_at: ts(daysAgo),
+});
+
+export const SEED_POLICY_HISTORY: AllActivityLog[] = [];
+SEED_POLICIES.forEach((pol, i) => {
+  const def = policyDefs[i];
+  const owner = pol.owner_name || OWNERS[i % OWNERS.length];
+  const reviewer = REVIEWERS[i % REVIEWERS.length];
+  const approver = APPROVERS[i % APPROVERS.length];
+  const base = -120 + i * 4; // older policies created further back
+  const s = def.status;
+  const reached = (target: string) => {
+    // statuses on the way to the policy's current state
+    const order = ['draft', 'to_review', 'reviewed', 'in_approval', 'approved'];
+    return order.indexOf(target) <= order.indexOf(s === 'overdue' || def.overdue ? 'approved' : s);
+  };
+  const H = SEED_POLICY_HISTORY;
+  H.push(mkHist(pol.policy_id, pol.name, 'policy_created', null, 'draft', owner, 'Initial draft created.', base));
+  if (reached('to_review'))
+    H.push(mkHist(pol.policy_id, pol.name, 'policy_submitted_for_review', 'draft', 'to_review', owner, 'Submitted to the security team for review.', base + 5));
+  if (reached('reviewed'))
+    H.push(mkHist(pol.policy_id, pol.name, 'policy_reviewed', 'to_review', 'reviewed', reviewer, 'Reviewed — content accurate and complete.', base + 9));
+  if (reached('in_approval'))
+    H.push(mkHist(pol.policy_id, pol.name, 'policy_submitted_for_approval', 'reviewed', 'in_approval', owner, 'Sent for CISO approval.', base + 12));
+  if (reached('approved') && (s === 'approved' || def.overdue))
+    H.push(mkHist(pol.policy_id, pol.name, 'policy_approved', 'in_approval', 'approved', approver, 'Approved and published.', base + 15));
+  if (def.overdue)
+    H.push(mkHist(pol.policy_id, pol.name, 'policy_status_changed', 'approved', 'overdue', 'System', 'Refresh date lapsed — policy is overdue for review.', -12));
+});
 
 // ─── Vulnerabilities (~40): mix of sources / statuses, attached to assets ────
 const vulnTemplates = [
@@ -368,6 +448,13 @@ for (let i = 0; i < 40; i++) {
     assets: { asset_id: target.asset_id, name: target.name },
   });
 }
+
+// Reconcile each asset's vulnerability_count with the vulnerabilities actually
+// linked to it, so the asset card count matches the Vulnerability list (e.g.
+// EP-001 shows "1" and has exactly one associated vuln).
+SEED_ASSETS.forEach(a => {
+  a.vulnerability_count = SEED_VULNERABILITIES.filter(v => v.asset_id === a.id).length;
+});
 
 // ─── Capabilities (~12) ───────────────────────────────────────────────────────
 const capabilityDefs = [
