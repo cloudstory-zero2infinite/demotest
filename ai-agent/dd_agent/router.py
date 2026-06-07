@@ -51,25 +51,11 @@ def _strip_fences(text: str) -> str:
 
 
 def _gen_json(prompt: str, temperature: float = 0.2) -> Any:
-    # Wrap the Gemini call so API failures (quota/credits, bad key, model not
-    # found, safety blocks) surface as a clean JSON error with a real message
-    # instead of an opaque unhandled 500 (FastAPI plain-text "Internal Server
-    # Error", which the Express proxy can't parse and reports as {} 500).
-    try:
-        resp = _model().generate_content(
-            prompt,
-            generation_config={"temperature": temperature, "response_mime_type": "application/json"},
-        )
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"AI request failed: {e}")
-
-    try:
-        raw = _strip_fences(resp.text or "")
-    except Exception as e:
-        # resp.text raises when the model returned no usable text part
-        # (blocked, safety filter, or MAX_TOKENS). Report rather than crash.
-        raise HTTPException(status_code=502, detail=f"AI returned no usable response: {e}")
-
+    resp = _model().generate_content(
+        prompt,
+        generation_config={"temperature": temperature, "response_mime_type": "application/json"},
+    )
+    raw = _strip_fences(resp.text or "")
     try:
         return json.loads(raw)
     except json.JSONDecodeError as e:
