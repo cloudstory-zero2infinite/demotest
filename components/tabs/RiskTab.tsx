@@ -6,7 +6,7 @@ interface RiskTabProps {
 }
 
 export const RiskTab: React.FC<RiskTabProps> = ({ isActive = true }) => (
-    <div className="py-3">
+    <div className="px-4 py-6 sm:px-0">
         <RiskRegistryView isActive={isActive} />
     </div>
 );

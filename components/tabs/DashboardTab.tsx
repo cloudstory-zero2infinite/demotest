@@ -313,7 +313,7 @@ export const DashboardTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
                     setFilter={setAssetFilter}
                 />
                 <VulnerabilityTrackCard data={vulnerabilityMetrics.data} remediatedPercent={vulnerabilityMetrics.percent} />
-                <ControlsCoverageCard categories={controlCategories} />
+                <DataIntegrityCard assets={currentStats.assets} />
             </div>
             {/* Row 2: Program + Framework Compliance */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
@@ -329,7 +329,7 @@ export const DashboardTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
                     total={policyStatusData.total}
                     approvedPct={policyStatusData.approvedPct}
                 />
-                <DataIntegrityCard assets={currentStats.assets} />
+                <ControlsCoverageCard categories={controlCategories} />
             </div>
 
             {/* Row 3: Scoring Trend + Mapping Chart */}
