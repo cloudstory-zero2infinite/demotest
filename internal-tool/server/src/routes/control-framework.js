@@ -10,6 +10,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100
 const BUCKET = process.env.SCF_REFERENCE_BUCKET || 'scf-reference';
 const DOMAINS_SHEET = 'SCF Domains & Principles';
 const CONTROLS_SHEET = 'SCF 2026.1';
+const RISK_SHEET = 'Risk Catalog';
 
 // Framework columns in SCF 2026.1 sit between these indices (inclusive). Cols
 // 0–11 are structured (Domain / Control / SCF# / Description / etc.), 12–32
@@ -97,6 +98,7 @@ function parseControlsSheet(ws, validScfIds) {
   const COL_CADENCE = idx('conformity validation');
   const COL_ERL = idx('evidence request list');
   const COL_QUESTION = idx('scf control question');
+  const COL_WEIGHT = idx('relative control weighting');
 
   if (COL_SCF_NUM < 0) {
     throw new Error(`Could not locate "SCF #" column in ${CONTROLS_SHEET}`);
@@ -122,6 +124,7 @@ function parseControlsSheet(ws, validScfIds) {
       conformity_cadence: COL_CADENCE >= 0 ? toCleanString(r[COL_CADENCE]) : null,
       erl_refs: COL_ERL >= 0 ? toCleanString(r[COL_ERL]) : null,
       control_question: COL_QUESTION >= 0 ? toCleanString(r[COL_QUESTION]) : null,
+      relative_weighting: COL_WEIGHT >= 0 ? toCleanInt(r[COL_WEIGHT]) : null,
     });
   }
   return { controls: out, skipped };
@@ -192,13 +195,75 @@ function parseFrameworkMappings(ws, validControlIds) {
   return { frameworks, junction };
 }
 
-async function syncDbFromParsed(domains, controls, frameworks, junction) {
+// Parses the "Risk Catalog" sheet. Intro/definition rows precede a header row
+// containing "Risk #"; data rows after it have a Risk # like "R-AC-1".
+// Returns [{ risk_id, risk_grouping, risk_name, risk_description, nist_csf_function, sort_order }].
+function parseRiskCatalog(ws) {
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+  const headerIdx = rows.findIndex((r) =>
+    (r || []).some((c) => c && String(c).trim().toLowerCase() === 'risk #'));
+  if (headerIdx < 0) throw new Error(`Could not locate "Risk #" header in "${RISK_SHEET}"`);
+
+  const out = [];
+  let order = 0;
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    const riskId = toCleanString(r[1]);
+    if (!riskId || !/^R-/.test(riskId)) continue;       // skip sub-headers / blanks
+    out.push({
+      risk_id: riskId,
+      risk_grouping: toCleanString(r[0]),
+      risk_name: toCleanString(r[2]),
+      risk_description: toCleanString(r[3]),
+      nist_csf_function: toCleanString(r[4]),
+      sort_order: order++,
+    });
+  }
+  return out;
+}
+
+// Parses the control×risk matrix from the controls sheet. Every column whose
+// header looks like "Risk R-XX" is a risk; a non-empty cell means that control
+// mitigates that risk. Returns [{ scf_control_id, risk_id }, ...].
+function parseControlRisks(ws, validControlIds, validRiskIds) {
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+  const header = (rows[0] || []).map((h) => (h ? String(h) : ''));
+  const idxNum = header.findIndex((h) => h && h.toLowerCase().includes('scf #'));
+  if (idxNum < 0) throw new Error('Could not locate "SCF #" column for risk-matrix parsing');
+
+  // Risk columns: header matches /^Risk\s+R-/ (excludes "Risk Threat Summary").
+  const riskCols = [];
+  for (let c = 0; c < header.length; c++) {
+    const m = String(header[c] || '').match(/^Risk\s+(R-[A-Z0-9-]+)\b/i);
+    if (m && validRiskIds.has(m[1])) riskCols.push({ col: c, risk_id: m[1] });
+  }
+
+  const pairs = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    const cid = toCleanString(r[idxNum]);
+    if (!cid || !cid.includes('-') || !validControlIds.has(cid)) continue;
+    for (const rc of riskCols) {
+      const cell = r[rc.col];
+      if (cell === null || cell === undefined || String(cell).trim() === '') continue;
+      pairs.push({ scf_control_id: cid, risk_id: rc.risk_id });
+    }
+  }
+  return pairs;
+}
+
+async function syncDbFromParsed(domains, controls, frameworks, junction, risks, controlRisks) {
   // Delete order matters because of the FKs:
   //   scf_control_frameworks → scf_controls, scf_frameworks
+  //   scf_control_risks      → scf_controls, scf_risks
   //   scf_controls           → scf_domains
   // Children first.
   const delCf = await supabaseAdmin.from('scf_control_frameworks').delete().neq('scf_control_id', '__never__');
   if (delCf.error) throw new Error(`wipe scf_control_frameworks: ${delCf.error.message}`);
+  const delCr = await supabaseAdmin.from('scf_control_risks').delete().neq('scf_control_id', '__never__');
+  if (delCr.error) throw new Error(`wipe scf_control_risks: ${delCr.error.message}`);
+  const delR = await supabaseAdmin.from('scf_risks').delete().neq('risk_id', '__never__');
+  if (delR.error) throw new Error(`wipe scf_risks: ${delR.error.message}`);
   const delFw = await supabaseAdmin.from('scf_frameworks').delete().neq('name', '__never__');
   if (delFw.error) throw new Error(`wipe scf_frameworks: ${delFw.error.message}`);
   const delC = await supabaseAdmin.from('scf_controls').delete().neq('scf_control_id', '__never__');
@@ -232,6 +297,17 @@ async function syncDbFromParsed(domains, controls, frameworks, junction) {
     const insJ = await supabaseAdmin.from('scf_control_frameworks').insert(slice);
     if (insJ.error) throw new Error(`insert scf_control_frameworks (chunk ${i}): ${insJ.error.message}`);
   }
+
+  // Risk catalog (small) then the control→risk junction (tens of thousands).
+  if (risks.length) {
+    const insR = await supabaseAdmin.from('scf_risks').insert(risks);
+    if (insR.error) throw new Error(`insert scf_risks: ${insR.error.message}`);
+  }
+  for (let i = 0; i < controlRisks.length; i += J_CHUNK) {
+    const slice = controlRisks.slice(i, i + J_CHUNK);
+    const insCr = await supabaseAdmin.from('scf_control_risks').insert(slice);
+    if (insCr.error) throw new Error(`insert scf_control_risks (chunk ${i}): ${insCr.error.message}`);
+  }
 }
 
 // List files in the SCF bucket + current parsed counts.
@@ -257,11 +333,15 @@ router.get('/', requireAuth, async (_req, res) => {
       { count: controlCount },
       { count: frameworkCount },
       { count: junctionCount },
+      { count: riskCount },
+      { count: controlRiskCount },
     ] = await Promise.all([
       supabaseAdmin.from('scf_domains').select('*', { count: 'exact', head: true }),
       supabaseAdmin.from('scf_controls').select('*', { count: 'exact', head: true }),
       supabaseAdmin.from('scf_frameworks').select('*', { count: 'exact', head: true }),
       supabaseAdmin.from('scf_control_frameworks').select('*', { count: 'exact', head: true }),
+      supabaseAdmin.from('scf_risks').select('*', { count: 'exact', head: true }),
+      supabaseAdmin.from('scf_control_risks').select('*', { count: 'exact', head: true }),
     ]);
 
     res.json({
@@ -271,6 +351,8 @@ router.get('/', requireAuth, async (_req, res) => {
         controls: controlCount || 0,
         frameworks: frameworkCount || 0,
         control_framework_pairs: junctionCount || 0,
+        risks: riskCount || 0,
+        control_risk_pairs: controlRiskCount || 0,
       },
     });
   } catch (err) {
@@ -324,6 +406,17 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
     const validControlIds = new Set(controls.map((c) => c.scf_control_id));
     const { frameworks, junction } = parseFrameworkMappings(controlsWs, validControlIds);
 
+    // Risk Catalog + control×risk matrix (optional sheet — older SCF releases
+    // may not have it, in which case the risk tables are simply left empty).
+    const riskWs = wb.Sheets[RISK_SHEET];
+    let risks = [];
+    let controlRisks = [];
+    if (riskWs) {
+      risks = parseRiskCatalog(riskWs);
+      const validRiskIds = new Set(risks.map((r) => r.risk_id));
+      controlRisks = parseControlRisks(controlsWs, validControlIds, validRiskIds);
+    }
+
     // 1. Upload file to bucket (file is the SME-facing source of truth).
     const name = req.file.originalname;
     const { error: upErr } = await supabaseAdmin.storage.from(BUCKET).upload(name, req.file.buffer, {
@@ -333,7 +426,7 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
     if (upErr) throw new Error(`storage upload: ${upErr.message}`);
 
     // 2. Sync DB tables. If this fails the file is preserved in the bucket and SME can retry.
-    await syncDbFromParsed(domains, controls, frameworks, junction);
+    await syncDbFromParsed(domains, controls, frameworks, junction, risks, controlRisks);
 
     res.status(201).json({
       name,
@@ -342,6 +435,8 @@ router.post('/', requireAuth, upload.single('file'), async (req, res) => {
         controls: controls.length,
         frameworks: frameworks.length,
         control_framework_pairs: junction.length,
+        risks: risks.length,
+        control_risk_pairs: controlRisks.length,
       },
       skipped_controls: skipped.length,
       skipped_sample: skipped.slice(0, 10),

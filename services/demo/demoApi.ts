@@ -404,7 +404,11 @@ export const handleDemoRequest = async <T>(path: string, options: RequestInit = 
   }
   {
     const m = matchPath('/api/policies/:id/history', path);
-    if (m && method === 'GET') return [] as T;
+    if (m && method === 'GET') {
+      return store.policyHistory
+        .filter(h => h.entity_id === m.id)
+        .sort((a, b) => (a.created_at < b.created_at ? -1 : 1)) as T;
+    }
   }
 
   // ─── Vulnerabilities ───────────────────────────────────────────────────────
@@ -494,6 +498,12 @@ export const handleDemoRequest = async <T>(path: string, options: RequestInit = 
     persist();
     return { deleted: before - store.controlRegistry.length, total: ids.length, errors: 0 } as T;
   }
+  // NN baseline recompute — demo has no real NN templates table; report
+  // nothing to add so the Recompute modal renders cleanly.
+  if (path === '/api/controls/nn-preview' && method === 'GET')
+    return { to_add: 0, total_templates: 0, sample: [] } as T;
+  if (path === '/api/controls/seed-nn' && method === 'POST')
+    return { message: 'No-op in demo', data: 0 } as T;
   {
     const m = matchPath('/api/control-registry/:id', path);
     if (m) {
@@ -679,6 +689,79 @@ export const handleDemoRequest = async <T>(path: string, options: RequestInit = 
     return { nodes, edges } as T;
   }
   if (path === '/api/mapper/health') return { status: 'ok' } as T;
+
+  // ─── Due Diligence & TPRM ──────────────────────────────────────────────────
+  // Stateless in production; in demo we synthesise plausible answers from the
+  // in-memory control registry so the flow is exercisable without the AI agent.
+  if (path === '/api/dd/answer-questionnaire' && method === 'POST') {
+    const { headers = [], rows = [], question_column } = JSON.parse((options.body as string) || '{}');
+    const qcol = question_column && headers.includes(question_column)
+      ? question_column
+      : (headers.find((h: string) => /question|requirement|control/i.test(h)) || headers[0]);
+    const answers = (rows as Record<string, any>[])
+      .map((r, i) => ({ r, i }))
+      .filter(({ r }) => String(r[qcol] || '').trim())
+      .map(({ i }) => ({
+        row_index: i,
+        answer: 'Yes',
+        comments: 'Addressed by enforced controls in the control registry (demo).',
+        evidence: store.controlRegistry[0]?.ctl_id || 'CTL-DEMO-001',
+        rationale: 'Demo response — synthesised from in-memory control data.',
+      }));
+    return {
+      status: 'ok',
+      question_column: qcol,
+      column_map: { answer: null, comments: null, evidence: null, rationale: null },
+      answers,
+      questions_answered: answers.length,
+    } as T;
+  }
+  if (path === '/api/dd/ask' && method === 'POST') {
+    const { question } = JSON.parse((options.body as string) || '{}');
+    return {
+      status: 'ok',
+      answer: `Demo answer for: "${String(question || '').slice(0, 80)}". Grounded responses require the AI agent, which is bypassed in demo mode.`,
+      sources: ['demo'],
+    } as T;
+  }
+
+  // ─── Risk Registry ─────────────────────────────────────────────────────────
+  // Synthesise a small demo register so the Risk tab renders without the SCF
+  // reference tables / compute function.
+  if (path === '/api/risk/register' || (path === '/api/risk/compute' && method === 'POST')) {
+    const seed = [
+      ['R-AC-1', 'Access Control', 'Inability to maintain individual accountability', 'Critical', 'High', 12, 7, 0.42],
+      ['R-GV-1', 'Governance', 'Lack of governance oversight', 'High', 'Medium', 9, 6, 0.34],
+      ['R-EX-1', 'External', 'Third-party compromise', 'High', 'High', 8, 2, 0.75],
+      ['R-BC-2', 'Business Continuity', 'Inability to recover operations', 'Medium', 'Low', 6, 5, 0.18],
+      ['R-IR-1', 'Incident Response', 'Delayed incident detection', 'Medium', 'Medium', 5, 2, 0.45],
+    ];
+    const computed_at = NOW();
+    const register = seed.map(([risk_id, risk_grouping, risk_name, inherent_level, residual_level, total, enforced, gap], i) => ({
+      id: `demo-risk-${i}`, org_id: 'demo', risk_id, risk_grouping, risk_name,
+      risk_description: 'Demo risk entry synthesised for the ABC News demo tenant.',
+      nist_csf_function: 'Govern',
+      total_controls: total as number, enforced_controls: enforced as number,
+      total_weight: (total as number) * 5, enforced_weight: (enforced as number) * 5,
+      gap: gap as number, inherent_score: 80, residual_score: 40,
+      inherent_level, residual_level, source: 'computed', computed_at,
+    }));
+    if (path === '/api/risk/compute') return { status: 'ok', computed_at, count: register.length, register } as T;
+    return { computed_at, register } as T;
+  }
+  if (path === '/api/risk/manual' && method === 'POST') {
+    const b = JSON.parse((options.body as string) || '{}');
+    return {
+      id: `demo-manual-${Date.now()}`, org_id: 'demo', risk_id: 'M-DEMO', source: 'manual',
+      risk_grouping: b.risk_grouping || null, risk_name: b.risk_name || '', risk_description: b.risk_description || null,
+      nist_csf_function: b.nist_csf_function || null, total_controls: 0, enforced_controls: 0,
+      total_weight: 0, enforced_weight: 0, gap: 0, inherent_score: 0, residual_score: 0,
+      inherent_level: b.inherent_level || 'Medium', residual_level: b.residual_level || 'Medium', computed_at: NOW(),
+    } as T;
+  }
+  if (path.startsWith('/api/risk/manual/')) {
+    return (method === 'DELETE' ? undefined : { id: path.split('/').pop(), source: 'manual' }) as T;
+  }
 
   // ─── Feedback (silent success) ────────────────────────────────────────────
   if (path === '/api/feedback' && method === 'POST') return undefined as T;

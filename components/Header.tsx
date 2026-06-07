@@ -159,12 +159,18 @@ export const Header: React.FC<HeaderProps> = ({
 
     const handleNotificationClick = async (notif: UnifiedNotification) => {
         if (!notif.read) {
-            if (notif.source === 'policy') {
-                await SupabaseService.markPolicyNotificationRead(notif.id);
-            } else if (notif.source === 'control') {
-                await SupabaseService.markControlNotificationRead(notif.id);
-            } else if (notif.source === 'org') {
-                await SupabaseService.markOrgNotificationRead(notif.id);
+            // Mark-as-read must never block navigation — wrap in try/catch so a
+            // failed/missing read call still lets the user land on the target.
+            try {
+                if (notif.source === 'policy') {
+                    await SupabaseService.markPolicyNotificationRead(notif.id);
+                } else if (notif.source === 'control') {
+                    await SupabaseService.markControlNotificationRead(notif.id);
+                } else if (notif.source === 'org') {
+                    await SupabaseService.markOrgNotificationRead(notif.id);
+                }
+            } catch (err) {
+                console.error('Failed to mark notification as read:', err);
             }
             setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, read: true } : n));
         }
@@ -237,12 +243,12 @@ export const Header: React.FC<HeaderProps> = ({
                                 <h1 className="text-xl font-bold text-gray-900 dark:text-white leading-none">
                                     Zero to Infinite
                                 </h1>
-                                <span className="text-[9px] font-mono text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">
+                                <span title={`Build ${__APP_VERSION__}`} className="text-[9px] font-mono text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">
                                     {__APP_VERSION__}
                                 </span>
                             </div>
                             <span className="text-[10px] text-gray-500 font-medium tracking-widest uppercase">
-                                Governance Risk Compliance
+                                Unified Cyber Platform
                             </span>
                         </div>
                     </div>

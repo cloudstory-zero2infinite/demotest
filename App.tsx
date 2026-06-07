@@ -33,6 +33,7 @@ import { ProgramTab } from "./components/tabs/ProgramTab";
 import { GovernanceTab } from "./components/tabs/GovernanceTab";
 
 import { ComplianceTab } from "./components/tabs/ComplianceTab";
+import { RiskTab } from "./components/tabs/RiskTab";
 
 import { ActivityLogsTab } from "./components/tabs/ActivityLogsTab";
 
@@ -150,6 +151,26 @@ const App: React.FC = () => {
       localStorage.setItem("theme", "light");
     }
   }, [isDarkMode]);
+
+  // Deep-link: open a specific policy from an email/notification link
+  // (e.g. <app>/?policyId=IT-POL-ACME-001). Reuses the same nav state the
+  // notification click handler uses, then strips the param from the URL.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const pid = params.get("policyId");
+    if (!pid) return;
+    setActiveTab("governance");
+    setGovernanceSubTab("policies");
+    setGovernanceOpenItemId(pid);
+    params.delete("policyId");
+    const qs = params.toString();
+    window.history.replaceState(
+      {},
+      "",
+      window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash,
+    );
+  }, []);
 
   // Auth Initialization
 
@@ -409,6 +430,8 @@ const App: React.FC = () => {
       }
 
       sessionStorage.removeItem("grcUserName");
+      // Reset the CXO "escalated only" toggle so it defaults back ON next login.
+      sessionStorage.removeItem("program_escalated_only");
 
       setUserName(null);
 
@@ -562,7 +585,7 @@ const App: React.FC = () => {
         </div>
 
         <div className={activeTab === "program" ? "" : "hidden"}>
-          <ProgramTab userRole={userRole} isActive={activeTab === "program"} />
+          <ProgramTab userRole={platformAdminRole ?? 'user'} isActive={activeTab === "program"} />
         </div>
 
         <div className={activeTab === "governance" ? "" : "hidden"}>
@@ -570,31 +593,35 @@ const App: React.FC = () => {
         </div>
 
         <div className={activeTab === "assets" ? "" : "hidden"}>
-          <GovernanceTab isActive={activeTab === "assets"} externalSubTab="assets" externalOpenItemId={governanceOpenItemId} onExternalSubTabConsumed={() => { setGovernanceSubTab(null); setGovernanceOpenItemId(null); }} />
+          <GovernanceTab isActive={activeTab === "assets"} externalSubTab="assets" externalOpenItemId={null} />
         </div>
 
         <div className={activeTab === "policies" ? "" : "hidden"}>
-          <GovernanceTab isActive={activeTab === "policies"} externalSubTab="policies" externalOpenItemId={governanceOpenItemId} onExternalSubTabConsumed={() => { setGovernanceSubTab(null); setGovernanceOpenItemId(null); }} />
+          <GovernanceTab isActive={activeTab === "policies"} externalSubTab="policies" externalOpenItemId={null} />
         </div>
 
         <div className={activeTab === "vulnerability" ? "" : "hidden"}>
-          <GovernanceTab isActive={activeTab === "vulnerability"} externalSubTab="vulnerability" externalOpenItemId={governanceOpenItemId} onExternalSubTabConsumed={() => { setGovernanceSubTab(null); setGovernanceOpenItemId(null); }} />
+          <GovernanceTab isActive={activeTab === "vulnerability"} externalSubTab="vulnerability" externalOpenItemId={null} />
         </div>
 
         <div className={activeTab === "relationships" ? "" : "hidden"}>
-          <GovernanceTab isActive={activeTab === "relationships"} externalSubTab="relationships" externalOpenItemId={governanceOpenItemId} onExternalSubTabConsumed={() => { setGovernanceSubTab(null); setGovernanceOpenItemId(null); }} />
+          <GovernanceTab isActive={activeTab === "relationships"} externalSubTab="relationships" externalOpenItemId={null} />
         </div>
 
         <div className={activeTab === "capabilities" ? "" : "hidden"}>
-          <GovernanceTab isActive={activeTab === "capabilities"} externalSubTab="capabilities" externalOpenItemId={governanceOpenItemId} onExternalSubTabConsumed={() => { setGovernanceSubTab(null); setGovernanceOpenItemId(null); }} />
+          <GovernanceTab isActive={activeTab === "capabilities"} externalSubTab="capabilities" externalOpenItemId={null} />
         </div>
 
         <div className={activeTab === "control_registry" ? "" : "hidden"}>
-          <GovernanceTab isActive={activeTab === "control_registry"} externalSubTab="control_registry" externalOpenItemId={governanceOpenItemId} onExternalSubTabConsumed={() => { setGovernanceSubTab(null); setGovernanceOpenItemId(null); }} />
+          <GovernanceTab isActive={activeTab === "control_registry"} externalSubTab="control_registry" externalOpenItemId={null} />
         </div>
 
         <div className={activeTab === "compliance" ? "" : "hidden"}>
           <ComplianceTab isActive={activeTab === "compliance"} />
+        </div>
+
+        <div className={activeTab === "risk" ? "" : "hidden"}>
+          <RiskTab isActive={activeTab === "risk"} />
         </div>
 
         <div className={activeTab === "logs" ? "" : "hidden"}>
@@ -665,7 +692,7 @@ const App: React.FC = () => {
                                 <img src="/logo.png" alt="Zero to Infinite" className="h-10 w-10 object-contain flex-shrink-0" />
                                 <div>
                                     <h2 className="text-lg font-bold text-gray-900 dark:text-white">Zero to Infinite</h2>
-                                    <p className="text-xs text-gray-400 uppercase tracking-widest">Governance Risk Compliance</p>
+                                    <p className="text-xs text-gray-400 uppercase tracking-widest">Unified Cyber Platform</p>
                                 </div>
                             </div>
                             <div className="mb-5">
@@ -774,7 +801,7 @@ const App: React.FC = () => {
           />
 
           <main className="flex-1 overflow-y-auto">
-            <div className="px-6 py-6 max-w-7xl mx-auto">{renderContent()}</div>
+            <div className="px-4 py-3">{renderContent()}</div>
           </main>
         </div>
       </div>

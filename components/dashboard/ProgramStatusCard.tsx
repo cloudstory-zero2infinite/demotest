@@ -28,7 +28,7 @@ export const ProgramStatusCard: React.FC<ProgramStatusCardProps> = React.memo(({
                 <div className="flex items-center justify-between mb-2">
                     <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Program Status</h3>
                     <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-400">{total} milestones</span>
+                        <span className="text-xs text-gray-400">{total} tasks</span>
                         <button
                             onClick={() => setIsExpanded(true)}
                             className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"

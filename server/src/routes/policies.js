@@ -443,7 +443,10 @@ router.put('/:id', requireAuth, async (req, res) => {
         version: meta.version || 'V1.0',
         document_type: meta.document_type || null,
         owner_name: meta.owner_name || null,
-        refresh_date: meta.refresh_date || current?.next_review_date || null,
+        // NOTE: refresh_date (the renewal/due date) is intentionally NOT set here.
+        // It is owned solely by the approval flow (POST /:id/approve) — editing a
+        // policy must never create or change a due date. next_review_date is kept
+        // for display only and must not feed refresh_date.
         next_review_date: meta.refresh_date || current?.next_review_date || new Date().toISOString().split('T')[0],
       } : {}),
       ...(policy_status ? { policy_status } : {}),
@@ -714,9 +717,17 @@ router.post('/:id/approve', requireAuth, async (req, res) => {
 
     const { data: updateData, error: updateError } = await supabaseAdmin
       .from('policy_documents')
-      .update({ policy_status: 'approved', refresh_date: refreshDateStr, updated_at: new Date().toISOString() })
+      .update({
+        policy_status: 'approved',
+        refresh_date: refreshDateStr,
+        // New approval cycle → clear any reminders sent for the previous cycle.
+        reminder_14d_sent_at: null,
+        reminder_7d_sent_at: null,
+        reminder_1d_sent_at: null,
+        updated_at: new Date().toISOString(),
+      })
       .eq('policy_id', policyId);
-    
+
     if (updateError) {
       console.error('[POST /api/policies/:id/approve] Update error:', updateError);
       throw updateError;
@@ -781,16 +792,9 @@ router.post('/:id/review', requireAuth, async (req, res) => {
     if (!policy) return res.status(404).json({ message: 'Policy not found' });
     const prevStatus = policy.policy_status;
 
-    // Calculate refresh_date from org settings
-    const { data: settings } = await supabaseAdmin
-      .from('org_settings')
-      .select('policy_refresh_months')
-      .eq('org_id', req.orgId)
-      .maybeSingle();
-    const months = settings?.policy_refresh_months || 3;
-    const refreshDate = new Date();
-    refreshDate.setMonth(refreshDate.getMonth() + months);
-    const refreshDateStr = refreshDate.toISOString().split('T')[0];
+    // NOTE: a completed review does NOT set a due date. Only full approval
+    // (POST /:id/approve) computes refresh_date; 'reviewed' is an intermediate
+    // "ready for approval" state and never expires.
 
     // Find who requested this review before we update the record
     const { data: pendingApproval } = await supabaseAdmin
@@ -810,7 +814,7 @@ router.post('/:id/review', requireAuth, async (req, res) => {
 
     const { data: updateData, error: updateError } = await supabaseAdmin
       .from('policy_documents')
-      .update({ policy_status: 'reviewed', refresh_date: refreshDateStr, updated_at: new Date().toISOString() })
+      .update({ policy_status: 'reviewed', updated_at: new Date().toISOString() })
       .eq('policy_id', policyId);
     
     if (updateError) {

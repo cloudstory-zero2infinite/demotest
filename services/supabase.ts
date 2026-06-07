@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate, MapperRunResult, MapperGraph } from '../types';
+import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate, MapperRunResult, MapperGraph, EmailTemplate, QuestionnaireResult, DueDiligenceChatResult, RiskRegisterEntry, RiskComputeResult, ManualRiskInput } from '../types';
 import { isDemoEnabled } from './demo/demoMode';
 import { handleDemoRequest } from './demo/demoApi';
 
@@ -246,6 +246,10 @@ export const getOrgNotifications = async (): Promise<OrgNotification[]> => {
 };
 
 
+
+export const markOrgNotificationRead = async (id: string): Promise<void> => {
+  return apiRequest<void>(`/api/org/notifications/${id}/read`, { method: 'PUT' });
+};
 
 export const markAllNotificationsRead = async (): Promise<void> => {
   return apiRequest<void>('/api/org/notifications/read-all', { method: 'PUT' });
@@ -502,6 +506,14 @@ export const updateTask = async (id: string, updates: ProgramTaskUpdate): Promis
 
 export const deleteTask = async (id: string): Promise<void> => {
     return apiRequest<void>(`/api/program/${id}`, { method: 'DELETE' });
+};
+
+// Attach (or, with null, detach) an existing task under a parent. Two-level only.
+export const setTaskParent = async (childId: string, parentId: string | null): Promise<ProgramTask> => {
+    return apiRequest<ProgramTask>(`/api/program/${childId}/parent`, {
+        method: 'PUT',
+        body: JSON.stringify({ parent_id: parentId }),
+    });
 };
 
 
@@ -845,6 +857,55 @@ export const runMapper = async (trigger: string = 'policies'): Promise<MapperRun
 export const getMapperGraph = async (masterPolicyId?: string): Promise<MapperGraph> => {
   const qs = masterPolicyId ? `?master_policy_id=${encodeURIComponent(masterPolicyId)}` : '';
   return apiRequest<MapperGraph>(`/api/mapper/graph${qs}`);
+};
+
+// ─── Due Diligence & TPRM ─────────────────────────────────────────────────
+export const answerQuestionnaire = async (
+  headers: string[],
+  rows: Record<string, any>[],
+  questionColumn?: string | null,
+): Promise<QuestionnaireResult> => {
+  return apiRequest<QuestionnaireResult>('/api/dd/answer-questionnaire', {
+    method: 'POST',
+    body: JSON.stringify({ headers, rows, question_column: questionColumn ?? null }),
+  });
+};
+
+export const askDueDiligence = async (
+  question: string,
+  history?: { role: string; text: string }[],
+): Promise<DueDiligenceChatResult> => {
+  return apiRequest<DueDiligenceChatResult>('/api/dd/ask', {
+    method: 'POST',
+    body: JSON.stringify({ question, history: history ?? null }),
+  });
+};
+
+// ─── Risk Registry ─────────────────────────────────────────────────────────
+export const computeRisk = async (): Promise<RiskComputeResult> => {
+  return apiRequest<RiskComputeResult>('/api/risk/compute', { method: 'POST' });
+};
+
+export const getRiskRegister = async (): Promise<{ computed_at: string | null; register: RiskRegisterEntry[] }> => {
+  return apiRequest<{ computed_at: string | null; register: RiskRegisterEntry[] }>('/api/risk/register');
+};
+
+export const addManualRisk = async (risk: ManualRiskInput): Promise<RiskRegisterEntry> => {
+  return apiRequest<RiskRegisterEntry>('/api/risk/manual', {
+    method: 'POST',
+    body: JSON.stringify(risk),
+  });
+};
+
+export const updateManualRisk = async (id: string, risk: ManualRiskInput): Promise<RiskRegisterEntry> => {
+  return apiRequest<RiskRegisterEntry>(`/api/risk/manual/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(risk),
+  });
+};
+
+export const deleteManualRisk = async (id: string): Promise<void> => {
+  return apiRequest<void>(`/api/risk/manual/${id}`, { method: 'DELETE' });
 };
 
 export const deletePolicy = async (id: string): Promise<void> => {
@@ -2002,15 +2063,30 @@ export const deleteAssetRelationshipsBulk = async (ids: string[]): Promise<{ del
 
 
 
-export const getOrgSettings = async (): Promise<{ policy_refresh_months: number; needed_framework: string[] }> =>
+export const getOrgSettings = async (): Promise<{ policy_refresh_months: number; policy_expiry_template_id: string | null; needed_framework: string[] }> =>
 
   apiRequest('/api/org-settings');
 
 
 
-export const updateOrgSettings = async (settings: { policy_refresh_months?: number; needed_framework?: string[] }): Promise<{ policy_refresh_months: number; needed_framework?: string[] }> =>
+export const updateOrgSettings = async (settings: { policy_refresh_months?: number; needed_framework?: string[]; policy_expiry_template_id?: string | null }): Promise<{ policy_refresh_months: number; policy_expiry_template_id: string | null; needed_framework?: string[] }> =>
 
   apiRequest('/api/org-settings', { method: 'PUT', body: JSON.stringify(settings) });
+
+
+
+// ── Email Templates (Organisation → Templates) ─────────────────────────────
+export const getEmailTemplates = async (): Promise<EmailTemplate[]> =>
+  apiRequest('/api/email-templates');
+
+export const createEmailTemplate = async (t: { name: string; subject: string; body: string }): Promise<EmailTemplate> =>
+  apiRequest('/api/email-templates', { method: 'POST', body: JSON.stringify(t) });
+
+export const updateEmailTemplate = async (id: string, t: { name?: string; subject?: string; body?: string }): Promise<EmailTemplate> =>
+  apiRequest(`/api/email-templates/${id}`, { method: 'PUT', body: JSON.stringify(t) });
+
+export const deleteEmailTemplate = async (id: string): Promise<void> =>
+  apiRequest(`/api/email-templates/${id}`, { method: 'DELETE' });
 
 
 
@@ -2025,6 +2101,10 @@ export const getAvailableFrameworks = async (): Promise<string[]> =>
 export const getScfFrameworks = async (): Promise<import('../types').ScfFramework[]> =>
   apiRequest('/api/scf/frameworks');
 
+// SCF controls (with framework-native reference IDs) for one framework.
+export const getScfFrameworkControls = async (framework: string): Promise<import('../types').ScfFrameworkControl[]> =>
+  apiRequest(`/api/scf/frameworks/controls?framework=${encodeURIComponent(framework)}`);
+
 
 
 // ── Fw-ControlRegistry recompute (Settings → Org "Recompute" button) ────────
@@ -2034,6 +2114,13 @@ export const recomputeControlRegistryPreview = async (): Promise<import('../type
 
 export const recomputeControlRegistry = async (): Promise<import('../types').FwcrApplyResult> =>
   apiRequest('/api/fwcr/recompute', { method: 'POST' });
+
+// ── NN baseline re-seed (folded into the Settings → Org "Recompute" button) ──
+export const recomputeNnPreview = async (): Promise<import('../types').NnPreview> =>
+  apiRequest('/api/controls/nn-preview');
+
+export const reseedNnControls = async (): Promise<{ message: string; data: number }> =>
+  apiRequest('/api/controls/seed-nn', { method: 'POST' });
 
 
 
