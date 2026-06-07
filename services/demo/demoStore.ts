@@ -12,13 +12,13 @@ import {
   SEED_CONTACTS, SEED_ORG_CONTACTS, SEED_PROGRAM_TASKS, SEED_ACTIVITY_LOGS,
   SEED_SCORING_HISTORY, SEED_POLICY_APPROVALS, SEED_POLICY_NOTIFICATIONS,
   SEED_CONTROL_NOTIFICATIONS, SEED_ORG_NOTIFICATIONS, SEED_ASSET_TYPES,
-  SEED_ASSET_CUSTOM_FIELDS, SEED_ORG_SETTINGS, SEED_POLICY_HISTORY,
+  SEED_ASSET_CUSTOM_FIELDS, SEED_ORG_SETTINGS,
 } from './demoSeed';
 import { readPersistedStore, writePersistedStore } from './demoMode';
 
 // Bump this whenever the seed shape changes in a way that would corrupt persisted
 // stores from earlier demo sessions. Mismatched version triggers a fresh re-hydration.
-const SEED_VERSION = 3;
+const SEED_VERSION = 2;
 
 interface PersistedShape {
   _version: number;
@@ -40,7 +40,6 @@ export interface DemoStore {
   activityLogs: AllActivityLog[];
   scoringHistory: any[];
   policyApprovals: PolicyApproval[];
-  policyHistory: AllActivityLog[];
   policyNotifications: PolicyNotification[];
   controlNotifications: ControlNotification[];
   orgNotifications: OrgNotification[];
@@ -65,7 +64,6 @@ const freshFromSeed = (): DemoStore => ({
   activityLogs: JSON.parse(JSON.stringify(SEED_ACTIVITY_LOGS)),
   scoringHistory: JSON.parse(JSON.stringify(SEED_SCORING_HISTORY)),
   policyApprovals: JSON.parse(JSON.stringify(SEED_POLICY_APPROVALS)),
-  policyHistory: JSON.parse(JSON.stringify(SEED_POLICY_HISTORY)),
   policyNotifications: JSON.parse(JSON.stringify(SEED_POLICY_NOTIFICATIONS)),
   controlNotifications: JSON.parse(JSON.stringify(SEED_CONTROL_NOTIFICATIONS)),
   orgNotifications: JSON.parse(JSON.stringify(SEED_ORG_NOTIFICATIONS)),

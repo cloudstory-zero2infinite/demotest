@@ -243,7 +243,7 @@ export const Header: React.FC<HeaderProps> = ({
                                 <h1 className="text-xl font-bold text-gray-900 dark:text-white leading-none">
                                     Zero to Infinite
                                 </h1>
-                                <span title={`Build ${__APP_VERSION__}`} className="text-[9px] font-mono text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">
+                                <span className="text-[9px] font-mono text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">
                                     {__APP_VERSION__}
                                 </span>
                             </div>
