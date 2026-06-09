@@ -5,8 +5,9 @@ import { AuthUser } from './types';
 import { Login } from './components/auth/Login';
 import { Header } from './components/Header';
 import { SmeTab } from './components/sme/SmeTab';
+import { PlatformAnalyticsTab } from './components/platform-analytics/PlatformAnalyticsTab';
 
-type TopTab = 'sme';
+type TopTab = 'sme' | 'platform-analytics';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -78,11 +79,22 @@ const App: React.FC = () => {
             >
               SME
             </button>
+            <button
+              onClick={() => setActiveTab('platform-analytics')}
+              className={`py-3 px-1 border-b-2 text-sm font-medium ${
+                activeTab === 'platform-analytics'
+                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                  : 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'
+              }`}
+            >
+              Platform Analytics
+            </button>
           </div>
         </div>
       </nav>
       <main className="max-w-7xl mx-auto px-4 py-6">
         {activeTab === 'sme' && <SmeTab />}
+        {activeTab === 'platform-analytics' && <PlatformAnalyticsTab />}
       </main>
     </div>
   );

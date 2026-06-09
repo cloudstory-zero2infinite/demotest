@@ -84,3 +84,74 @@ export interface ScfUploadResult {
   skipped_controls: number;
   skipped_sample: { scfControlId: string; scfId: string }[];
 }
+
+// ───────── Platform Analytics ─────────
+export type TenantType = 'consultant' | 'organisation';
+// Users are either a tenant member (consultant/organisation) or, if they appear
+// in the activity log but belong to no tenant's member list, an "orphan".
+export type UserType = TenantType | 'orphan';
+
+export interface AnalyticsTenant {
+  org_id: string;
+  name: string;
+  type: TenantType;
+  created_at: string;
+  user_count: number;
+}
+
+export interface AnalyticsUser {
+  user_id: string;
+  org_id: string | null;
+  type: UserType;
+  first_seen: string | null;
+  last_login: string | null;
+}
+
+export interface AnalyticsModuleUsage {
+  module: string;
+  action: string;
+  cnt: number;
+}
+
+export interface AnalyticsFeedback {
+  id: string;
+  description: string | null;
+  user_name: string | null;
+  user_email: string | null;
+  org_name: string | null;
+  type: TenantType;
+  rating: number | null;
+  created_at: string;
+}
+
+export interface PlatformAnalytics {
+  tenants: AnalyticsTenant[];
+  users: AnalyticsUser[];
+  moduleUsage: AnalyticsModuleUsage[];
+  feedback: AnalyticsFeedback[];
+}
+
+export interface CampaignMarker {
+  id: string;
+  label: string;
+  event_date: string; // YYYY-MM-DD
+  created_by: string | null;
+  created_at: string;
+}
+
+export type ReleaseEnvironment = 'prod' | 'pre-prod';
+export type ReleaseStatus = 'success' | 'failed';
+
+export interface ReleaseRecord {
+  id: string;
+  version: string | null;
+  environment: ReleaseEnvironment;
+  status: ReleaseStatus;
+  released_at: string;
+  pushed_by: string | null;
+  commit_sha: string | null;
+  run_number: number | null;
+  run_id: number | null;
+  notes: string | null;
+  created_at: string;
+}
