@@ -44,7 +44,7 @@ jobs:
             echo "DEPLOY_FRONTEND_URL=${{ secrets.VITE_API_BASE_URL }}" >> $GITHUB_ENV
           fi
           # Version string baked into the build AND recorded for release tracking.
-          echo "APP_VERSION=V$(date +%m-%d)-$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
+          echo "APP_VERSION=v$(node -p "require('./package.json').version")+${{ github.run_number }}.$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
 
       - name: Resolve release notes (PR title)
         env:
@@ -138,7 +138,7 @@ jobs:
           JOB_STATUS: ${{ job.status }}
         run: |
           # Fallbacks in case the job failed before earlier steps set these.
-          VERSION="${APP_VERSION:-V$(date +%m-%d)-$(echo "$GITHUB_SHA" | cut -c1-7)}"
+          VERSION="${APP_VERSION:-v0.0.0+${RUN_NUMBER}.$(echo "$GITHUB_SHA" | cut -c1-7)}"
           ENV_NAME="${DEPLOY_ENV:-pre-prod}"
           NOTES="${RELEASE_NOTES:-$(git log -1 --pretty=%s 2>/dev/null)}"
           STATUS="failed"; [ "$JOB_STATUS" = "success" ] && STATUS="success"
