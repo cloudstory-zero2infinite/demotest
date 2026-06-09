@@ -17,10 +17,9 @@ jobs:
     permissions:
       contents: read
       id-token: write
-      pull-requests: read   # resolve the PR title for release notes
+      pull-requests: read # resolve the PR title for release notes
 
     steps:
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -126,7 +125,7 @@ jobs:
       ###########################################
 
       - name: Record release
-        if: always()   # log both successful and failed deploys
+        if: always() # log both successful and failed deploys
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -162,4 +161,3 @@ jobs:
             -H "Content-Type: application/json" \
             -H "Prefer: resolution=merge-duplicates" \
             -d "$BODY" || echo "::warning::release_log insert failed (non-fatal)"
-

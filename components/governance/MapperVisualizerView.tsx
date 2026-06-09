@@ -875,6 +875,26 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
         positionsRef.current = new Map();
     }, []);
 
+    // ── Fullscreen (immersive canvas) ──────────────────────────────────────────
+    const rootRef = useRef<HTMLDivElement>(null);
+    const rfRef = useRef<any>(null);
+    const [isFullscreen, setIsFullscreen] = useState(false);
+
+    const toggleFullscreen = useCallback(() => {
+        if (document.fullscreenElement) document.exitFullscreen?.();
+        else rootRef.current?.requestFullscreen?.().catch(() => {});
+    }, []);
+
+    useEffect(() => {
+        const onFs = () => {
+            setIsFullscreen(!!document.fullscreenElement);
+            // The canvas resized — re-fit the graph to the new viewport.
+            setTimeout(() => rfRef.current?.fitView?.({ padding: 0.1 }), 120);
+        };
+        document.addEventListener('fullscreenchange', onFs);
+        return () => document.removeEventListener('fullscreenchange', onFs);
+    }, []);
+
     const stats = useMemo(() => {
         if (!graph) return null;
         return {
@@ -890,7 +910,7 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
     }, [graph, hiddenNodes]);
 
     return (
-        <div className="flex flex-col gap-3 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-lg p-4 -mx-4">
+        <div ref={rootRef} className={`flex flex-col gap-3 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-lg p-4 -mx-4 ${isFullscreen ? 'h-screen overflow-hidden' : ''}`}>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                     <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Mapper Visualizer</h2>
@@ -920,6 +940,14 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
                     <button onClick={collapseAll} className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">Collapse all</button>
                     <button onClick={resetView} className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">Reset view</button>
                     <button onClick={fetchGraph} className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">Refresh</button>
+                    <button onClick={toggleFullscreen} className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 inline-flex items-center gap-1" title={isFullscreen ? 'Exit full screen (Esc)' : 'Full screen'}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+                            {isFullscreen
+                                ? <path d="M9 9H5m0 0V5m0 4l5-5m5 0v4m0 0h4m-4 0l5-5M9 15H5m0 0v4m0-4l5 5m5-5h4m0 0v4m0-4l-5 5" />
+                                : <path d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />}
+                        </svg>
+                        {isFullscreen ? 'Exit' : 'Full screen'}
+                    </button>
                     <button
                         onClick={handleRunControlsMapper}
                         disabled={runState.kind === 'running'}
@@ -958,7 +986,7 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
                 <div className="rounded border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20 px-3 py-2 text-sm text-red-800 dark:text-red-200">{error}</div>
             )}
 
-            <div className="relative" style={{ height: '70vh', minHeight: 500 }}>
+            <div className={`relative ${isFullscreen ? 'flex-1' : ''}`} style={{ height: isFullscreen ? undefined : '70vh', minHeight: 500 }}>
                 {loading ? (
                     <div className="absolute inset-0 flex items-center justify-center text-gray-500">Loading…</div>
                 ) : graph && graph.nodes.length === 0 ? (
@@ -969,6 +997,7 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
                     <ReactFlow
                         nodes={nodes}
                         edges={edges}
+                        onInit={(inst) => { rfRef.current = inst; }}
                         onNodesChange={onNodesChange}
                         onEdgesChange={onEdgesChange}
                         onNodeClick={onNodeClick}

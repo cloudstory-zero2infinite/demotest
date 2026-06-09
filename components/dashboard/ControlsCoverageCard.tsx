@@ -35,7 +35,7 @@ export const ControlsCoverageCard: React.FC<Props> = ({ categories }) => {
 
     return (
         <ChartCard title="Controls Coverage" right={right}>
-            <div className="relative flex-1" style={{ height: '170px' }}>
+            <div className="relative" style={{ height: '170px' }}>
                 {total === 0 ? (
                     <p className="text-sm text-gray-400 dark:text-gray-500 py-8 text-center">No controls yet.</p>
                 ) : (
