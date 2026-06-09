@@ -48,25 +48,21 @@ export const PlatformAnalyticsTab: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         <TenantsDonut tenants={data.tenants} />
         <SignupTrendChart tenants={data.tenants} users={data.users} now={now} />
+        <EngagementBar users={data.users} now={now} />
+        <FeedbackCharts feedback={data.feedback} now={now} />
+        <ReleasesCard now={now} />
       </div>
+
+      {/* Wide cards: multi-radar grid and the tall per-tenant list stay full width */}
+      <ModuleUsageRadars moduleUsage={data.moduleUsage} />
 
       <UsersPerTenantBar
         tenants={data.tenants}
         orphanCount={data.users.filter((u) => u.type === 'orphan').length}
       />
-
-      <ModuleUsageRadars moduleUsage={data.moduleUsage} />
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <FeedbackCharts feedback={data.feedback} now={now} />
-      </div>
-
-      <EngagementBar users={data.users} now={now} />
-
-      <ReleasesCard now={now} />
     </div>
   );
 };

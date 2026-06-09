@@ -69,7 +69,7 @@ export const FeedbackCharts: React.FC<{ feedback: AnalyticsFeedback[]; now: Date
         filename={`feedback-trend-${period}`}
         controls={periodControl}
       >
-        <div className="h-72">
+        <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={line} margin={{ left: 4, right: 12, top: 8, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -96,7 +96,7 @@ export const FeedbackCharts: React.FC<{ feedback: AnalyticsFeedback[]; now: Date
         filename={`feedback-total-${period}`}
         controls={periodControl}
       >
-        <div className="relative h-72">
+        <div className="relative h-56">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie data={donut} dataKey="value" nameKey="name" innerRadius={70} outerRadius={100} paddingAngle={2}>

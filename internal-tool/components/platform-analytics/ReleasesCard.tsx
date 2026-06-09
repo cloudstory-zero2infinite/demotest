@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  BarChart,
-  Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   Tooltip,
@@ -187,17 +187,31 @@ export const ReleasesCard: React.FC<{ now: Date }> = ({ now }) => {
       controls={controls}
       renderTable={renderTable}
     >
-      <div className="h-72">
+      <div className="h-56">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData} margin={{ left: 4, right: 12, top: 8, bottom: 4 }}>
+          <LineChart data={chartData} margin={{ left: 4, right: 12, top: 8, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
             <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
             <Tooltip />
             <Legend />
-            <Bar dataKey="success" stackId="a" name="Success" fill={STATUS_COLORS.success} />
-            <Bar dataKey="failed" stackId="a" name="Failed" fill={STATUS_COLORS.failed} />
-          </BarChart>
+            <Line
+              type="monotone"
+              dataKey="success"
+              name="Success"
+              stroke={STATUS_COLORS.success}
+              strokeWidth={2}
+              dot={{ r: 3 }}
+            />
+            <Line
+              type="monotone"
+              dataKey="failed"
+              name="Failed"
+              stroke={STATUS_COLORS.failed}
+              strokeWidth={2}
+              dot={{ r: 3 }}
+            />
+          </LineChart>
         </ResponsiveContainer>
       </div>
     </ChartPanel>
