@@ -18,9 +18,9 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      pull-requests: read # resolve the PR title for release notes
 
     steps:
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -30,6 +30,7 @@ jobs:
             echo "SERVICE=zti-prod" >> $GITHUB_ENV
             echo "REGION=asia-southeast1" >> $GITHUB_ENV
             echo "IMAGE_NAME=shankar/zti-prod" >> $GITHUB_ENV
+            echo "DEPLOY_ENV=prod" >> $GITHUB_ENV
             echo "DEPLOY_API_BASE_URL=${{ secrets.VITE_API_BASE_URL_PROD }}" >> $GITHUB_ENV
             # Frontend + Express share the same Cloud Run URL, so FRONTEND_URL
             # (used by CORS) equals the API base URL.
@@ -38,9 +39,27 @@ jobs:
             echo "SERVICE=pre-prod" >> $GITHUB_ENV
             echo "REGION=asia-south1" >> $GITHUB_ENV
             echo "IMAGE_NAME=shankar/pre-prod" >> $GITHUB_ENV
+            echo "DEPLOY_ENV=pre-prod" >> $GITHUB_ENV
             echo "DEPLOY_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }}" >> $GITHUB_ENV
             echo "DEPLOY_FRONTEND_URL=${{ secrets.VITE_API_BASE_URL }}" >> $GITHUB_ENV
           fi
+          # Version string baked into the build AND recorded for release tracking.
+          echo "APP_VERSION=v$(node -p "require('./package.json').version")+${{ github.run_number }}.$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
+
+      - name: Resolve release notes (PR title)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Prefer the title of the PR that introduced this commit; fall back to
+          # the commit subject for direct pushes.
+          PR_TITLE=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
+            --jq '.[0].title // empty' 2>/dev/null || true)
+          [ -z "$PR_TITLE" ] && PR_TITLE=$(git log -1 --pretty=%s 2>/dev/null)
+          {
+            echo "RELEASE_NOTES<<__EOF__"
+            echo "$PR_TITLE"
+            echo "__EOF__"
+          } >> $GITHUB_ENV
 
       ###########################################
       # Authenticate to Google Cloud
@@ -82,7 +101,7 @@ jobs:
             --build-arg VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }} \
             --build-arg VITE_AI_AGENT_URL=${{ secrets.VITE_AI_AGENT_URL }} \
             --build-arg VITE_API_BASE_URL=${{ env.DEPLOY_API_BASE_URL }} \
-            --build-arg VITE_APP_VERSION="v$(node -p "require('./package.json').version")+${{ github.run_number }}.$(echo ${{ github.sha}} | cut -c1-7)" \
+            --build-arg VITE_APP_VERSION="${APP_VERSION}" \
             -t $IMAGE_URI \
             --push .
 
@@ -102,3 +121,44 @@ jobs:
             --set-env-vars \
               SUPABASE_URL=${{ secrets.SUPABASE_URL }},SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }},AI_AGENT_URL=${{ secrets.AI_AGENT_URL }},FRONTEND_URL=${{ env.DEPLOY_FRONTEND_URL }},SMTP_HOST=${{ secrets.SMTP_HOST }},SMTP_PORT=${{ secrets.SMTP_PORT}},SMTP_USER=${{ secrets.SMTP_USER }},SMTP_PASS=${{ secrets.SMTP_PASS}},SMTP_FROM=${{ secrets.SMTP_FROM }}
 
+      ###########################################
+      # Record the release (Platform Analytics)
+      ###########################################
+
+      - name: Record release
+        if: always() # log both successful and failed deploys
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_SHA: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ID: ${{ github.run_id }}
+          # job.status is success/failure/cancelled; map anything non-success to failed.
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          # Fallbacks in case the job failed before earlier steps set these.
+          VERSION="${APP_VERSION:-v0.0.0+${RUN_NUMBER}.$(echo "$GITHUB_SHA" | cut -c1-7)}"
+          ENV_NAME="${DEPLOY_ENV:-pre-prod}"
+          NOTES="${RELEASE_NOTES:-$(git log -1 --pretty=%s 2>/dev/null)}"
+          STATUS="failed"; [ "$JOB_STATUS" = "success" ] && STATUS="success"
+
+          BODY=$(jq -n \
+            --arg v "$VERSION" \
+            --arg env "$ENV_NAME" \
+            --arg st "$STATUS" \
+            --arg by "$GITHUB_ACTOR" \
+            --arg sha "$GITHUB_SHA" \
+            --argjson rn "$RUN_NUMBER" \
+            --argjson rid "$RUN_ID" \
+            --arg notes "$NOTES" \
+            '{version:$v, environment:$env, status:$st, released_at:(now|todate),
+              pushed_by:$by, commit_sha:$sha, run_number:$rn, run_id:$rid, notes:$notes}')
+
+          # Non-fatal: a logging hiccup must never fail a deploy.
+          curl -s -X POST "${SUPABASE_URL}/rest/v1/release_log" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: resolution=merge-duplicates" \
+            -d "$BODY" || echo "::warning::release_log insert failed (non-fatal)"

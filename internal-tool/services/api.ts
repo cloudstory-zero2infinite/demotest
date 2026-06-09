@@ -11,6 +11,9 @@ import {
   ScfFilesResponse,
   ScfDomain,
   ScfUploadResult,
+  PlatformAnalytics,
+  CampaignMarker,
+  ReleaseRecord,
 } from '../types';
 
 // Empty string → same-origin (production). Undefined → fall back to localhost (dev).
@@ -160,6 +163,28 @@ export async function downloadControlFramework(name: string): Promise<Blob> {
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
   return res.blob();
 }
+
+// ───────── Platform Analytics ─────────
+export const getPlatformAnalytics = () =>
+  request<PlatformAnalytics>('/api/internal/platform-analytics');
+
+export const listCampaignMarkers = () =>
+  request<CampaignMarker[]>('/api/internal/platform-analytics/markers');
+export const createCampaignMarker = (body: { label: string; event_date: string }) =>
+  request<CampaignMarker>('/api/internal/platform-analytics/markers', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+export const deleteCampaignMarker = (id: string) =>
+  request<void>(`/api/internal/platform-analytics/markers/${id}`, { method: 'DELETE' });
+
+export const listReleases = () =>
+  request<ReleaseRecord[]>('/api/internal/platform-analytics/releases');
+export const updateReleaseNotes = (id: string, notes: string) =>
+  request<ReleaseRecord>(`/api/internal/platform-analytics/releases/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ notes }),
+  });
 
 // ───────── Auth ─────────
 export async function signInWithGoogle() {
