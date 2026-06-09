@@ -686,6 +686,50 @@ export const handleDemoRequest = async <T>(path: string, options: RequestInit = 
         data: { confidence: 0.7 + (i % 3) * 0.1 },
       })),
     ];
+
+    // Deep chain: a curated handful of domains drill down through
+    // Control → Capability → Asset → Vulnerability, reusing real demo
+    // entities so the visualizer shows the full governance-to-risk thread
+    // (and how it all connects) without flooding the canvas.
+    const findCap = (kw: string) => store.capabilities.find(c => (c.capab_name || '').toLowerCase().includes(kw));
+    const findAsset = (prefix: string) => store.assets.find(a => (a.asset_id || '').startsWith(prefix));
+    const findVuln = (assetUuid: string) => store.vulnerabilities.find(v => v.asset_id === assetUuid);
+    const deepDefs = [
+      { scf_id: 'IAC', ctl: 'Multi-Factor Authentication enforced for all users', capKw: 'identity',     assetPrefix: 'SRV' },
+      { scf_id: 'DCH', ctl: 'Encryption at rest for all PII data',                capKw: 'encryption',   assetPrefix: 'DAT' },
+      { scf_id: 'NET', ctl: 'Network segmentation between trust zones',           capKw: 'segmentation', assetPrefix: 'NET' },
+      { scf_id: 'IRO', ctl: '24×7 SIEM & SOC monitoring',                         capKw: 'siem',         assetPrefix: 'CLD' },
+    ];
+    deepDefs.forEach((def, i) => {
+      const cap = findCap(def.capKw);
+      const asset = findAsset(def.assetPrefix);
+      const ctlId = `ctl:${def.scf_id}`;
+      nodes.push({ id: ctlId, type: 'Control', data: { ctl_id: `${def.scf_id}-01`, name: def.ctl, scf_control_id: `${def.scf_id}-01` } });
+      edges.push({ id: `e-impl-${def.scf_id}`, source: `scfdomain:${def.scf_id}`, target: ctlId, label: 'IMPLEMENTED_BY', data: { confidence: 0.9 } });
+
+      if (!cap) return;
+      const capNodeId = `cap:${cap.capab_id}`;
+      if (!nodes.some(n => n.id === capNodeId)) {
+        nodes.push({ id: capNodeId, type: 'Capability', data: { capab_id: cap.capab_id, capab_name: cap.capab_name } });
+      }
+      edges.push({ id: `e-enf-${def.scf_id}`, source: ctlId, target: capNodeId, label: 'ENFORCED_BY', data: { confidence: 0.85 } });
+
+      if (!asset) return;
+      const assetNodeId = `asset:${asset.asset_id}`;
+      if (!nodes.some(n => n.id === assetNodeId)) {
+        nodes.push({ id: assetNodeId, type: 'Asset', data: { asset_id: asset.asset_id, name: asset.name } });
+      }
+      edges.push({ id: `e-prov-${def.scf_id}`, source: capNodeId, target: assetNodeId, label: 'PROVIDED_BY', data: { confidence: 0.8 } });
+
+      const vuln = findVuln(asset.id);
+      if (!vuln) return;
+      const vulnNodeId = `vuln:${vuln.id}`;
+      if (!nodes.some(n => n.id === vulnNodeId)) {
+        nodes.push({ id: vulnNodeId, type: 'Vulnerability', data: { title: vuln.name, status: vuln.status, derived_from: vuln.derived_from } });
+      }
+      edges.push({ id: `e-vuln-${def.scf_id}`, source: assetNodeId, target: vulnNodeId, label: 'HAS_VULNERABILITY', data: { confidence: 0.75 } });
+    });
+
     return { nodes, edges } as T;
   }
   if (path === '/api/mapper/health') return { status: 'ok' } as T;

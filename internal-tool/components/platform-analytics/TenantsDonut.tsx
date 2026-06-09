@@ -25,7 +25,7 @@ export const TenantsDonut: React.FC<{ tenants: AnalyticsTenant[] }> = ({ tenants
 
   return (
     <ChartPanel title="Tenants" subtitle="Consultants vs organisations" tableRows={rows} filename="tenants">
-      <div className="relative h-72">
+      <div className="relative h-56">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie data={data} dataKey="value" nameKey="name" innerRadius={70} outerRadius={100} paddingAngle={2}>

@@ -506,7 +506,8 @@ export interface MapperGraphNode {
     | 'SCFDomain'
     | 'Control'
     | 'Capability'
-    | 'Asset';
+    | 'Asset'
+    | 'Vulnerability';
   data: Record<string, any>;
 }
 
@@ -521,7 +522,8 @@ export interface MapperGraphEdge {
     | 'COVERS'
     | 'IMPLEMENTED_BY'
     | 'ENFORCED_BY'
-    | 'PROVIDED_BY';
+    | 'PROVIDED_BY'
+    | 'HAS_VULNERABILITY';
   data?: { confidence?: number | null; rationale?: string | null; matched_on?: string | null };
 }
 

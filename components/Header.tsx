@@ -234,7 +234,7 @@ export const Header: React.FC<HeaderProps> = ({
     return (
         <>
         <header className="fixed top-0 left-0 right-0 bg-white dark:bg-gray-800 shadow-sm border-b dark:border-gray-700 z-40">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="w-full px-4 sm:px-6">
                 <div className="flex items-center justify-between h-16">
                     <div className="flex items-center gap-3">
                         <img src="/logo.png" alt="Zero to Infinite" className="h-9 w-9 object-contain" />

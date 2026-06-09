@@ -84,19 +84,17 @@ const OrgDiagramView: React.FC = () => {
         setTranslate({ x: Math.max((cW - w * s) / 2, 0), y: Math.max((cH - h * s) / 2, 0) });
     }, []);
 
-    const toggleFullscreen = useCallback(() => {
-        if (document.fullscreenElement) document.exitFullscreen?.();
-        else rootRef.current?.requestFullscreen?.().catch(() => {});
-    }, []);
+    // CSS-overlay fullscreen (works everywhere, incl. embedded/iframe contexts
+    // where the native Fullscreen API is blocked). Esc exits.
+    const toggleFullscreen = useCallback(() => setIsFullscreen(v => !v), []);
 
     useEffect(() => {
-        const onFs = () => {
-            setIsFullscreen(!!document.fullscreenElement);
-            setTimeout(fitToScreen, 120); // canvas resized — re-fit
-        };
-        document.addEventListener('fullscreenchange', onFs);
-        return () => document.removeEventListener('fullscreenchange', onFs);
-    }, [fitToScreen]);
+        const t = setTimeout(fitToScreen, 120); // canvas resized — re-fit
+        if (!isFullscreen) return () => clearTimeout(t);
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsFullscreen(false); };
+        document.addEventListener('keydown', onKey);
+        return () => { clearTimeout(t); document.removeEventListener('keydown', onKey); };
+    }, [isFullscreen, fitToScreen]);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -206,7 +204,7 @@ const OrgDiagramView: React.FC = () => {
     const resetView = () => { setScale(1); setTranslate({ x: 20, y: 20 }); };
 
     return (
-        <div ref={rootRef} className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900">
+        <div ref={rootRef} className={`flex flex-col bg-gray-50 dark:bg-gray-900 ${isFullscreen ? 'fixed inset-0 z-50 h-screen w-screen' : 'h-screen'}`}>
             {/* Toolbar */}
             <div className="flex items-center gap-3 mb-3 p-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
                 <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Group by:</label>

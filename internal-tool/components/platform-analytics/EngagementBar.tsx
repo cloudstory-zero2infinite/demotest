@@ -66,7 +66,7 @@ export const EngagementBar: React.FC<{ users: AnalyticsUser[]; now: Date }> = ({
       tableRows={tableRows}
       filename="engagement"
     >
-      <div className="h-72">
+      <div className="h-56">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ left: 4, right: 12, top: 8, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
