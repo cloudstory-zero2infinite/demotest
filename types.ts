@@ -233,6 +233,24 @@ export interface ControlRegistry {
     scf_control_id?: string | null;
 }
 
+// ── ZTI Hub (control checks) ─────────────────────────────────────────────────
+export interface ZtiHubStatus {
+  active: boolean;
+  deviceName?: string | null;
+  lastBeaconAt?: string | null;
+  gcpIntegrated?: boolean;
+}
+
+export interface ControlCheckResult {
+  id: string;
+  check_id: string;
+  status: 'queued' | 'running' | 'done' | 'failed';
+  result_status: 'pass' | 'fail' | 'error' | null;
+  result: any;
+  requested_at: string;
+  finished_at: string | null;
+}
+
 // ── SCF Frameworks & Fw-ControlRegistry recompute ────────────────────────────
 
 export interface ScfFramework {

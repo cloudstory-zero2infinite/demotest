@@ -228,6 +228,7 @@ import { fwcrRouter } from "./routes/fwcr.js";
 import { scfFrameworksRouter } from "./routes/scf-frameworks.js";
 import { ddRouter } from "./routes/dd.js";
 import { riskRouter } from "./routes/risk.js";
+import { ztiHubRouter } from "./routes/zti-hub.js";
 
 
 
@@ -317,6 +318,8 @@ app.use("/api/scf/frameworks", scfFrameworksRouter);
 app.use("/api/dd", ddRouter);
 
 app.use("/api/risk", riskRouter);
+
+app.use("/api/zti-hub", ztiHubRouter);
 
 
 

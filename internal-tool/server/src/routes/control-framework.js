@@ -376,6 +376,31 @@ router.get('/domains', requireAuth, async (_req, res) => {
   }
 });
 
+// Return all parsed controls (~1468) for the SCF Controls preview box.
+router.get('/controls', requireAuth, async (_req, res) => {
+  try {
+    // Supabase caps a single select at 1000 rows; page through to get all.
+    const PAGE = 1000;
+    let from = 0;
+    const all = [];
+    for (;;) {
+      const { data, error } = await supabaseAdmin
+        .from('scf_controls')
+        .select('scf_control_id, scf_id, scf_domain_label, control_name')
+        .order('scf_control_id', { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) throw error;
+      all.push(...(data || []));
+      if (!data || data.length < PAGE) break;
+      from += PAGE;
+    }
+    res.json(all);
+  } catch (err) {
+    console.error('[control-framework] controls error:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // Upload a new SCF xlsx. Parses both sheets, uploads file to bucket, wipes+repopulates DB.
 router.post('/', requireAuth, upload.single('file'), async (req, res) => {
   try {
