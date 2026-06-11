@@ -64,6 +64,43 @@ export interface ScfDomain {
   sort_order: number | null;
 }
 
+export interface ScfControl {
+  scf_control_id: string;
+  scf_id: string;
+  scf_domain_label: string | null;
+  control_name: string | null;
+}
+
+export interface ControlCheck {
+  id: string;
+  check_id: string;
+  title: string;
+  description: string | null;
+  provider: string;
+  service: string | null;
+  severity: string;
+  source: string;
+  remediation: string | null;
+  check_metadata?: Record<string, any> | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export type ControlCheckCreate = Pick<ControlCheck, 'check_id' | 'title'> &
+  Partial<Omit<ControlCheck, 'id' | 'created_at' | 'updated_at'>>;
+export type ControlCheckUpdate = Partial<Omit<ControlCheck, 'id' | 'check_id' | 'created_at' | 'updated_at'>>;
+
+export interface ControlCheckAssociation {
+  id: string;
+  scf_control_id: string;
+  check_id: string;
+  created_by: string | null;
+  created_at: string | null;
+  title: string | null;
+  provider: string | null;
+  severity: string | null;
+}
+
 export interface ScfCounts {
   domains: number;
   controls: number;

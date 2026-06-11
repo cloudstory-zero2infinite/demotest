@@ -9,6 +9,7 @@ import { ontologyRouter } from './routes/ontology.js';
 import { complianceRouter } from './routes/compliance.js';
 import { nnControlsRouter } from './routes/nn-controls.js';
 import { controlFrameworkRouter } from './routes/control-framework.js';
+import { controlChecksRouter } from './routes/control-checks.js';
 import { platformAnalyticsRouter } from './routes/platform-analytics.js';
 
 dotenv.config();
@@ -36,6 +37,7 @@ app.use('/api/internal/ontology', ontologyRouter);
 app.use('/api/internal/compliance', complianceRouter);
 app.use('/api/internal/nn-controls', nnControlsRouter);
 app.use('/api/internal/control-framework', controlFrameworkRouter);
+app.use('/api/internal/control-checks', controlChecksRouter);
 app.use('/api/internal/platform-analytics', platformAnalyticsRouter);
 
 // Serve the built frontend (production). In dev the Vite server handles this.

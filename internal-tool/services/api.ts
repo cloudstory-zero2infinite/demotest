@@ -10,7 +10,12 @@ import {
   NNControlTemplateUpdate,
   ScfFilesResponse,
   ScfDomain,
+  ScfControl,
   ScfUploadResult,
+  ControlCheck,
+  ControlCheckCreate,
+  ControlCheckUpdate,
+  ControlCheckAssociation,
   PlatformAnalytics,
   CampaignMarker,
   ReleaseRecord,
@@ -138,6 +143,9 @@ export const listControlFramework = () =>
 export const listScfDomains = () =>
   request<ScfDomain[]>('/api/internal/control-framework/domains');
 
+export const listScfControls = () =>
+  request<ScfControl[]>('/api/internal/control-framework/controls');
+
 export async function uploadControlFramework(file: File): Promise<ScfUploadResult> {
   const form = new FormData();
   form.append('file', file);
@@ -163,6 +171,39 @@ export async function downloadControlFramework(name: string): Promise<Blob> {
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
   return res.blob();
 }
+
+// ───────── Control Checks Library ─────────
+export const listControlChecks = () =>
+  request<ControlCheck[]>('/api/internal/control-checks');
+export const createControlCheck = (body: ControlCheckCreate) =>
+  request<ControlCheck>('/api/internal/control-checks', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+export const updateControlCheck = (id: string, body: ControlCheckUpdate) =>
+  request<ControlCheck>(`/api/internal/control-checks/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+export const deleteControlCheck = (id: string) =>
+  request<void>(`/api/internal/control-checks/${id}`, { method: 'DELETE' });
+
+export const listCheckAssociations = (scfControlId?: string) =>
+  request<ControlCheckAssociation[]>(
+    `/api/internal/control-checks/associations${scfControlId ? `?scf_control_id=${encodeURIComponent(scfControlId)}` : ''}`
+  );
+export const attachCheck = (scf_control_id: string, check_id: string) =>
+  request<{ scf_control_id: string; check_id: string }>(
+    '/api/internal/control-checks/associations',
+    { method: 'POST', body: JSON.stringify({ scf_control_id, check_id }) }
+  );
+export const detachCheck = (associationId: string) =>
+  request<void>(`/api/internal/control-checks/associations/${associationId}`, { method: 'DELETE' });
+export const autoAssignGcpChecks = () =>
+  request<{ inserted: number; attempted: number }>(
+    '/api/internal/control-checks/auto-assign-gcp',
+    { method: 'POST' }
+  );
 
 // ───────── Platform Analytics ─────────
 export const getPlatformAnalytics = () =>
