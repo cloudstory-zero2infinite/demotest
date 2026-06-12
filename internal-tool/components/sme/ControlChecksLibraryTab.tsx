@@ -5,12 +5,13 @@ import {
   updateControlCheck,
   deleteControlCheck,
   listScfControls,
+  listNNControls,
   listCheckAssociations,
   attachCheck,
   detachCheck,
   autoAssignGcpChecks,
 } from '../../services/api';
-import { ControlCheck, ControlCheckAssociation, ScfControl } from '../../types';
+import { ControlCheck, ControlCheckAssociation, ScfControl, NNControlTemplate } from '../../types';
 import { useToast } from '../common/Toast';
 
 const SEVERITIES = ['low', 'medium', 'high', 'critical'];
@@ -45,6 +46,7 @@ export const ControlChecksLibraryTab: React.FC = () => {
   const { push } = useToast();
   const [checks, setChecks] = useState<ControlCheck[]>([]);
   const [controls, setControls] = useState<ScfControl[]>([]);
+  const [nnControls, setNnControls] = useState<NNControlTemplate[]>([]);
   const [associations, setAssociations] = useState<ControlCheckAssociation[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -53,20 +55,24 @@ export const ControlChecksLibraryTab: React.FC = () => {
   const [editing, setEditing] = useState<{ id: string | null; form: CheckForm } | null>(null);
 
   // Association manager
+  const [assocMode, setAssocMode] = useState<'scf' | 'nn'>('scf');
   const [controlQuery, setControlQuery] = useState('');
   const [selectedControl, setSelectedControl] = useState<ScfControl | null>(null);
+  const [selectedNn, setSelectedNn] = useState<NNControlTemplate | null>(null);
   const [attachPick, setAttachPick] = useState('');
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [chk, ctrls, assoc] = await Promise.all([
+      const [chk, ctrls, nn, assoc] = await Promise.all([
         listControlChecks(),
         listScfControls(),
+        listNNControls(),
         listCheckAssociations(),
       ]);
       setChecks(chk);
       setControls(ctrls);
+      setNnControls(nn);
       setAssociations(assoc);
     } catch (e: any) {
       push(e?.message || 'Failed to load control checks', 'error');
@@ -151,10 +157,16 @@ export const ControlChecksLibraryTab: React.FC = () => {
     }
   };
 
-  const controlAssociations = useMemo(
-    () => (selectedControl ? associations.filter((a) => a.scf_control_id === selectedControl.scf_control_id) : []),
-    [associations, selectedControl]
-  );
+  // Currently selected target (SCF control id or NN ctl_name) + display name.
+  const selectedKey = assocMode === 'scf' ? selectedControl?.scf_control_id ?? null : selectedNn?.ctl_name ?? null;
+  const selectedName = assocMode === 'scf' ? selectedControl?.control_name ?? null : selectedNn?.ctl_name ?? null;
+
+  const controlAssociations = useMemo(() => {
+    if (!selectedKey) return [];
+    return associations.filter((a) =>
+      assocMode === 'scf' ? a.scf_control_id === selectedKey : a.nn_ctl_name === selectedKey
+    );
+  }, [associations, assocMode, selectedKey]);
 
   const attachedCheckIds = useMemo(
     () => new Set(controlAssociations.map((a) => a.check_id)),
@@ -173,17 +185,34 @@ export const ControlChecksLibraryTab: React.FC = () => {
       .slice(0, 50);
   }, [controls, controlQuery]);
 
-  const assocCountByControl = useMemo(() => {
+  const filteredNn = useMemo(() => {
+    const q = controlQuery.trim().toLowerCase();
+    if (!q) return nnControls.slice(0, 50);
+    return nnControls
+      .filter((c) => c.ctl_name.toLowerCase().includes(q) || (c.ctl_description || '').toLowerCase().includes(q))
+      .slice(0, 50);
+  }, [nnControls, controlQuery]);
+
+  const assocCountByScf = useMemo(() => {
     const m = new Map<string, number>();
-    for (const a of associations) m.set(a.scf_control_id, (m.get(a.scf_control_id) || 0) + 1);
+    for (const a of associations) if (a.scf_control_id) m.set(a.scf_control_id, (m.get(a.scf_control_id) || 0) + 1);
+    return m;
+  }, [associations]);
+
+  const assocCountByNn = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const a of associations) if (a.nn_ctl_name) m.set(a.nn_ctl_name, (m.get(a.nn_ctl_name) || 0) + 1);
     return m;
   }, [associations]);
 
   const doAttach = async () => {
-    if (!selectedControl || !attachPick) return;
+    if (!selectedKey || !attachPick) return;
     setBusy(true);
     try {
-      await attachCheck(selectedControl.scf_control_id, attachPick);
+      await attachCheck(
+        assocMode === 'scf' ? { scf_control_id: selectedKey } : { nn_ctl_name: selectedKey },
+        attachPick
+      );
       setAttachPick('');
       await refresh();
     } catch (e: any) {
@@ -318,19 +347,37 @@ export const ControlChecksLibraryTab: React.FC = () => {
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700">
         <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-base font-semibold">Check ↔ SCF Control Associations</h2>
+            <h2 className="text-base font-semibold">Check ↔ Control Associations</h2>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Map checks to SCF controls. The main app shows a ▶ run button only on controls that
-              have at least one associated check.
+              Map checks to SCF controls and Non-Negotiable (NN) controls. The main app shows a ▶ run
+              button only on controls that have at least one associated check.
             </p>
           </div>
-          <button
-            onClick={onAutoAssign}
-            disabled={busy}
-            className="text-sm px-3 py-1.5 rounded border border-emerald-500 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 disabled:opacity-50"
-          >
-            Auto-assign GCP checks
-          </button>
+          <div className="flex items-center gap-3">
+            {/* SCF / NN segmented toggle */}
+            <div className="inline-flex rounded border border-gray-300 dark:border-gray-600 overflow-hidden text-sm">
+              {(['scf', 'nn'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => { setAssocMode(m); setAttachPick(''); }}
+                  className={`px-3 py-1.5 ${
+                    assocMode === m
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  {m === 'scf' ? 'SCF Controls' : 'NN Controls'}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={onAutoAssign}
+              disabled={busy}
+              className="text-sm px-3 py-1.5 rounded border border-emerald-500 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 disabled:opacity-50"
+            >
+              Auto-assign GCP checks
+            </button>
+          </div>
         </div>
 
         <div className="grid md:grid-cols-2 gap-0 divide-y md:divide-y-0 md:divide-x divide-gray-200 dark:divide-gray-700">
@@ -340,28 +387,52 @@ export const ControlChecksLibraryTab: React.FC = () => {
               type="text"
               value={controlQuery}
               onChange={(e) => setControlQuery(e.target.value)}
-              placeholder="Search SCF control (id or name)…"
+              placeholder={assocMode === 'scf' ? 'Search SCF control (id or name)…' : 'Search NN control (name)…'}
               className="w-full text-sm px-3 py-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900"
             />
             <div className="max-h-80 overflow-y-auto border border-gray-100 dark:border-gray-700 rounded">
-              {filteredControls.length === 0 ? (
-                <div className="px-3 py-6 text-center text-xs text-gray-500 dark:text-gray-400">
-                  No matching controls.
-                </div>
+              {assocMode === 'scf' ? (
+                filteredControls.length === 0 ? (
+                  <div className="px-3 py-6 text-center text-xs text-gray-500 dark:text-gray-400">No matching controls.</div>
+                ) : (
+                  filteredControls.map((c) => {
+                    const n = assocCountByScf.get(c.scf_control_id) || 0;
+                    const active = selectedControl?.scf_control_id === c.scf_control_id;
+                    return (
+                      <button
+                        key={c.scf_control_id}
+                        onClick={() => setSelectedControl(c)}
+                        className={`w-full text-left px-3 py-2 text-sm border-b border-gray-100 dark:border-gray-700 last:border-0 ${
+                          active ? 'bg-blue-50 dark:bg-blue-900/30' : 'hover:bg-gray-50 dark:hover:bg-gray-900/30'
+                        }`}
+                      >
+                        <span className="font-mono">{c.scf_control_id}</span>
+                        <span className="text-gray-600 dark:text-gray-300"> — {c.control_name || '—'}</span>
+                        {n > 0 && (
+                          <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                            {n} check{n > 1 ? 's' : ''}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })
+                )
+              ) : filteredNn.length === 0 ? (
+                <div className="px-3 py-6 text-center text-xs text-gray-500 dark:text-gray-400">No matching NN controls.</div>
               ) : (
-                filteredControls.map((c) => {
-                  const n = assocCountByControl.get(c.scf_control_id) || 0;
-                  const active = selectedControl?.scf_control_id === c.scf_control_id;
+                filteredNn.map((c) => {
+                  const n = assocCountByNn.get(c.ctl_name) || 0;
+                  const active = selectedNn?.ctl_name === c.ctl_name;
                   return (
                     <button
-                      key={c.scf_control_id}
-                      onClick={() => setSelectedControl(c)}
+                      key={c.id}
+                      onClick={() => setSelectedNn(c)}
                       className={`w-full text-left px-3 py-2 text-sm border-b border-gray-100 dark:border-gray-700 last:border-0 ${
                         active ? 'bg-blue-50 dark:bg-blue-900/30' : 'hover:bg-gray-50 dark:hover:bg-gray-900/30'
                       }`}
                     >
-                      <span className="font-mono">{c.scf_control_id}</span>
-                      <span className="text-gray-600 dark:text-gray-300"> — {c.control_name || '—'}</span>
+                      <span className="px-1.5 py-0.5 mr-1.5 rounded text-[10px] bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">NN</span>
+                      <span className="text-gray-700 dark:text-gray-200">{c.ctl_name}</span>
                       {n > 0 && (
                         <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
                           {n} check{n > 1 ? 's' : ''}
@@ -376,17 +447,22 @@ export const ControlChecksLibraryTab: React.FC = () => {
 
           {/* attached checks for selected control */}
           <div className="p-5 space-y-3">
-            {!selectedControl ? (
+            {!selectedKey ? (
               <div className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
-                Select an SCF control to manage its checks.
+                Select a {assocMode === 'scf' ? 'SCF' : 'NN'} control to manage its checks.
               </div>
             ) : (
               <>
                 <div>
-                  <div className="font-mono text-sm font-semibold">{selectedControl.scf_control_id}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                    {selectedControl.control_name}
+                  <div className="text-sm font-semibold flex items-center gap-1.5">
+                    {assocMode === 'nn' && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">NN</span>
+                    )}
+                    <span className={assocMode === 'scf' ? 'font-mono' : ''}>{selectedKey}</span>
                   </div>
+                  {assocMode === 'scf' && selectedName && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400">{selectedName}</div>
+                  )}
                 </div>
 
                 {controlAssociations.length === 0 ? (

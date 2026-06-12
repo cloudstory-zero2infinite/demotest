@@ -241,6 +241,17 @@ export interface ZtiHubStatus {
   gcpIntegrated?: boolean;
 }
 
+export interface ZtiHubDevice {
+  id: string;
+  device_name: string | null;
+  gcp_integrated: boolean;
+  gcp_project_id: string | null;
+  last_beacon_at: string | null;
+  created_at: string;
+  revoked_at: string | null;
+  online: boolean;
+}
+
 export interface ControlCheckResult {
   id: string;
   check_id: string;

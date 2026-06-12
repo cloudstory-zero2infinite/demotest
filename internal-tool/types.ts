@@ -92,7 +92,9 @@ export type ControlCheckUpdate = Partial<Omit<ControlCheck, 'id' | 'check_id' | 
 
 export interface ControlCheckAssociation {
   id: string;
-  scf_control_id: string;
+  kind: 'scf' | 'nn';
+  scf_control_id: string | null;
+  nn_ctl_name: string | null;
   check_id: string;
   created_by: string | null;
   created_at: string | null;

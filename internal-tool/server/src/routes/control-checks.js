@@ -109,9 +109,10 @@ router.get('/associations', requireAuth, async (req, res) => {
   try {
     let q = supabaseAdmin
       .from('control_check_associations')
-      .select('id, scf_control_id, check_id, created_by, created_at');
+      .select('id, scf_control_id, nn_ctl_name, check_id, created_by, created_at');
     if (req.query.scf_control_id) q = q.eq('scf_control_id', req.query.scf_control_id);
-    const { data, error } = await q.order('scf_control_id', { ascending: true });
+    if (req.query.nn_ctl_name) q = q.eq('nn_ctl_name', req.query.nn_ctl_name);
+    const { data, error } = await q;
     if (error) throw error;
 
     // Enrich with check metadata via a separate lookup (avoids relying on
@@ -126,7 +127,9 @@ router.get('/associations', requireAuth, async (req, res) => {
       const c = byId.get(r.check_id);
       return {
         id: r.id,
+        kind: r.nn_ctl_name ? 'nn' : 'scf',
         scf_control_id: r.scf_control_id,
+        nn_ctl_name: r.nn_ctl_name,
         check_id: r.check_id,
         created_by: r.created_by,
         created_at: r.created_at,
@@ -142,23 +145,41 @@ router.get('/associations', requireAuth, async (req, res) => {
   }
 });
 
-// Attach a check to an SCF control.
+// Attach a check to an SCF control (scf_control_id) OR an NN control (nn_ctl_name).
 router.post('/associations', requireAuth, async (req, res) => {
   try {
-    const { scf_control_id, check_id } = req.body || {};
-    if (!scf_control_id || !check_id) {
-      return res.status(400).json({ message: 'scf_control_id and check_id are required' });
+    const { scf_control_id, nn_ctl_name, check_id } = req.body || {};
+    if (!check_id || (!scf_control_id && !nn_ctl_name)) {
+      return res.status(400).json({ message: 'check_id plus one of scf_control_id | nn_ctl_name are required' });
     }
+    if (scf_control_id && nn_ctl_name) {
+      return res.status(400).json({ message: 'provide only one of scf_control_id | nn_ctl_name' });
+    }
+
+    // Existence check + insert (partial unique indexes don't compose with
+    // PostgREST upsert onConflict, so we dedupe manually).
+    const col = scf_control_id ? 'scf_control_id' : 'nn_ctl_name';
+    const val = scf_control_id || nn_ctl_name;
+    const { data: existing } = await supabaseAdmin
+      .from('control_check_associations')
+      .select('id')
+      .eq(col, val)
+      .eq('check_id', check_id)
+      .maybeSingle();
+    if (existing) return res.status(200).json(existing);
+
     const { data, error } = await supabaseAdmin
       .from('control_check_associations')
-      .upsert(
-        { scf_control_id, check_id, created_by: req.userEmail || 'sme' },
-        { onConflict: 'scf_control_id,check_id', ignoreDuplicates: true }
-      )
-      .select('id, scf_control_id, check_id')
-      .maybeSingle();
+      .insert({
+        scf_control_id: scf_control_id || null,
+        nn_ctl_name: nn_ctl_name || null,
+        check_id,
+        created_by: req.userEmail || 'sme',
+      })
+      .select('id, scf_control_id, nn_ctl_name, check_id')
+      .single();
     if (error) throw error;
-    res.status(201).json(data || { scf_control_id, check_id });
+    res.status(201).json(data);
   } catch (err) {
     console.error('[control-checks] associate error:', err);
     res.status(500).json({ message: err.message });
@@ -183,16 +204,22 @@ router.delete('/associations/:id', requireAuth, async (req, res) => {
 // Auto-assign the curated GCP defaults. Idempotent (skips existing pairs).
 router.post('/auto-assign-gcp', requireAuth, async (req, res) => {
   try {
-    const rows = GCP_AUTO_ASSOCIATIONS.map((a) => ({
-      ...a,
-      created_by: req.userEmail || 'auto-seed',
-    }));
-    const { data, error } = await supabaseAdmin
+    // Insert only the SCF pairs that don't already exist (partial unique index
+    // rules out a plain upsert onConflict here).
+    const { data: existing } = await supabaseAdmin
       .from('control_check_associations')
-      .upsert(rows, { onConflict: 'scf_control_id,check_id', ignoreDuplicates: true })
-      .select('id');
-    if (error) throw error;
-    res.json({ inserted: (data || []).length, attempted: rows.length });
+      .select('scf_control_id, check_id')
+      .not('scf_control_id', 'is', null);
+    const seen = new Set((existing || []).map((r) => `${r.scf_control_id}::${r.check_id}`));
+    const toInsert = GCP_AUTO_ASSOCIATIONS
+      .filter((a) => !seen.has(`${a.scf_control_id}::${a.check_id}`))
+      .map((a) => ({ ...a, nn_ctl_name: null, created_by: req.userEmail || 'auto-seed' }));
+
+    if (toInsert.length) {
+      const { error } = await supabaseAdmin.from('control_check_associations').insert(toInsert);
+      if (error) throw error;
+    }
+    res.json({ inserted: toInsert.length, attempted: GCP_AUTO_ASSOCIATIONS.length });
   } catch (err) {
     console.error('[control-checks] auto-assign error:', err);
     res.status(500).json({ message: err.message });

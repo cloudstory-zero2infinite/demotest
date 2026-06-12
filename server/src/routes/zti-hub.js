@@ -101,33 +101,41 @@ router.delete('/devices/:id', requireAuth, async (req, res) => {
   }
 });
 
-// Distinct SCF control ids that have ≥1 associated check (global). The control
-// registry uses this to decide which rows show a ▶ button at all.
+// Distinct control keys that have ≥1 associated check (global). The control
+// registry uses these to decide which rows show a ▶ button: SCF rows match on
+// scf_control_id, NN rows match on ctl_name.
 router.get('/associated-controls', requireAuth, async (_req, res) => {
   try {
     const { data, error } = await supabaseAdmin
       .from('control_check_associations')
-      .select('scf_control_id');
+      .select('scf_control_id, nn_ctl_name');
     if (error) throw error;
-    const ids = [...new Set((data || []).map((r) => r.scf_control_id))];
-    res.json(ids);
+    const scf = [...new Set((data || []).map((r) => r.scf_control_id).filter(Boolean))];
+    const nn = [...new Set((data || []).map((r) => r.nn_ctl_name).filter(Boolean))];
+    res.json({ scf, nn });
   } catch (err) {
     console.error('[zti-hub] associated-controls error:', err);
     res.status(500).json({ message: err.message });
   }
 });
 
-// Enqueue checks for a control (the ▶ button). One queued job per associated check.
+// Enqueue checks for a control (the ▶ button). Accepts an SCF control
+// (scf_control_id) or an NN control (nn_ctl_name). One queued job per check.
 router.post('/enqueue', requireAuth, async (req, res) => {
   try {
     if (!req.orgId) return res.status(400).json({ message: 'No organization for this user' });
     const scfControlId = req.body?.scf_control_id;
-    if (!scfControlId) return res.status(400).json({ message: 'scf_control_id is required' });
+    const nnCtlName = req.body?.nn_ctl_name;
+    if (!scfControlId && !nnCtlName) {
+      return res.status(400).json({ message: 'scf_control_id or nn_ctl_name is required' });
+    }
+    const col = scfControlId ? 'scf_control_id' : 'nn_ctl_name';
+    const val = scfControlId || nnCtlName;
 
     const { data: assoc, error: aErr } = await supabaseAdmin
       .from('control_check_associations')
       .select('check_id')
-      .eq('scf_control_id', scfControlId);
+      .eq(col, val);
     if (aErr) throw aErr;
     if (!assoc || assoc.length === 0) {
       return res.status(400).json({ message: 'No checks associated with this control' });
@@ -135,7 +143,8 @@ router.post('/enqueue', requireAuth, async (req, res) => {
 
     const rows = assoc.map((a) => ({
       org_id: req.orgId,
-      scf_control_id: scfControlId,
+      scf_control_id: scfControlId || null,
+      nn_ctl_name: nnCtlName || null,
       check_id: a.check_id,
       status: 'queued',
       requested_by: req.user?.email || req.userId,
@@ -152,17 +161,23 @@ router.post('/enqueue', requireAuth, async (req, res) => {
   }
 });
 
-// Latest job per check for a control (the ▶ results panel).
+// Latest job per check for a control (the ▶ results panel). Keyed by
+// scf_control_id or nn_ctl_name.
 router.get('/results', requireAuth, async (req, res) => {
   try {
     if (!req.orgId) return res.json([]);
     const scfControlId = req.query.scf_control_id;
-    if (!scfControlId) return res.status(400).json({ message: 'scf_control_id is required' });
+    const nnCtlName = req.query.nn_ctl_name;
+    if (!scfControlId && !nnCtlName) {
+      return res.status(400).json({ message: 'scf_control_id or nn_ctl_name is required' });
+    }
+    const col = scfControlId ? 'scf_control_id' : 'nn_ctl_name';
+    const val = scfControlId || nnCtlName;
     const { data, error } = await supabaseAdmin
       .from('control_check_jobs')
       .select('id, check_id, status, result_status, result, requested_at, finished_at')
       .eq('org_id', req.orgId)
-      .eq('scf_control_id', scfControlId)
+      .eq(col, val)
       .order('requested_at', { ascending: false });
     if (error) throw error;
     // Collapse to the most recent job per check_id.

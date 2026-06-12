@@ -3388,7 +3388,8 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
     // ── ZTI Hub (control checks) ──
     const [hubStatus, setHubStatus] = useState<ZtiHubStatus>({ active: false });
-    const [checkControlIds, setCheckControlIds] = useState<Set<string>>(new Set());
+    const [checkScfIds, setCheckScfIds] = useState<Set<string>>(new Set());
+    const [checkNnNames, setCheckNnNames] = useState<Set<string>>(new Set());
     const [enqueuingId, setEnqueuingId] = useState<string | null>(null);
     const [resultsModal, setResultsModal] = useState<{ control: ControlRegistry; results: ControlCheckResult[]; loading: boolean } | null>(null);
     const [hubToken, setHubToken] = useState<string | null>(null);
@@ -3640,14 +3641,21 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
     useUnifiedRefresh(isActive, refreshAll);
 
-    // Which SCF controls have associated checks (decides ▶ visibility). Global,
-    // fetched once when the tab becomes active.
+    // Which controls have associated checks (decides ▶ visibility): SCF by
+    // scf_control_id, NN by ctl_name. Global, fetched when the tab activates.
     useEffect(() => {
         if (!isActive) return;
         SupabaseService.getCheckAssociatedControls()
-            .then(ids => setCheckControlIds(new Set(ids)))
+            .then(({ scf, nn }) => { setCheckScfIds(new Set(scf)); setCheckNnNames(new Set(nn)); })
             .catch(() => { /* non-fatal: button just won't appear */ });
     }, [isActive]);
+
+    // Resolve a control row to its check target (or null if it has no checks).
+    const checkTargetFor = useCallback((ctl: ControlRegistry): { scf_control_id?: string; nn_ctl_name?: string } | null => {
+        if (ctl.scf_control_id && checkScfIds.has(ctl.scf_control_id)) return { scf_control_id: ctl.scf_control_id };
+        if (ctl.ctl_type === 'NN' && ctl.ctl_name && checkNnNames.has(ctl.ctl_name)) return { nn_ctl_name: ctl.ctl_name };
+        return null;
+    }, [checkScfIds, checkNnNames]);
 
     // Poll hub online status while the tab is active (drives ▶ enabled state).
     useEffect(() => {
@@ -3662,28 +3670,30 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
     }, [isActive]);
 
     const handleRunChecks = useCallback(async (ctl: ControlRegistry) => {
-        if (!ctl.scf_control_id) return;
+        const target = checkTargetFor(ctl);
+        if (!target) return;
         setEnqueuingId(ctl.id);
         try {
-            const r = await SupabaseService.enqueueControlChecks(ctl.scf_control_id);
+            const r = await SupabaseService.enqueueControlChecks(target);
             alert(`Queued ${r.queued} check${r.queued === 1 ? '' : 's'} for ${ctl.ctl_id}. The ZTI Hub will run them on its next cycle.`);
         } catch (e: any) {
             alert(e?.message || 'Failed to queue checks');
         } finally {
             setEnqueuingId(null);
         }
-    }, []);
+    }, [checkTargetFor]);
 
     const handleViewResults = useCallback(async (ctl: ControlRegistry) => {
-        if (!ctl.scf_control_id) return;
+        const target = checkTargetFor(ctl);
+        if (!target) return;
         setResultsModal({ control: ctl, results: [], loading: true });
         try {
-            const results = await SupabaseService.getControlCheckResults(ctl.scf_control_id);
+            const results = await SupabaseService.getControlCheckResults(target);
             setResultsModal({ control: ctl, results, loading: false });
         } catch {
             setResultsModal({ control: ctl, results: [], loading: false });
         }
-    }, []);
+    }, [checkTargetFor]);
 
     const handleConnectHub = useCallback(async () => {
         setRegisteringHub(true);
@@ -5350,9 +5360,9 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                                    {/* ZTI Hub checks: ▶ run + results. Only shown when the control has associated checks. */}
+                                    {/* ZTI Hub checks: ▶ run + results. Only shown when the control (SCF or NN) has associated checks. */}
                                     <td className="px-4 py-4 text-center" onClick={e => e.stopPropagation()}>
-                                        {ctl.scf_control_id && checkControlIds.has(ctl.scf_control_id) ? (
+                                        {checkTargetFor(ctl) ? (
                                             <div className="flex items-center justify-center gap-1.5">
                                                 <button
                                                     type="button"
