@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate, MapperRunResult, MapperGraph, EmailTemplate, QuestionnaireResult, DueDiligenceChatResult, RiskRegisterEntry, RiskComputeResult, ManualRiskInput, ZtiHubStatus, ControlCheckResult } from '../types';
+import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate, MapperRunResult, MapperGraph, EmailTemplate, QuestionnaireResult, DueDiligenceChatResult, RiskRegisterEntry, RiskComputeResult, ManualRiskInput, ZtiHubStatus, ControlCheckResult, ZtiHubDevice } from '../types';
 import { isDemoEnabled } from './demo/demoMode';
 import { handleDemoRequest } from './demo/demoApi';
 
@@ -1103,6 +1103,15 @@ export const enqueueControlChecks = async (scfControlId: string): Promise<{ queu
 
 export const getControlCheckResults = async (scfControlId: string): Promise<ControlCheckResult[]> => {
   return apiRequest<ControlCheckResult[]>(`/api/zti-hub/results?scf_control_id=${encodeURIComponent(scfControlId)}`);
+};
+
+// All registered hub devices for the current org (with online flag).
+export const getHubDevices = async (): Promise<ZtiHubDevice[]> => {
+  return apiRequest<ZtiHubDevice[]>('/api/zti-hub/devices');
+};
+
+export const revokeHubDevice = async (id: string): Promise<void> => {
+  return apiRequest<void>(`/api/zti-hub/devices/${id}`, { method: 'DELETE' });
 };
 
 export const registerHubDevice = async (deviceName?: string): Promise<{ device: any; token: string }> => {
