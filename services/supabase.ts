@@ -1089,20 +1089,26 @@ export const getZtiHubStatus = async (): Promise<ZtiHubStatus> => {
   return apiRequest<ZtiHubStatus>('/api/zti-hub/status');
 };
 
-// SCF control ids that have at least one associated check (decides ▶ visibility).
-export const getCheckAssociatedControls = async (): Promise<string[]> => {
-  return apiRequest<string[]>('/api/zti-hub/associated-controls');
+// Control keys that have at least one associated check (decides ▶ visibility):
+// scf = SCF control ids, nn = NN control names.
+export type CheckTarget = { scf_control_id?: string; nn_ctl_name?: string };
+
+export const getCheckAssociatedControls = async (): Promise<{ scf: string[]; nn: string[] }> => {
+  return apiRequest<{ scf: string[]; nn: string[] }>('/api/zti-hub/associated-controls');
 };
 
-export const enqueueControlChecks = async (scfControlId: string): Promise<{ queued: number }> => {
+export const enqueueControlChecks = async (target: CheckTarget): Promise<{ queued: number }> => {
   return apiRequest<{ queued: number }>('/api/zti-hub/enqueue', {
     method: 'POST',
-    body: JSON.stringify({ scf_control_id: scfControlId }),
+    body: JSON.stringify(target),
   });
 };
 
-export const getControlCheckResults = async (scfControlId: string): Promise<ControlCheckResult[]> => {
-  return apiRequest<ControlCheckResult[]>(`/api/zti-hub/results?scf_control_id=${encodeURIComponent(scfControlId)}`);
+export const getControlCheckResults = async (target: CheckTarget): Promise<ControlCheckResult[]> => {
+  const qs = target.scf_control_id
+    ? `scf_control_id=${encodeURIComponent(target.scf_control_id)}`
+    : `nn_ctl_name=${encodeURIComponent(target.nn_ctl_name || '')}`;
+  return apiRequest<ControlCheckResult[]>(`/api/zti-hub/results?${qs}`);
 };
 
 // All registered hub devices for the current org (with online flag).

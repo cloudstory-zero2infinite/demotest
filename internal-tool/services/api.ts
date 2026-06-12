@@ -192,11 +192,14 @@ export const listCheckAssociations = (scfControlId?: string) =>
   request<ControlCheckAssociation[]>(
     `/api/internal/control-checks/associations${scfControlId ? `?scf_control_id=${encodeURIComponent(scfControlId)}` : ''}`
   );
-export const attachCheck = (scf_control_id: string, check_id: string) =>
-  request<{ scf_control_id: string; check_id: string }>(
-    '/api/internal/control-checks/associations',
-    { method: 'POST', body: JSON.stringify({ scf_control_id, check_id }) }
-  );
+export const attachCheck = (
+  target: { scf_control_id?: string; nn_ctl_name?: string },
+  check_id: string
+) =>
+  request<{ id: string }>('/api/internal/control-checks/associations', {
+    method: 'POST',
+    body: JSON.stringify({ ...target, check_id }),
+  });
 export const detachCheck = (associationId: string) =>
   request<void>(`/api/internal/control-checks/associations/${associationId}`, { method: 'DELETE' });
 export const autoAssignGcpChecks = () =>
