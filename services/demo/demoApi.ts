@@ -1,7 +1,7 @@
 // Routes intercepted apiRequest() calls to the in-memory demo store.
 // Returns shapes that match the real Express routes byte-for-byte where it matters.
 
-import { getStore, persist, newId } from './demoStore';
+import { getStore, persist, newId, DemoStore } from './demoStore';
 import { SEED_ORG_ME, SEED_COMPLIANCE_TAGS, SEED_ORG_USERS, SEED_AVAILABLE_FRAMEWORKS } from './demoSeed';
 
 const NOW = () => new Date().toISOString();
@@ -32,6 +32,13 @@ const getQuery = (path: string, key: string): string | undefined => {
 };
 
 const okBulk = (data: any[]) => ({ data, inserted: data.length, total: data.length, errors: 0, skipped: 0 });
+
+const syncDemoAllAssetVulnerabilityCounts = (store: DemoStore) => {
+  store.assets.forEach(asset => {
+    asset.vulnerability_count = store.vulnerabilities.filter(v => v.asset_id === asset.id).length;
+  });
+};
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Main entry point: route a request to a handler.
@@ -416,18 +423,21 @@ export const handleDemoRequest = async <T>(path: string, options: RequestInit = 
   if (path === '/api/vulnerabilities' && method === 'POST') {
     const created = { id: newId('demo-vuln'), created_at: NOW(), updated_at: NOW(), ...body };
     store.vulnerabilities.push(created);
+    syncDemoAllAssetVulnerabilityCounts(store);
     persist();
     return created as T;
   }
   if (path === '/api/vulnerabilities/bulk' && method === 'POST') {
     const created = (body as any[]).map(v => ({ id: newId('demo-vuln'), created_at: NOW(), updated_at: NOW(), ...v }));
     store.vulnerabilities.push(...created);
+    syncDemoAllAssetVulnerabilityCounts(store);
     persist();
     return created as T;
   }
   if (path === '/api/vulnerabilities/bulk-delete' && method === 'POST') {
     const ids: string[] = (body as any)?.ids || [];
     store.vulnerabilities = store.vulnerabilities.filter(v => !ids.includes(v.id));
+    syncDemoAllAssetVulnerabilityCounts(store);
     persist();
     return undefined as T;
   }
@@ -438,12 +448,14 @@ export const handleDemoRequest = async <T>(path: string, options: RequestInit = 
         const idx = store.vulnerabilities.findIndex(v => v.id === m.id);
         if (idx >= 0) {
           store.vulnerabilities[idx] = { ...store.vulnerabilities[idx], ...body, updated_at: NOW() };
+          syncDemoAllAssetVulnerabilityCounts(store);
           persist();
           return store.vulnerabilities[idx] as T;
         }
       }
       if (method === 'DELETE') {
         store.vulnerabilities = store.vulnerabilities.filter(v => v.id !== m.id);
+        syncDemoAllAssetVulnerabilityCounts(store);
         persist();
         return undefined as T;
       }

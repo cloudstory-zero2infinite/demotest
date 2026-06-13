@@ -32,6 +32,35 @@ import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
 
+async function recalculateAssetVulnerabilityCount(assetIds) {
+  if (!assetIds || assetIds.length === 0) return;
+  
+  const validAssetIds = [...new Set(assetIds.filter(id => id))];
+  if (validAssetIds.length === 0) return;
+
+  for (const assetId of validAssetIds) {
+    try {
+      const { count, error: countError } = await supabaseAdmin
+        .from('vulnerability_management')
+        .select('*', { count: 'exact', head: true })
+        .eq('asset_id', assetId);
+        
+      if (countError) throw countError;
+
+      const { error: updateError } = await supabaseAdmin
+        .from('assets')
+        .update({ vulnerability_count: count || 0 })
+        .eq('id', assetId);
+
+      if (updateError) throw updateError;
+      console.log(`Successfully updated vulnerability count for asset ${assetId} to ${count || 0}`);
+    } catch (err) {
+      console.error(`Failed to update vulnerability count for asset ${assetId}:`, err.message);
+    }
+  }
+}
+
+
 
 
 
@@ -320,6 +349,10 @@ router.post('/', requireAuth, async (req, res) => {
 
     if (insertError) throw insertError;
 
+    if (inserted.asset_id) {
+      await recalculateAssetVulnerabilityCount([inserted.asset_id]);
+    }
+
 
 
 
@@ -472,6 +505,14 @@ router.put('/:id', requireAuth, async (req, res) => {
 
   try {
 
+    const { data: oldVuln, error: fetchError } = await supabaseAdmin
+      .from('vulnerability_management')
+      .select('asset_id')
+      .eq('vuln_id', req.params.id)
+      .maybeSingle();
+
+    if (fetchError) throw fetchError;
+
 
 
 
@@ -527,6 +568,17 @@ router.put('/:id', requireAuth, async (req, res) => {
 
 
     if (updateError) throw updateError;
+
+    const affectedAssetIds = [];
+    if (oldVuln && oldVuln.asset_id) {
+      affectedAssetIds.push(oldVuln.asset_id);
+    }
+    if (updated && updated.asset_id) {
+      affectedAssetIds.push(updated.asset_id);
+    }
+    if (affectedAssetIds.length > 0) {
+      await recalculateAssetVulnerabilityCount(affectedAssetIds);
+    }
 
 
 
@@ -716,6 +768,12 @@ router.post('/bulk', requireAuth, async (req, res) => {
       .select('id:vuln_id, name, description, derived_from, status, created_at, updated_at, asset_id, custom_fields');
 
     if (error) throw error;
+
+    const affectedAssetIds = data ? data.map(v => v.asset_id).filter(Boolean) : [];
+    if (affectedAssetIds.length > 0) {
+      await recalculateAssetVulnerabilityCount(affectedAssetIds);
+    }
+
     res.status(201).json(data || []);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -737,6 +795,13 @@ router.post('/bulk-delete', requireAuth, async (req, res) => {
 
     console.log('[bulk-delete] Deleting vulnerabilities with IDs:', ids);
 
+    const { data: oldVulns } = await supabaseAdmin
+      .from('vulnerability_management')
+      .select('asset_id')
+      .in('vuln_id', ids);
+
+    const affectedAssetIds = oldVulns ? oldVulns.map(v => v.asset_id).filter(Boolean) : [];
+
     let query = supabaseAdmin
       .from('vulnerability_management')
       .delete()
@@ -753,6 +818,10 @@ router.post('/bulk-delete', requireAuth, async (req, res) => {
       throw error;
     }
     
+    if (affectedAssetIds.length > 0) {
+      await recalculateAssetVulnerabilityCount(affectedAssetIds);
+    }
+
     console.log('[bulk-delete] Successfully deleted vulnerabilities');
     res.status(204).send();
   } catch (err) {
@@ -784,6 +853,12 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
   try {
+
+    const { data: oldVuln } = await supabaseAdmin
+      .from('vulnerability_management')
+      .select('asset_id')
+      .eq('vuln_id', req.params.id)
+      .maybeSingle();
 
 
 
@@ -824,6 +899,10 @@ router.delete('/:id', requireAuth, async (req, res) => {
 
 
     if (error) throw error;
+
+    if (oldVuln && oldVuln.asset_id) {
+      await recalculateAssetVulnerabilityCount([oldVuln.asset_id]);
+    }
 
 
 
