@@ -801,7 +801,7 @@ const App: React.FC = () => {
           />
 
           <main className="flex-1 overflow-y-auto">
-            <div className="px-6 py-6 max-w-7xl mx-auto">{renderContent()}</div>
+            <div className="px-4 py-3">{renderContent()}</div>
           </main>
         </div>
       </div>

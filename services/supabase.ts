@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate, MapperRunResult, MapperGraph, EmailTemplate, QuestionnaireResult, DueDiligenceChatResult, RiskRegisterEntry, RiskComputeResult, ManualRiskInput } from '../types';
+import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate, MapperRunResult, MapperGraph, EmailTemplate, QuestionnaireResult, DueDiligenceChatResult, RiskRegisterEntry, RiskComputeResult, ManualRiskInput, ZtiHubStatus, ControlCheckResult, ZtiHubDevice } from '../types';
 import { isDemoEnabled } from './demo/demoMode';
 import { handleDemoRequest } from './demo/demoApi';
 
@@ -1082,6 +1082,50 @@ export const bulkAddControlRegistry = async (controls: ControlRegistryCreate[]):
 };
 
 
+
+// --- ZTI Hub (control checks) ---
+
+export const getZtiHubStatus = async (): Promise<ZtiHubStatus> => {
+  return apiRequest<ZtiHubStatus>('/api/zti-hub/status');
+};
+
+// Control keys that have at least one associated check (decides ▶ visibility):
+// scf = SCF control ids, nn = NN control names.
+export type CheckTarget = { scf_control_id?: string; nn_ctl_name?: string };
+
+export const getCheckAssociatedControls = async (): Promise<{ scf: string[]; nn: string[] }> => {
+  return apiRequest<{ scf: string[]; nn: string[] }>('/api/zti-hub/associated-controls');
+};
+
+export const enqueueControlChecks = async (target: CheckTarget): Promise<{ queued: number }> => {
+  return apiRequest<{ queued: number }>('/api/zti-hub/enqueue', {
+    method: 'POST',
+    body: JSON.stringify(target),
+  });
+};
+
+export const getControlCheckResults = async (target: CheckTarget): Promise<ControlCheckResult[]> => {
+  const qs = target.scf_control_id
+    ? `scf_control_id=${encodeURIComponent(target.scf_control_id)}`
+    : `nn_ctl_name=${encodeURIComponent(target.nn_ctl_name || '')}`;
+  return apiRequest<ControlCheckResult[]>(`/api/zti-hub/results?${qs}`);
+};
+
+// All registered hub devices for the current org (with online flag).
+export const getHubDevices = async (): Promise<ZtiHubDevice[]> => {
+  return apiRequest<ZtiHubDevice[]>('/api/zti-hub/devices');
+};
+
+export const revokeHubDevice = async (id: string): Promise<void> => {
+  return apiRequest<void>(`/api/zti-hub/devices/${id}`, { method: 'DELETE' });
+};
+
+export const registerHubDevice = async (deviceName?: string): Promise<{ device: any; token: string }> => {
+  return apiRequest<{ device: any; token: string }>('/api/zti-hub/devices', {
+    method: 'POST',
+    body: JSON.stringify({ device_name: deviceName || 'zti-hub' }),
+  });
+};
 
 // --- Control Evidence & Enforcement ---
 

@@ -43,7 +43,7 @@ export const AssetsOverviewCard: React.FC<AssetsOverviewCardProps> = React.memo(
                         </button>
                     </div>
                 </div>
-            <div className="relative flex-1" style={{ height: '170px' }}>
+            <div className="relative" style={{ height: '170px' }}>
                 <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                         <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={4} stroke="none">

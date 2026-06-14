@@ -61,17 +61,18 @@ const CONF_THRESHOLD = 0.5;
 // cross-link overlay (child Policy → SCFDomain) and stays off-tree.
 const TREE_RELATIONS = new Set([
     'DEFINES', 'MAPS_TO', 'HAS_CHILD',
-    'IMPLEMENTED_BY', 'ENFORCED_BY', 'PROVIDED_BY',
+    'IMPLEMENTED_BY', 'ENFORCED_BY', 'PROVIDED_BY', 'HAS_VULNERABILITY',
 ]);
 
 const HUB_LABELS: Record<string, string> = {
-    DEFINES:        'objectives',
-    MAPS_TO:        'SCF domains',
-    HAS_CHILD:      'child policies',
-    COVERS:         'domains covered',
-    IMPLEMENTED_BY: 'controls',
-    ENFORCED_BY:    'capabilities',
-    PROVIDED_BY:    'assets',
+    DEFINES:           'objectives',
+    MAPS_TO:           'SCF domains',
+    HAS_CHILD:         'child policies',
+    COVERS:            'domains covered',
+    IMPLEMENTED_BY:    'controls',
+    ENFORCED_BY:       'capabilities',
+    PROVIDED_BY:       'assets',
+    HAS_VULNERABILITY: 'vulnerabilities',
 };
 
 // Per-node-type colour for icon background.
@@ -84,6 +85,7 @@ const ICON_BG: Record<string, string> = {
     Control:           'bg-indigo-500',
     Capability:        'bg-cyan-500',
     Asset:             'bg-orange-500',
+    Vulnerability:     'bg-red-500',
 };
 const ICON_RING: Record<string, string> = {
     MasterPolicy:      'ring-amber-300',
@@ -94,6 +96,7 @@ const ICON_RING: Record<string, string> = {
     Control:           'ring-indigo-300',
     Capability:        'ring-cyan-300',
     Asset:             'ring-orange-300',
+    Vulnerability:     'ring-red-300',
 };
 
 const HUB_STYLE: Record<string, { bg: string; ring: string; text: string }> = {
@@ -101,9 +104,10 @@ const HUB_STYLE: Record<string, { bg: string; ring: string; text: string }> = {
     MAPS_TO:        { bg: 'bg-emerald-700', ring: 'ring-emerald-400', text: 'text-emerald-50' },
     HAS_CHILD:      { bg: 'bg-blue-700',    ring: 'ring-blue-400',    text: 'text-blue-50' },
     COVERS:         { bg: 'bg-slate-700',   ring: 'ring-slate-400',   text: 'text-slate-50' },
-    IMPLEMENTED_BY: { bg: 'bg-indigo-700',  ring: 'ring-indigo-400',  text: 'text-indigo-50' },
-    ENFORCED_BY:    { bg: 'bg-cyan-700',    ring: 'ring-cyan-400',    text: 'text-cyan-50' },
-    PROVIDED_BY:    { bg: 'bg-orange-700',  ring: 'ring-orange-400',  text: 'text-orange-50' },
+    IMPLEMENTED_BY:    { bg: 'bg-indigo-700',  ring: 'ring-indigo-400',  text: 'text-indigo-50' },
+    ENFORCED_BY:       { bg: 'bg-cyan-700',    ring: 'ring-cyan-400',    text: 'text-cyan-50' },
+    PROVIDED_BY:       { bg: 'bg-orange-700',  ring: 'ring-orange-400',  text: 'text-orange-50' },
+    HAS_VULNERABILITY: { bg: 'bg-red-700',     ring: 'ring-red-400',     text: 'text-red-50' },
 };
 
 const EDGE_COLOR: Record<string, string> = {
@@ -111,9 +115,10 @@ const EDGE_COLOR: Record<string, string> = {
     MAPS_TO:        '#10b981',
     HAS_CHILD:      '#3b82f6',
     COVERS:         '#94a3b8',
-    IMPLEMENTED_BY: '#6366f1',
-    ENFORCED_BY:    '#06b6d4',
-    PROVIDED_BY:    '#f97316',
+    IMPLEMENTED_BY:    '#6366f1',
+    ENFORCED_BY:       '#06b6d4',
+    PROVIDED_BY:       '#f97316',
+    HAS_VULNERABILITY: '#ef4444',
 };
 
 // ── Icons (Lucide-style) ──────────────────────────────────────────────────
@@ -180,6 +185,13 @@ const ServerIcon: React.FC<{ className?: string }> = ({ className }) => (
         <circle cx="7" cy="17" r="0.5" fill="currentColor" />
     </svg>
 );
+const AlertTriangleIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className}>
+        <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+        <line x1="12" y1="9"  x2="12" y2="13" />
+        <circle cx="12" cy="17" r="0.5" fill="currentColor" />
+    </svg>
+);
 
 const ICONS: Record<string, React.FC<{ className?: string }>> = {
     MasterPolicy:      ShieldIcon,
@@ -190,6 +202,7 @@ const ICONS: Record<string, React.FC<{ className?: string }>> = {
     Control:           ChecklistIcon,
     Capability:        ChipIcon,
     Asset:             ServerIcon,
+    Vulnerability:     AlertTriangleIcon,
 };
 
 // ── Handles ──────────────────────────────────────────────────────────────
@@ -313,6 +326,7 @@ function labelFor(n: MapperGraphNode): string {
     if (n.type === 'Control')    return d.ctl_id ? `${d.ctl_id}` : (d.scf_control_id || n.id);
     if (n.type === 'Capability') return d.capab_name || d.capab_id || n.id;
     if (n.type === 'Asset')      return d.asset_id ? `${d.asset_id}${d.name ? ` · ${d.name}` : ''}` : (d.name || n.id);
+    if (n.type === 'Vulnerability') return d.cve_id || d.title || d.name || n.id;
     return d.name || d.policy_id || n.id;
 }
 function rfTypeFor(n: MapperGraphNode): 'icon' {
@@ -875,6 +889,24 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
         positionsRef.current = new Map();
     }, []);
 
+    // ── Fullscreen (immersive canvas) ──────────────────────────────────────────
+    const rootRef = useRef<HTMLDivElement>(null);
+    const rfRef = useRef<any>(null);
+    const [isFullscreen, setIsFullscreen] = useState(false);
+
+    // CSS-overlay fullscreen (works everywhere, incl. embedded/iframe contexts
+    // where the native Fullscreen API is blocked). Esc exits.
+    const toggleFullscreen = useCallback(() => setIsFullscreen(v => !v), []);
+
+    useEffect(() => {
+        // Canvas resized — re-fit the graph to the new viewport.
+        const t = setTimeout(() => rfRef.current?.fitView?.({ padding: 0.1 }), 120);
+        if (!isFullscreen) return () => clearTimeout(t);
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsFullscreen(false); };
+        document.addEventListener('keydown', onKey);
+        return () => { clearTimeout(t); document.removeEventListener('keydown', onKey); };
+    }, [isFullscreen]);
+
     const stats = useMemo(() => {
         if (!graph) return null;
         return {
@@ -884,13 +916,14 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
             controls:   graph.nodes.filter(n => n.type === 'Control').length,
             capabilities: graph.nodes.filter(n => n.type === 'Capability').length,
             assets:     graph.nodes.filter(n => n.type === 'Asset').length,
+            vulns:      graph.nodes.filter(n => n.type === 'Vulnerability').length,
             orphans:    graph.nodes.filter(n => n.type === 'OrphanPolicy').length,
             hidden:     hiddenNodes.size,
         };
     }, [graph, hiddenNodes]);
 
     return (
-        <div className="flex flex-col gap-3 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 rounded-lg p-4 -mx-4">
+        <div ref={rootRef} className={`flex flex-col gap-3 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 p-4 ${isFullscreen ? 'fixed inset-0 z-50 h-screen w-screen overflow-hidden' : 'rounded-lg -mx-4'}`}>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                     <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Mapper Visualizer</h2>
@@ -907,6 +940,7 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
                             <span><strong>{stats.controls}</strong> controls</span>
                             <span><strong>{stats.capabilities}</strong> capabilities</span>
                             <span><strong>{stats.assets}</strong> assets</span>
+                            <span><strong>{stats.vulns}</strong> vulnerabilities</span>
                             <span><strong>{stats.orphans}</strong> orphans</span>
                             {stats.hidden > 0 && <span className="text-amber-600 dark:text-amber-400"><strong>{stats.hidden}</strong> hidden</span>}
                             {focusedNodeId && <span className="text-blue-600 dark:text-blue-400">focused</span>}
@@ -920,6 +954,14 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
                     <button onClick={collapseAll} className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">Collapse all</button>
                     <button onClick={resetView} className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">Reset view</button>
                     <button onClick={fetchGraph} className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">Refresh</button>
+                    <button onClick={toggleFullscreen} className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 inline-flex items-center gap-1" title={isFullscreen ? 'Exit full screen (Esc)' : 'Full screen'}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+                            {isFullscreen
+                                ? <path d="M9 9H5m0 0V5m0 4l5-5m5 0v4m0 0h4m-4 0l5-5M9 15H5m0 0v4m0-4l5 5m5-5h4m0 0v4m0-4l-5 5" />
+                                : <path d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />}
+                        </svg>
+                        {isFullscreen ? 'Exit' : 'Full screen'}
+                    </button>
                     <button
                         onClick={handleRunControlsMapper}
                         disabled={runState.kind === 'running'}
@@ -958,7 +1000,7 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
                 <div className="rounded border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-900/20 px-3 py-2 text-sm text-red-800 dark:text-red-200">{error}</div>
             )}
 
-            <div className="relative" style={{ height: '70vh', minHeight: 500 }}>
+            <div className={`relative ${isFullscreen ? 'flex-1' : ''}`} style={{ height: isFullscreen ? undefined : '70vh', minHeight: 500 }}>
                 {loading ? (
                     <div className="absolute inset-0 flex items-center justify-center text-gray-500">Loading…</div>
                 ) : graph && graph.nodes.length === 0 ? (
@@ -969,6 +1011,7 @@ export const MapperVisualizerView: React.FC<Props> = ({ isActive = true, focusMa
                     <ReactFlow
                         nodes={nodes}
                         edges={edges}
+                        onInit={(inst) => { rfRef.current = inst; }}
                         onNodesChange={onNodesChange}
                         onEdgesChange={onEdgesChange}
                         onNodeClick={onNodeClick}

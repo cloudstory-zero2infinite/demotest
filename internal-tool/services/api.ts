@@ -10,7 +10,15 @@ import {
   NNControlTemplateUpdate,
   ScfFilesResponse,
   ScfDomain,
+  ScfControl,
   ScfUploadResult,
+  ControlCheck,
+  ControlCheckCreate,
+  ControlCheckUpdate,
+  ControlCheckAssociation,
+  PlatformAnalytics,
+  CampaignMarker,
+  ReleaseRecord,
 } from '../types';
 
 // Empty string → same-origin (production). Undefined → fall back to localhost (dev).
@@ -135,6 +143,9 @@ export const listControlFramework = () =>
 export const listScfDomains = () =>
   request<ScfDomain[]>('/api/internal/control-framework/domains');
 
+export const listScfControls = () =>
+  request<ScfControl[]>('/api/internal/control-framework/controls');
+
 export async function uploadControlFramework(file: File): Promise<ScfUploadResult> {
   const form = new FormData();
   form.append('file', file);
@@ -160,6 +171,64 @@ export async function downloadControlFramework(name: string): Promise<Blob> {
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
   return res.blob();
 }
+
+// ───────── Control Checks Library ─────────
+export const listControlChecks = () =>
+  request<ControlCheck[]>('/api/internal/control-checks');
+export const createControlCheck = (body: ControlCheckCreate) =>
+  request<ControlCheck>('/api/internal/control-checks', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+export const updateControlCheck = (id: string, body: ControlCheckUpdate) =>
+  request<ControlCheck>(`/api/internal/control-checks/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+export const deleteControlCheck = (id: string) =>
+  request<void>(`/api/internal/control-checks/${id}`, { method: 'DELETE' });
+
+export const listCheckAssociations = (scfControlId?: string) =>
+  request<ControlCheckAssociation[]>(
+    `/api/internal/control-checks/associations${scfControlId ? `?scf_control_id=${encodeURIComponent(scfControlId)}` : ''}`
+  );
+export const attachCheck = (
+  target: { scf_control_id?: string; nn_ctl_name?: string },
+  check_id: string
+) =>
+  request<{ id: string }>('/api/internal/control-checks/associations', {
+    method: 'POST',
+    body: JSON.stringify({ ...target, check_id }),
+  });
+export const detachCheck = (associationId: string) =>
+  request<void>(`/api/internal/control-checks/associations/${associationId}`, { method: 'DELETE' });
+export const autoAssignGcpChecks = () =>
+  request<{ inserted: number; attempted: number }>(
+    '/api/internal/control-checks/auto-assign-gcp',
+    { method: 'POST' }
+  );
+
+// ───────── Platform Analytics ─────────
+export const getPlatformAnalytics = () =>
+  request<PlatformAnalytics>('/api/internal/platform-analytics');
+
+export const listCampaignMarkers = () =>
+  request<CampaignMarker[]>('/api/internal/platform-analytics/markers');
+export const createCampaignMarker = (body: { label: string; event_date: string }) =>
+  request<CampaignMarker>('/api/internal/platform-analytics/markers', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+export const deleteCampaignMarker = (id: string) =>
+  request<void>(`/api/internal/platform-analytics/markers/${id}`, { method: 'DELETE' });
+
+export const listReleases = () =>
+  request<ReleaseRecord[]>('/api/internal/platform-analytics/releases');
+export const updateReleaseNotes = (id: string, notes: string) =>
+  request<ReleaseRecord>(`/api/internal/platform-analytics/releases/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ notes }),
+  });
 
 // ───────── Auth ─────────
 export async function signInWithGoogle() {

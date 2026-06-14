@@ -260,19 +260,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             {/* Toggle button */}
 
-            <div className={`flex items-center h-12 px-4 border-b border-gray-100 dark:border-gray-700 ${isOpen ? 'justify-between' : 'justify-center'}`}>
-
-                {isOpen && (
-
-                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Menu</span>
-
-                )}
+            <div className="flex items-center h-12 px-4 border-b border-gray-100 dark:border-gray-700 gap-3">
 
                 <button
 
                     onClick={onToggle}
 
-                    className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-700 transition-colors"
+                    className="p-1.5 -ml-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-700 transition-colors flex-shrink-0"
 
                     title={isOpen ? 'Collapse sidebar' : 'Expand sidebar'}
 
@@ -281,6 +275,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <MenuIcon />
 
                 </button>
+
+                {isOpen && (
+
+                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Menu</span>
+
+                )}
 
             </div>
 

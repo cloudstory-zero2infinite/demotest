@@ -1,6 +1,6 @@
-import React, { useState, useCallback, FormEvent, useMemo, useRef } from 'react';
+import React, { useState, useCallback, FormEvent, useMemo, useRef, useEffect } from 'react';
 import * as SupabaseService from '../../services/supabase';
-import { OrgContact } from '../../types';
+import { OrgContact, ZtiHubDevice } from '../../types';
 import { useTableSelection } from '../../hooks/useTableSelection';
 import { SelectionActionBar } from '../common/SelectionActionBar';
 import { useDataRefresh } from '../../hooks/useDataRefresh';
@@ -78,6 +78,41 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
     const [contactError, setContactError] = useState<string | null>(null);
     const [showContactAI, setShowContactAI] = useState(false);
     const contactFileRef = useRef<HTMLInputElement>(null);
+
+    // ZTI Hub devices
+    const [hubDevices, setHubDevices] = useState<ZtiHubDevice[]>([]);
+    const [hubLoading, setHubLoading] = useState(true);
+    const [hubRevoking, setHubRevoking] = useState<string | null>(null);
+    const [hubConfirmRevoke, setHubConfirmRevoke] = useState<string | null>(null);
+
+    const loadHubDevices = useCallback(async () => {
+        setHubLoading(true);
+        try {
+            setHubDevices(await SupabaseService.getHubDevices());
+        } catch {
+            setHubDevices([]);
+        } finally {
+            setHubLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (!isActive || readOnly) return;
+        loadHubDevices();
+    }, [isActive, readOnly, loadHubDevices]);
+
+    const handleRevokeHubDevice = async (id: string) => {
+        setHubRevoking(id);
+        try {
+            await SupabaseService.revokeHubDevice(id);
+            setHubConfirmRevoke(null);
+            await loadHubDevices();
+        } catch (err: any) {
+            alert(err.message || 'Failed to remove device.');
+        } finally {
+            setHubRevoking(null);
+        }
+    };
 
     const {
         selectedIds, isConfirmingDelete, isSaving,
@@ -665,6 +700,83 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                         </button>
                     </div>
                 </form>
+            </div>
+            )}
+
+            {/* ── ZTI Hub devices ── */}
+            {!readOnly && (
+            <div className="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                    <div>
+                        <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                            ZTI Hub Devices
+                            <span className="ml-2 text-sm font-normal text-gray-400">({hubDevices.length})</span>
+                        </h2>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                            Machines authenticated to run control checks for this organisation. Remove a device to revoke its access.
+                        </p>
+                    </div>
+                    <button onClick={() => loadHubDevices()} disabled={hubLoading} title="Refresh" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50">
+                        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 11-2.64-6.36M21 3v6h-6" /></svg>
+                    </button>
+                </div>
+
+                {hubLoading ? (
+                    <div className="px-6 py-10 text-center text-gray-400 text-sm">Loading devices…</div>
+                ) : hubDevices.length === 0 ? (
+                    <div className="px-6 py-10 text-center text-gray-400 text-sm">
+                        No hub devices yet. Generate a token from Governance → Control Registry, then run <span className="font-mono">zti authenticate</span>.
+                    </div>
+                ) : (
+                    <div className="overflow-auto max-h-[360px]">
+                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                            <thead className="bg-gray-50 dark:bg-gray-900">
+                                <tr>
+                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Device</th>
+                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Status</th>
+                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">GCP</th>
+                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Last beacon</th>
+                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800">
+                                {hubDevices.map(d => {
+                                    const revoked = !!d.revoked_at;
+                                    return (
+                                        <tr key={d.id} className={revoked ? 'opacity-50' : ''}>
+                                            <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white font-mono">{d.device_name || '—'}</td>
+                                            <td className="px-6 py-3 whitespace-nowrap text-sm">
+                                                {revoked ? (
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300">Revoked</span>
+                                                ) : d.online ? (
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"><span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block animate-pulse" />Online</span>
+                                                ) : (
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"><span className="w-1.5 h-1.5 rounded-full bg-gray-400 inline-block" />Offline</span>
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">{d.gcp_integrated ? (d.gcp_project_id || 'integrated') : '—'}</td>
+                                            <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">{d.last_beacon_at ? new Date(d.last_beacon_at).toLocaleString() : 'never'}</td>
+                                            <td className="px-6 py-3 whitespace-nowrap text-sm text-right">
+                                                {revoked ? (
+                                                    <span className="text-xs text-gray-400">—</span>
+                                                ) : hubConfirmRevoke === d.id ? (
+                                                    <span className="inline-flex items-center gap-2">
+                                                        <button onClick={() => handleRevokeHubDevice(d.id)} disabled={hubRevoking === d.id} className="text-xs font-medium text-white bg-red-600 px-2 py-1 rounded hover:bg-red-700 disabled:opacity-50">{hubRevoking === d.id ? 'Removing…' : 'Confirm'}</button>
+                                                        <button onClick={() => setHubConfirmRevoke(null)} disabled={hubRevoking === d.id} className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">Cancel</button>
+                                                    </span>
+                                                ) : (
+                                                    <button onClick={() => setHubConfirmRevoke(d.id)} title="Remove device" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                                                        <TrashIcon className="h-4 w-4" />
+                                                    </button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
             </div>
             )}
 

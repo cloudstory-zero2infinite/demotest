@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Asset, AssetRelationship } from '../../types';
 import * as SupabaseService from '../../services/supabase';
 
@@ -67,6 +67,34 @@ const OrgDiagramView: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
     const mermaidRef = useRef<HTMLDivElement>(null);
     const renderIdRef = useRef(0);
+    const rootRef = useRef<HTMLDivElement>(null);
+    const [isFullscreen, setIsFullscreen] = useState(false);
+
+    // Scale + center the diagram so the whole graph fits inside the canvas.
+    const fitToScreen = useCallback(() => {
+        const container = containerRef.current;
+        const content = mermaidRef.current;
+        if (!container || !content) return;
+        const cW = container.clientWidth, cH = container.clientHeight;
+        // offsetWidth/Height are the *unscaled* (pre-transform) content size.
+        const w = content.offsetWidth, h = content.offsetHeight;
+        if (!w || !h || !cW || !cH) return;
+        const s = Math.min(Math.max(Math.min(cW / w, cH / h) * 0.92, 0.15), 5);
+        setScale(s);
+        setTranslate({ x: Math.max((cW - w * s) / 2, 0), y: Math.max((cH - h * s) / 2, 0) });
+    }, []);
+
+    // CSS-overlay fullscreen (works everywhere, incl. embedded/iframe contexts
+    // where the native Fullscreen API is blocked). Esc exits.
+    const toggleFullscreen = useCallback(() => setIsFullscreen(v => !v), []);
+
+    useEffect(() => {
+        const t = setTimeout(fitToScreen, 120); // canvas resized — re-fit
+        if (!isFullscreen) return () => clearTimeout(t);
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsFullscreen(false); };
+        document.addEventListener('keydown', onKey);
+        return () => { clearTimeout(t); document.removeEventListener('keydown', onKey); };
+    }, [isFullscreen, fitToScreen]);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -128,6 +156,8 @@ const OrgDiagramView: React.FC = () => {
                     svgEl.style.maxWidth = 'none';
                     el.innerHTML = '';
                     el.appendChild(svgEl);
+                    // Once laid out, fit the whole diagram into the canvas.
+                    requestAnimationFrame(() => fitToScreen());
                 }
 
                 document.body.removeChild(container);
@@ -141,7 +171,7 @@ const OrgDiagramView: React.FC = () => {
         };
 
         renderDiagram();
-    }, [mermaidCode]);
+    }, [mermaidCode, fitToScreen]);
 
     // Wheel zoom — attached via addEventListener to allow preventDefault
     useEffect(() => {
@@ -174,7 +204,7 @@ const OrgDiagramView: React.FC = () => {
     const resetView = () => { setScale(1); setTranslate({ x: 20, y: 20 }); };
 
     return (
-        <div className="flex flex-col h-screen">
+        <div ref={rootRef} className={`flex flex-col bg-gray-50 dark:bg-gray-900 ${isFullscreen ? 'fixed inset-0 z-50 h-screen w-screen' : 'h-screen'}`}>
             {/* Toolbar */}
             <div className="flex items-center gap-3 mb-3 p-4 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
                 <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Group by:</label>
@@ -190,7 +220,16 @@ const OrgDiagramView: React.FC = () => {
                     <button onClick={() => setScale(s => Math.min(s + 0.15, 5))} className="w-8 h-8 flex items-center justify-center text-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded text-gray-700 dark:text-gray-200 font-bold">+</button>
                     <span className="text-sm text-gray-500 dark:text-gray-400 w-14 text-center tabular-nums">{Math.round(scale * 100)}%</span>
                     <button onClick={() => setScale(s => Math.max(s - 0.15, 0.15))} className="w-8 h-8 flex items-center justify-center text-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded text-gray-700 dark:text-gray-200 font-bold">−</button>
+                    <button onClick={fitToScreen} className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded text-gray-600 dark:text-gray-300" title="Fit the whole diagram to the screen">Fit to screen</button>
                     <button onClick={resetView} className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded text-gray-600 dark:text-gray-300">Reset</button>
+                    <button onClick={toggleFullscreen} className="px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded text-gray-600 dark:text-gray-300 inline-flex items-center gap-1" title={isFullscreen ? 'Exit full screen (Esc)' : 'Full screen'}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                            {isFullscreen
+                                ? <path d="M9 9H5m0 0V5m0 4l5-5m5 0v4m0 0h4m-4 0l5-5M9 15H5m0 0v4m0-4l5 5m5-5h4m0 0v4m0-4l-5 5" />
+                                : <path d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />}
+                        </svg>
+                        {isFullscreen ? 'Exit' : 'Full screen'}
+                    </button>
                 </div>
                 <p className="text-xs text-gray-400 dark:text-gray-500 hidden sm:block">Scroll to zoom · Drag to pan</p>
             </div>

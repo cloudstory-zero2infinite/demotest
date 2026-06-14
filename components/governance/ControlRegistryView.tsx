@@ -6,7 +6,7 @@ import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
 
 
 
-import { ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlStatus, ControlType, EnforcementType, Capability, ControlEvidenceReview, EvidenceFileMetadata } from '../../types';
+import { ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlStatus, ControlType, EnforcementType, Capability, ControlEvidenceReview, EvidenceFileMetadata, ZtiHubStatus, ControlCheckResult } from '../../types';
 
 
 
@@ -3386,6 +3386,15 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    // ── ZTI Hub (control checks) ──
+    const [hubStatus, setHubStatus] = useState<ZtiHubStatus>({ active: false });
+    const [checkScfIds, setCheckScfIds] = useState<Set<string>>(new Set());
+    const [checkNnNames, setCheckNnNames] = useState<Set<string>>(new Set());
+    const [enqueuingId, setEnqueuingId] = useState<string | null>(null);
+    const [resultsModal, setResultsModal] = useState<{ control: ControlRegistry; results: ControlCheckResult[]; loading: boolean } | null>(null);
+    const [hubToken, setHubToken] = useState<string | null>(null);
+    const [registeringHub, setRegisteringHub] = useState(false);
+
 
 
     const [filter, setFilter] = useState('');
@@ -3631,6 +3640,72 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
     useUnifiedRefresh(isActive, refreshAll);
+
+    // Which controls have associated checks (decides ▶ visibility): SCF by
+    // scf_control_id, NN by ctl_name. Global, fetched when the tab activates.
+    useEffect(() => {
+        if (!isActive) return;
+        SupabaseService.getCheckAssociatedControls()
+            .then(({ scf, nn }) => { setCheckScfIds(new Set(scf)); setCheckNnNames(new Set(nn)); })
+            .catch(() => { /* non-fatal: button just won't appear */ });
+    }, [isActive]);
+
+    // Resolve a control row to its check target (or null if it has no checks).
+    const checkTargetFor = useCallback((ctl: ControlRegistry): { scf_control_id?: string; nn_ctl_name?: string } | null => {
+        if (ctl.scf_control_id && checkScfIds.has(ctl.scf_control_id)) return { scf_control_id: ctl.scf_control_id };
+        if (ctl.ctl_type === 'NN' && ctl.ctl_name && checkNnNames.has(ctl.ctl_name)) return { nn_ctl_name: ctl.ctl_name };
+        return null;
+    }, [checkScfIds, checkNnNames]);
+
+    // Poll hub online status while the tab is active (drives ▶ enabled state).
+    useEffect(() => {
+        if (!isActive) return;
+        let cancelled = false;
+        const tick = () => SupabaseService.getZtiHubStatus()
+            .then(s => { if (!cancelled) setHubStatus(s); })
+            .catch(() => { if (!cancelled) setHubStatus({ active: false }); });
+        tick();
+        const iv = setInterval(tick, 25000);
+        return () => { cancelled = true; clearInterval(iv); };
+    }, [isActive]);
+
+    const handleRunChecks = useCallback(async (ctl: ControlRegistry) => {
+        const target = checkTargetFor(ctl);
+        if (!target) return;
+        setEnqueuingId(ctl.id);
+        try {
+            const r = await SupabaseService.enqueueControlChecks(target);
+            alert(`Queued ${r.queued} check${r.queued === 1 ? '' : 's'} for ${ctl.ctl_id}. The ZTI Hub will run them on its next cycle.`);
+        } catch (e: any) {
+            alert(e?.message || 'Failed to queue checks');
+        } finally {
+            setEnqueuingId(null);
+        }
+    }, [checkTargetFor]);
+
+    const handleViewResults = useCallback(async (ctl: ControlRegistry) => {
+        const target = checkTargetFor(ctl);
+        if (!target) return;
+        setResultsModal({ control: ctl, results: [], loading: true });
+        try {
+            const results = await SupabaseService.getControlCheckResults(target);
+            setResultsModal({ control: ctl, results, loading: false });
+        } catch {
+            setResultsModal({ control: ctl, results: [], loading: false });
+        }
+    }, [checkTargetFor]);
+
+    const handleConnectHub = useCallback(async () => {
+        setRegisteringHub(true);
+        try {
+            const r = await SupabaseService.registerHubDevice('zti-hub');
+            setHubToken(r.token);
+        } catch (e: any) {
+            alert(e?.message || 'Failed to register hub device');
+        } finally {
+            setRegisteringHub(false);
+        }
+    }, []);
 
 
 
@@ -4557,6 +4632,19 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
+                    {/* ZTI Hub status pill — green when a hub is beaconing for this org. */}
+                    <div
+                        title={hubStatus.active ? `ZTI Hub online${hubStatus.deviceName ? ` (${hubStatus.deviceName})` : ''}` : 'ZTI Hub offline'}
+                        className={`flex items-center gap-1.5 px-2.5 rounded-md text-xs font-medium ${hubStatus.active ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'}`}
+                    >
+                        <span className={`inline-block w-2 h-2 rounded-full ${hubStatus.active ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`} />
+                        Hub {hubStatus.active ? 'online' : 'offline'}
+                    </div>
+
+                    <button onClick={handleConnectHub} disabled={registeringHub} title="Generate a ZTI Hub device token" className="p-2 text-gray-400 hover:text-emerald-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50">
+                        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5v14" /></svg>
+                    </button>
+
                     <button onClick={() => setShowAIChat(true)} title="AI Assistant" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
 
 
@@ -4835,6 +4923,8 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
                                 <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300">Ref Framework</th>
 
+                                <th scope="col" className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-300" title="Run cloud control checks via ZTI Hub">Checks</th>
+
                                 {/* Custom Fields Columns */}
                                 {customFields.map((field) => {
                                     const colKey = `custom_field_${field.field_name}`;
@@ -4893,7 +4983,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                                <tr><td colSpan={8 + customFields.length} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading controls...</td></tr>
+                                <tr><td colSpan={9 + customFields.length} className="text-center py-4 text-gray-500 dark:text-gray-400">Loading controls...</td></tr>
 
 
 
@@ -4901,7 +4991,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                                <tr><td colSpan={8 + customFields.length} className="text-center py-4 text-gray-500 dark:text-gray-400">No controls found.</td></tr>
+                                <tr><td colSpan={9 + customFields.length} className="text-center py-4 text-gray-500 dark:text-gray-400">No controls found.</td></tr>
 
 
 
@@ -5265,6 +5355,37 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                                     </td>
 
 
+
+                                    {/* ZTI Hub checks: ▶ run + results. Only shown when the control (SCF or NN) has associated checks. */}
+                                    <td className="px-4 py-4 text-center" onClick={e => e.stopPropagation()}>
+                                        {checkTargetFor(ctl) ? (
+                                            <div className="flex items-center justify-center gap-1.5">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRunChecks(ctl)}
+                                                    disabled={!hubStatus.active || enqueuingId === ctl.id}
+                                                    title={hubStatus.active ? 'Run associated control checks via ZTI Hub' : 'ZTI Hub is offline — start the hub to run checks'}
+                                                    className={`inline-flex items-center justify-center w-7 h-7 rounded-full transition-colors ${hubStatus.active ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-gray-100 text-gray-300 cursor-not-allowed dark:bg-gray-700 dark:text-gray-500'}`}
+                                                >
+                                                    {enqueuingId === ctl.id ? (
+                                                        <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>
+                                                    ) : (
+                                                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                                                    )}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleViewResults(ctl)}
+                                                    title="View latest check results"
+                                                    className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+                                                >
+                                                    results
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <span className="text-gray-300 dark:text-gray-600">—</span>
+                                        )}
+                                    </td>
 
                                     {/* Custom Fields Data Cells */}
                                     {customFields.map((field) => {
@@ -6068,6 +6189,73 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                 systemFields={SYSTEM_FIELDS_CONFIG.control_registry}
                 existingCustomFields={customFields}
             />
+
+            {/* ── ZTI Hub: check results modal ── */}
+            {resultsModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setResultsModal(null)}>
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                        <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                            <div>
+                                <h3 className="text-base font-semibold dark:text-white">Control check results</h3>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">{resultsModal.control.ctl_id} · {resultsModal.control.scf_control_id}</p>
+                            </div>
+                            <button onClick={() => setResultsModal(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">×</button>
+                        </div>
+                        <div className="p-5">
+                            {resultsModal.loading ? (
+                                <div className="text-center py-8 text-gray-500 dark:text-gray-400">Loading…</div>
+                            ) : resultsModal.results.length === 0 ? (
+                                <div className="text-center py-8 text-gray-500 dark:text-gray-400">No runs yet. Press ▶ to queue checks for the hub to run.</div>
+                            ) : (
+                                <ul className="space-y-2">
+                                    {resultsModal.results.map(r => {
+                                        const badge = r.result_status === 'pass'
+                                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                                            : r.result_status === 'fail'
+                                            ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+                                            : r.result_status === 'error'
+                                            ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300'
+                                            : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300';
+                                        const label = r.result_status || r.status;
+                                        return (
+                                            <li key={r.id} className="flex items-start justify-between gap-3 px-3 py-2 rounded border border-gray-100 dark:border-gray-700">
+                                                <div className="min-w-0">
+                                                    <div className="font-mono text-sm break-all dark:text-gray-200">{r.check_id}</div>
+                                                    {r.result?.summary && <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{r.result.summary}</div>}
+                                                    {r.finished_at && <div className="text-[11px] text-gray-400 mt-0.5">{new Date(r.finished_at).toLocaleString()}</div>}
+                                                </div>
+                                                <span className={`shrink-0 px-2 py-0.5 rounded text-xs font-medium uppercase ${badge}`}>{label}</span>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── ZTI Hub: device token modal ── */}
+            {hubToken && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setHubToken(null)}>
+                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
+                        <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700">
+                            <h3 className="text-base font-semibold dark:text-white">ZTI Hub device token</h3>
+                        </div>
+                        <div className="p-5 space-y-3 text-sm">
+                            <p className="text-gray-600 dark:text-gray-300">Copy this token and paste it into the CLI when prompted by <span className="font-mono">zti authenticate</span>. It is shown only once.</p>
+                            <div className="flex gap-2">
+                                <input readOnly value={hubToken} className="flex-1 px-3 py-1.5 rounded border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 font-mono text-xs dark:text-gray-200" />
+                                <button onClick={() => { navigator.clipboard?.writeText(hubToken); }} className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700">Copy</button>
+                            </div>
+                            <p className="text-xs text-amber-600 dark:text-amber-400">Store it securely — it grants the hub read/run access scoped to your organization.</p>
+                        </div>
+                        <div className="px-5 py-3 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+                            <button onClick={() => setHubToken(null)} className="px-3 py-1.5 rounded bg-gray-200 dark:bg-gray-700 text-sm dark:text-gray-200">Done</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
 
 

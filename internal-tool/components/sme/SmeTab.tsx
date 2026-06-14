@@ -4,8 +4,15 @@ import { OntologyEditor } from './OntologyEditor';
 import { ComplianceManager } from './ComplianceManager';
 import { NNControlsManager } from './NNControlsManager';
 import { ControlFrameworkManager } from './ControlFrameworkManager';
+import { ControlChecksLibraryTab } from './ControlChecksLibraryTab';
 
-type SubTab = 'corpus' | 'ontology' | 'compliance' | 'nn-controls' | 'control-framework';
+type SubTab =
+  | 'corpus'
+  | 'ontology'
+  | 'compliance'
+  | 'nn-controls'
+  | 'control-framework'
+  | 'control-checks';
 
 const tabs: { id: SubTab; label: string }[] = [
   { id: 'corpus', label: 'Manage Policy Vector DB' },
@@ -13,6 +20,7 @@ const tabs: { id: SubTab; label: string }[] = [
   { id: 'compliance', label: 'Manage Compliance' },
   { id: 'nn-controls', label: 'Manage NN Controls' },
   { id: 'control-framework', label: 'Control Framework' },
+  { id: 'control-checks', label: 'Control Checks Library' },
 ];
 
 export const SmeTab: React.FC = () => {
@@ -41,6 +49,7 @@ export const SmeTab: React.FC = () => {
       {active === 'compliance' && <ComplianceManager />}
       {active === 'nn-controls' && <NNControlsManager />}
       {active === 'control-framework' && <ControlFrameworkManager />}
+      {active === 'control-checks' && <ControlChecksLibraryTab />}
     </div>
   );
 };

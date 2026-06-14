@@ -2,11 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   listControlFramework,
   listScfDomains,
+  listScfControls,
   uploadControlFramework,
   deleteControlFrameworkFile,
   downloadControlFramework,
 } from '../../services/api';
-import { ScfFile, ScfDomain } from '../../types';
+import { ScfFile, ScfDomain, ScfControl } from '../../types';
 import { useToast } from '../common/Toast';
 
 function formatBytes(n: number): string {
@@ -24,6 +25,8 @@ export const ControlFrameworkManager: React.FC = () => {
     risks: 0,
   });
   const [domains, setDomains] = useState<ScfDomain[]>([]);
+  const [controls, setControls] = useState<ScfControl[]>([]);
+  const [controlQuery, setControlQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,10 +37,15 @@ export const ControlFrameworkManager: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [meta, dmns] = await Promise.all([listControlFramework(), listScfDomains()]);
+      const [meta, dmns, ctrls] = await Promise.all([
+        listControlFramework(),
+        listScfDomains(),
+        listScfControls(),
+      ]);
       setFiles(meta.files);
       setCounts(meta.counts);
       setDomains(dmns);
+      setControls(ctrls);
     } catch (e: any) {
       setError(e?.message || 'Failed to load Control Framework state');
     } finally {
@@ -218,6 +226,87 @@ export const ControlFrameworkManager: React.FC = () => {
               </tbody>
             </table>
           </div>
+        )}
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700">
+        <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold">SCF Controls ({controls.length})</h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Live preview from the <span className="font-mono">scf_controls</span> table — every
+              control parsed from the latest upload. Grows automatically with each new SCF workbook.
+            </p>
+          </div>
+          <input
+            type="text"
+            value={controlQuery}
+            onChange={(e) => setControlQuery(e.target.value)}
+            placeholder="Search id / name / domain…"
+            className="text-sm px-3 py-1.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 w-64"
+          />
+        </div>
+        {controls.length === 0 ? (
+          <div className="px-5 py-8 text-center text-gray-500 dark:text-gray-400">
+            No controls parsed yet.
+          </div>
+        ) : (
+          (() => {
+            const q = controlQuery.trim().toLowerCase();
+            const filtered = q
+              ? controls.filter(
+                  (c) =>
+                    c.scf_control_id.toLowerCase().includes(q) ||
+                    (c.control_name || '').toLowerCase().includes(q) ||
+                    (c.scf_domain_label || c.scf_id).toLowerCase().includes(q)
+                )
+              : controls;
+            const CAP = 300;
+            const shown = filtered.slice(0, CAP);
+            return (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+                  <thead className="bg-gray-50 dark:bg-gray-900/50">
+                    <tr>
+                      <th className="px-5 py-2 text-left font-medium text-gray-600 dark:text-gray-300 w-28">
+                        SCF #
+                      </th>
+                      <th className="px-5 py-2 text-left font-medium text-gray-600 dark:text-gray-300 w-20">
+                        Domain
+                      </th>
+                      <th className="px-5 py-2 text-left font-medium text-gray-600 dark:text-gray-300">
+                        Control
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                    {shown.map((c) => (
+                      <tr
+                        key={c.scf_control_id}
+                        className="hover:bg-gray-50 dark:hover:bg-gray-900/30"
+                      >
+                        <td className="px-5 py-2 font-mono">{c.scf_control_id}</td>
+                        <td className="px-5 py-2 font-mono text-gray-500 dark:text-gray-400">
+                          {c.scf_id}
+                        </td>
+                        <td className="px-5 py-2">{c.control_name || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {filtered.length > CAP && (
+                  <div className="px-5 py-2 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-100 dark:border-gray-700">
+                    Showing first {CAP} of {filtered.length} matches — refine your search to narrow.
+                  </div>
+                )}
+                {filtered.length === 0 && (
+                  <div className="px-5 py-6 text-center text-gray-500 dark:text-gray-400">
+                    No controls match “{controlQuery}”.
+                  </div>
+                )}
+              </div>
+            );
+          })()
         )}
       </div>
 

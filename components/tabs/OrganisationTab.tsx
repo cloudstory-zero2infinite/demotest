@@ -337,7 +337,7 @@ export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, isAc
     };
 
     const subTabs: { id: OrgSubTabId; label: string; adminOnly?: boolean }[] = [
-        { id: 'tenant_admin', label: 'Manage Members', adminOnly: true },
+        { id: 'tenant_admin', label: 'Manage Member & ZTI-HUB', adminOnly: true },
         { id: 'view_org', label: 'View Organisation' },
         { id: 'templates', label: 'Templates', adminOnly: true },
         { id: 'settings', label: 'Settings', adminOnly: true },

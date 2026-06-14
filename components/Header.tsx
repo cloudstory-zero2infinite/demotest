@@ -234,7 +234,7 @@ export const Header: React.FC<HeaderProps> = ({
     return (
         <>
         <header className="fixed top-0 left-0 right-0 bg-white dark:bg-gray-800 shadow-sm border-b dark:border-gray-700 z-40">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="w-full px-4 sm:px-6">
                 <div className="flex items-center justify-between h-16">
                     <div className="flex items-center gap-3">
                         <img src="/logo.png" alt="Zero to Infinite" className="h-9 w-9 object-contain" />
@@ -243,7 +243,7 @@ export const Header: React.FC<HeaderProps> = ({
                                 <h1 className="text-xl font-bold text-gray-900 dark:text-white leading-none">
                                     Zero to Infinite
                                 </h1>
-                                <span className="text-[9px] font-mono text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">
+                                <span title={`Build ${__APP_VERSION__}`} className="text-[9px] font-mono text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">
                                     {__APP_VERSION__}
                                 </span>
                             </div>
