@@ -177,11 +177,11 @@ export class ControlRegistryActions {
     }
 
     async exportCSV(): Promise<string> {
-        const exportBtn = this.page.locator('button[title="Export CSV"]').first();
         const [download] = await Promise.all([
             this.page.waitForEvent('download', { timeout: 15000 }),
-            exportBtn.dispatchEvent('click'),
+            this.page.locator('[data-testid="control-registry-export-csv"]').filter({ visible: true }).first().click(),
         ]);
+
         const filename = download.suggestedFilename();
         await download.saveAs(`/tmp/e2e-${filename}`);
         return filename;

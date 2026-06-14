@@ -11,8 +11,8 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
-import { ensureLoggedIn } from '../../../helpers/auth-helper';
-import { InternalControlActions } from '../../../helpers/internal-control-actions';
+import { ensureLoggedIn } from '../../helpers/auth-helper';
+import { InternalControlActions } from '../../helpers/internal-control-actions';
 
 const captureSnapshot = async (page, testInfo) => {
     const status = testInfo.status === 'passed' ? 'Success' : 'Fail';

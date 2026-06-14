@@ -17,9 +17,9 @@ import { test, expect, Page } from '@playwright/test';
 import type { TestInfo } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
-import { ensureLoggedIn } from '../../../helpers/auth-helper';
-import { AssetRelationshipActions } from '../../../helpers/asset-relationship-actions';
-import { AssetActions } from '../../../helpers/asset-actions';
+import { ensureLoggedIn } from '../../helpers/auth-helper';
+import { AssetRelationshipActions } from '../../helpers/asset-relationship-actions';
+import { AssetActions } from '../../helpers/asset-actions';
 
 const captureSnapshot = async (page: Page, testInfo: TestInfo) => {
     const status = testInfo.status === 'passed' ? 'Success' : 'Fail';

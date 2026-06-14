@@ -246,12 +246,11 @@ export class AssetActions {
      * Returns the suggested filename from the browser download event.
      */
     async exportCSV(): Promise<string> {
-        // Use dispatchEvent to bypass visibility check — handles duplicate GovernanceTab instances
-        const exportBtn = this.page.locator('button[title="Export CSV"]').first();
         const [download] = await Promise.all([
             this.page.waitForEvent('download', { timeout: 15000 }),
-            exportBtn.dispatchEvent('click'),
+            this.page.locator('[data-testid="assets-export-csv"]').filter({ visible: true }).first().click(),
         ]);
+
         const filename = download.suggestedFilename();
         // Save to a temp path to complete the download
         await download.saveAs(`/tmp/e2e-${filename}`);

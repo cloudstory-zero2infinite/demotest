@@ -11,8 +11,8 @@ import { test, expect, Page } from '@playwright/test';
 import type { TestInfo } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
-import { ensureLoggedIn } from '../../../helpers/auth-helper';
-import { CapabilityRegisterActions } from '../../../helpers/capability-register-actions';
+import { ensureLoggedIn } from '../../helpers/auth-helper';
+import { CapabilityRegisterActions } from '../../helpers/capability-register-actions';
 
 const captureSnapshot = async (page: Page, testInfo: TestInfo) => {
     const status = testInfo.status === 'passed' ? 'Success' : 'Fail';
