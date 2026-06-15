@@ -285,3 +285,47 @@ export async function runtimeStatus(): Promise<RuntimeInfo> {
 export function prowlerRunEnv(): NodeJS.ProcessEnv {
   return uvEnv();
 }
+
+// Best-effort preflight: is the GCP Service Usage API enabled? Prowler relies on
+// it to discover which services exist; when it's off, every check silently
+// returns N/A. We probe via `gcloud` (which itself needs Service Usage to list
+// services, so a SERVICE_DISABLED error IS the signal). Returns 'unknown' when
+// gcloud isn't available — we can't verify, but don't claim a problem.
+export async function checkGcpServiceUsage(
+  projectId?: string
+): Promise<{ status: 'enabled' | 'disabled' | 'unknown'; detail?: string }> {
+  return new Promise((resolve) => {
+    const args = [
+      'services', 'list', '--enabled',
+      '--filter=config.name:serviceusage.googleapis.com',
+      '--format=value(config.name)',
+    ];
+    if (projectId) args.push('--project', projectId);
+    let out = '';
+    let err = '';
+    let done = false;
+    const finish = (r: { status: 'enabled' | 'disabled' | 'unknown'; detail?: string }) => {
+      if (done) return;
+      done = true;
+      resolve(r);
+    };
+    const p = spawn('gcloud', args);
+    const timer = setTimeout(() => {
+      p.kill();
+      finish({ status: 'unknown', detail: 'gcloud timed out' });
+    }, 20000);
+    p.stdout.on('data', (d) => (out += d));
+    p.stderr.on('data', (d) => (err += d));
+    p.on('error', () => {
+      clearTimeout(timer);
+      finish({ status: 'unknown', detail: 'gcloud not found' });
+    });
+    p.on('close', (code) => {
+      clearTimeout(timer);
+      const blob = out + err;
+      if (/SERVICE_DISABLED|has not been used|is disabled/i.test(blob)) return finish({ status: 'disabled' });
+      if (code === 0) return finish({ status: 'enabled' }); // gcloud could only list because it's enabled
+      finish({ status: 'unknown', detail: (err.trim().split('\n')[0] || `gcloud exited ${code}`).slice(0, 120) });
+    });
+  });
+}

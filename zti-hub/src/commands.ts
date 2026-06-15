@@ -2,7 +2,7 @@ import { loadConfig, saveConfig, configPath, type ZtiConfig } from './config.js'
 import { HubApi, type CheckSpec } from './api.js';
 import { runCheck } from './checks.js';
 import { readLogs, logPath } from './logger.js';
-import { ensureProwler, runtimeStatus } from './runtime.js';
+import { ensureProwler, runtimeStatus, checkGcpServiceUsage } from './runtime.js';
 import { logInfo, logError } from './logger.js';
 import { runProviderChecks, type CheckStatus, type CheckOutcome } from './prowler.js';
 
@@ -289,8 +289,9 @@ export async function doctor(): Promise<void> {
   console.log(`Mode:            ${cfg.mock ? 'mock (canned results)' : 'real (Prowler)'}`);
 
   // Integrated providers (today: gcp via cfg.gcp; provider registry comes next phase).
+  const gcpIntegrated = !!(cfg.gcp?.projectId || cfg.gcp?.credentialsPath);
   const providers: string[] = [];
-  if (cfg.gcp?.projectId || cfg.gcp?.credentialsPath) providers.push(`gcp${cfg.gcp.projectId ? ` (${cfg.gcp.projectId})` : ''}`);
+  if (gcpIntegrated) providers.push(`gcp${cfg.gcp?.projectId ? ` (${cfg.gcp.projectId})` : ''}`);
   console.log(`Providers:       ${providers.length ? providers.join(', ') : 'none integrated'}`);
 
   const rt = await runtimeStatus();
@@ -299,8 +300,30 @@ export async function doctor(): Promise<void> {
   console.log(`  prowler:       ${rt.prowlerVersion ? rt.prowlerVersion : 'not installed'}`);
   console.log(`  runtime dir:   ${rt.runtimeDir}`);
 
+  // Preflight: GCP Service Usage API. If it's off, real checks silently return
+  // N/A across the board, so flag it proactively here.
+  let serviceUsageDisabled = false;
+  if (gcpIntegrated) {
+    console.log('\nGCP preflight:');
+    process.stdout.write('  Service Usage API: checking…\r');
+    const su = await checkGcpServiceUsage(cfg.gcp?.projectId);
+    if (su.status === 'enabled') {
+      console.log(`  ${GREEN}Service Usage API: enabled ✓${RESET}                    `);
+    } else if (su.status === 'disabled') {
+      serviceUsageDisabled = true;
+      console.log(`  ${RED}Service Usage API: DISABLED ✗${RESET}                  `);
+      console.log(`  ${DIM}Prowler can't discover resources until you enable it:${RESET}`);
+      console.log(`  ${DIM}  gcloud services enable serviceusage.googleapis.com --project=${cfg.gcp?.projectId || '<project>'}${RESET}`);
+    } else {
+      console.log(`  ${YEL}Service Usage API: could not verify${RESET} ${DIM}(${su.detail || 'gcloud unavailable'})${RESET}`);
+      console.log(`  ${DIM}Ensure serviceusage.googleapis.com is enabled, or checks will return N/A.${RESET}`);
+    }
+  }
+
   if (!rt.prowlerReady) {
     console.log('\nNext: run `zti integrate prowler` to install the scan engine.');
+  } else if (serviceUsageDisabled) {
+    console.log('\nNext: enable the Service Usage API above, then run a check.');
   } else if (cfg.mock) {
     console.log('\nScan engine ready. Run `zti config --real` to use it for checks.');
   } else {
