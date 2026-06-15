@@ -9,6 +9,7 @@
 const SUBCOMMANDS = [
   'authenticate',
   'integrate',
+  'doctor',
   'start',
   'check-control',
   'check-framework',
@@ -22,7 +23,7 @@ const SUBCOMMANDS = [
 
 // Second-level words keyed by the first subcommand.
 const SUBSUB: Record<string, string[]> = {
-  integrate: ['gcp'],
+  integrate: ['gcp', 'prowler'],
   'vuln-scan': ['all', 'subnet', 'ip', 'local', 'report'],
   config: ['--real', '--mock'],
   completion: ['bash', 'zsh'],
