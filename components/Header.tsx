@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { SunIcon, MoonIcon, BellIcon } from './Icons';
 import * as SupabaseService from '../services/supabase';
-import { UserRole } from '../types';
+import { UserRole, ZtiHubStatus } from '../types';
 import { DemoToggle } from './common/DemoToggle';
 
 declare const __APP_VERSION__: string;
@@ -39,6 +39,19 @@ export const Header: React.FC<HeaderProps> = ({
     userRole, setUserRole, isDarkMode, toggleDarkMode,
     onSignOut, userName, userEmail, userPhotoUrl, orgName, isAbcNews, openFeedback, onNavigate, onDeleteAccount
 }) => {
+    // ─── ZTI Hub connectivity (global pill; same /status the Control Registry
+    // polls to gate its ▶ run buttons) ───
+    const [hubStatus, setHubStatus] = useState<ZtiHubStatus>({ active: false });
+    useEffect(() => {
+        let cancelled = false;
+        const tick = () => SupabaseService.getZtiHubStatus()
+            .then(s => { if (!cancelled) setHubStatus(s); })
+            .catch(() => { if (!cancelled) setHubStatus({ active: false }); });
+        tick();
+        const iv = setInterval(tick, 25000);
+        return () => { cancelled = true; clearInterval(iv); };
+    }, []);
+
     // ─── Notifications ───
     const [notifications, setNotifications] = useState<UnifiedNotification[]>([]);
     const [showNotifDropdown, setShowNotifDropdown] = useState(false);
@@ -254,6 +267,15 @@ export const Header: React.FC<HeaderProps> = ({
                     </div>
 
                     <div className="flex items-center space-x-2 sm:space-x-3">
+                        {/* ZTI Hub connectivity — green when a hub is beaconing for this org. */}
+                        <div
+                            title={hubStatus.active ? `ZTI Hub online${hubStatus.deviceName ? ` (${hubStatus.deviceName})` : ''}` : 'ZTI Hub offline — run `zti start` on a registered device'}
+                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${hubStatus.active ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'}`}
+                        >
+                            <span className={`inline-block w-2 h-2 rounded-full ${hubStatus.active ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`} />
+                            Hub {hubStatus.active ? 'online' : 'offline'}
+                        </div>
+
                         {/* Demo mode toggle — only for the ABC News tenant */}
                         {isAbcNews && <DemoToggle />}
 

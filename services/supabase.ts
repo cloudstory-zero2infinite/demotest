@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate, MapperRunResult, MapperGraph, EmailTemplate, QuestionnaireResult, DueDiligenceChatResult, RiskRegisterEntry, RiskComputeResult, ManualRiskInput, ZtiHubStatus, ControlCheckResult, ZtiHubDevice, VulnScanJob, VulnScanFinding, VulnScanDiffRow } from '../types';
+import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate, MapperRunResult, MapperGraph, EmailTemplate, QuestionnaireResult, DueDiligenceChatResult, RiskRegisterEntry, RiskComputeResult, ManualRiskInput, ZtiHubStatus, ControlCheckResult, ZtiHubDevice, VulnScanJob, VulnScanFinding, VulnScanDiffRow, CspmScanJob, CspmCheckResult, CspmPreviewRow } from '../types';
 import { isDemoEnabled } from './demo/demoMode';
 import { handleDemoRequest } from './demo/demoApi';
 
@@ -1149,6 +1149,32 @@ export const importVulnScanFindings = async (
   return apiRequest<{ imported: number; discarded: number }>(`/api/vuln-scan/jobs/${jobId}/import`, {
     method: 'POST',
     body: JSON.stringify({ approve, discard }),
+  });
+};
+
+// --- ZTI Hub Services: CSPM (Cloud Security Posture Management) ---
+
+export const getCspmScanJobs = async (): Promise<CspmScanJob[]> => {
+  return apiRequest<CspmScanJob[]>('/api/cspm-scan/jobs');
+};
+
+export const getCspmScanResults = async (jobId: string): Promise<CspmCheckResult[]> => {
+  return apiRequest<CspmCheckResult[]>(`/api/cspm-scan/jobs/${jobId}/results`);
+};
+
+export const getCspmScanPreview = async (jobId: string): Promise<CspmPreviewRow[]> => {
+  return apiRequest<CspmPreviewRow[]>(`/api/cspm-scan/jobs/${jobId}/preview`);
+};
+
+export const importCspmResults = async (
+  jobId: string,
+  approve: string[],
+  discard: string[],
+  reviewer?: { reviewer_id?: string; reviewer_name?: string; reviewer_email?: string }
+): Promise<{ enforced_in_review: number; not_enforced: number; skipped_unmatched: number; skipped_in_review: number; discarded: number }> => {
+  return apiRequest(`/api/cspm-scan/jobs/${jobId}/import`, {
+    method: 'POST',
+    body: JSON.stringify({ approve, discard, ...(reviewer || {}) }),
   });
 };
 

@@ -2,12 +2,28 @@ import type { ZtiConfig } from './config.js';
 
 export interface CheckSpec {
   id?: string; // job id when from the queue
-  scf_control_id: string;
+  scf_control_id?: string;
+  nn_ctl_name?: string; // set for Non-Negotiable controls (CSPM posture scan)
   check_id: string;
   title?: string;
   provider?: string;
   service?: string;
   severity?: string;
+}
+
+// One control's aggregated CSPM posture result (uploaded to the workspace).
+export interface CspmControlResult {
+  scf_control_id?: string | null;
+  nn_ctl_name?: string | null;
+  control_name: string;
+  provider: string;
+  checks_total: number;
+  checks_passed: number;
+  checks_failed: number;
+  checks_na: number;
+  pass_pct: number;
+  result_status: 'pass' | 'partial' | 'fail' | 'na';
+  raw: Array<{ check_id: string; status: string; total: number; failed: number }>;
 }
 
 export type ResultStatus = 'pass' | 'fail' | 'error';
@@ -76,6 +92,32 @@ export class HubApi {
 
   frameworkChecks(framework: string) {
     return this.req<CheckSpec[]>(`/api/zti-hub/framework-checks?framework=${encodeURIComponent(framework)}`);
+  }
+
+  allChecks() {
+    return this.req<CheckSpec[]>('/api/zti-hub/all-checks');
+  }
+
+  // ── CSPM posture scan ──────────────────────────────────────────────────────
+  createCspmJob(body: { scope_type: string; scope_value?: string | null; provider?: string | null; is_mock: boolean }) {
+    return this.req<{ id: string }>('/api/cspm-scan/jobs', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  postCspmStatus(jobId: string, status: 'running' | 'completed' | 'failed', summary?: unknown) {
+    return this.req<{ ok: boolean }>(`/api/cspm-scan/jobs/${jobId}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ status, summary }),
+    });
+  }
+
+  postCspmResults(jobId: string, results: CspmControlResult[]) {
+    return this.req<{ staged: number }>(`/api/cspm-scan/jobs/${jobId}/results`, {
+      method: 'POST',
+      body: JSON.stringify({ results }),
+    });
   }
 
   // ── Vulnerability scan (OpenVAS) ──────────────────────────────────────────

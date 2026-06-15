@@ -207,7 +207,7 @@ def apply_diff(org_id: str, diff: dict[str, Any]) -> dict[str, int]:
     counts = {"added": 0, "updated": 0, "deleted": 0}
 
     with db_cursor() as cur:
-        # INSERT new rows. ctl_type='standard'; ctl_status default ('NotEnforced').
+        # INSERT new rows. ctl_type='standard'; ctl_status default ('NotAssessed').
         for item in diff["to_add"]:
             # ctl_type must match the CHECK constraint values exactly:
             # 'NN' | 'Regulatory' | 'Standard' | 'Custom'. Capital S.
