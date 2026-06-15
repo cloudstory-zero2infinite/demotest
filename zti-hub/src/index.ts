@@ -2,7 +2,7 @@
 import { authenticate } from './auth.js';
 import { integrateGcp } from './gcp.js';
 import { startDaemon } from './daemon.js';
-import { checkControl, checkFramework, status, setMode, cliLogs } from './commands.js';
+import { checkControl, checkFramework, status, setMode, cliLogs, setupProwler, doctor } from './commands.js';
 import { vulnScan, scanWorker } from './vulnscan.js';
 import { completion } from './completion.js';
 
@@ -12,6 +12,8 @@ zti — ZTI Hub CLI
 Usage:
   zti authenticate                 Register this machine and store a device token
   zti integrate gcp                Configure read-only GCP access for checks
+  zti integrate prowler            Install the managed Prowler scan engine (no pip/Docker needed)
+  zti doctor                       Show scan-engine + integration health
   zti start                        Run the hub: beacon + process queued checks (every 60s)
   zti check-control <SCF#>         Run checks associated with one SCF control on demand
   zti check-framework <name>       Run checks for every control mapped to a framework
@@ -43,7 +45,12 @@ async function main() {
 
     case 'integrate':
       if (sub === 'gcp') await integrateGcp();
-      else console.error('Only `zti integrate gcp` is supported in this phase.');
+      else if (sub === 'prowler') await setupProwler();
+      else console.error('Usage: zti integrate gcp | prowler');
+      break;
+
+    case 'doctor':
+      await doctor();
       break;
 
     case 'start':
