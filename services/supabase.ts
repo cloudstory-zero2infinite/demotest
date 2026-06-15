@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate, MapperRunResult, MapperGraph, EmailTemplate, QuestionnaireResult, DueDiligenceChatResult, RiskRegisterEntry, RiskComputeResult, ManualRiskInput, ZtiHubStatus, ControlCheckResult, ZtiHubDevice } from '../types';
+import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate, MapperRunResult, MapperGraph, EmailTemplate, QuestionnaireResult, DueDiligenceChatResult, RiskRegisterEntry, RiskComputeResult, ManualRiskInput, ZtiHubStatus, ControlCheckResult, ZtiHubDevice, VulnScanJob, VulnScanFinding, VulnScanDiffRow } from '../types';
 import { isDemoEnabled } from './demo/demoMode';
 import { handleDemoRequest } from './demo/demoApi';
 
@@ -1124,6 +1124,31 @@ export const registerHubDevice = async (deviceName?: string): Promise<{ device: 
   return apiRequest<{ device: any; token: string }>('/api/zti-hub/devices', {
     method: 'POST',
     body: JSON.stringify({ device_name: deviceName || 'zti-hub' }),
+  });
+};
+
+// --- ZTI Hub Services: Vulnerability Assessment (OpenVAS scans) ---
+
+export const getVulnScanJobs = async (): Promise<VulnScanJob[]> => {
+  return apiRequest<VulnScanJob[]>('/api/vuln-scan/jobs');
+};
+
+export const getVulnScanFindings = async (jobId: string): Promise<VulnScanFinding[]> => {
+  return apiRequest<VulnScanFinding[]>(`/api/vuln-scan/jobs/${jobId}/findings`);
+};
+
+export const getVulnScanDiff = async (jobId: string): Promise<VulnScanDiffRow[]> => {
+  return apiRequest<VulnScanDiffRow[]>(`/api/vuln-scan/jobs/${jobId}/diff`);
+};
+
+export const importVulnScanFindings = async (
+  jobId: string,
+  approve: string[],
+  discard: string[]
+): Promise<{ imported: number; discarded: number }> => {
+  return apiRequest<{ imported: number; discarded: number }>(`/api/vuln-scan/jobs/${jobId}/import`, {
+    method: 'POST',
+    body: JSON.stringify({ approve, discard }),
   });
 };
 

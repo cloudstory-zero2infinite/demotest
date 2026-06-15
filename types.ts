@@ -262,6 +262,57 @@ export interface ControlCheckResult {
   finished_at: string | null;
 }
 
+// ── ZTI Hub Services: Vulnerability Assessment (OpenVAS scans) ────────────────
+
+export interface VulnScanJob {
+  id: string;
+  target_type: 'all' | 'subnet' | 'ip' | 'local';
+  target_value: string | null;
+  status: 'running' | 'completed' | 'failed' | 'staged' | 'imported';
+  summary: { total?: number; critical?: number; high?: number; medium?: number; low?: number; info?: number; kev?: number } | null;
+  is_mock: boolean;
+  consent_by: string | null;
+  consent_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  finding_count: number;
+  pending_count: number;
+}
+
+export interface VulnScanFinding {
+  id: string;
+  host: string | null;
+  port: string | null;
+  cve_id: string | null;
+  vuln_name: string;
+  description: string | null;
+  cvss_score: number | null;
+  severity: string | null;
+  priority: string | null;
+  in_kev: boolean;
+  asset_id: string | null;
+  review_status: 'pending' | 'approved' | 'discarded' | 'imported';
+  imported_vuln_id: string | null;
+  created_at: string;
+}
+
+// One staged finding alongside the existing vuln row it would collide with.
+export interface VulnScanDiffRow {
+  incoming: VulnScanFinding;
+  current: {
+    id: string;
+    name: string;
+    description: string | null;
+    derived_from: string;
+    status: string;
+    cve_id: string | null;
+    cvss_score: number | null;
+    priority: string | null;
+  } | null;
+  conflict: boolean;
+}
+
 // ── SCF Frameworks & Fw-ControlRegistry recompute ────────────────────────────
 
 export interface ScfFramework {

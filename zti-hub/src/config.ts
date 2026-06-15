@@ -12,6 +12,15 @@ export interface ZtiConfig {
     projectId?: string;
     credentialsPath?: string;
   };
+  // OpenVAS / Greenbone (GVM) connection for `zti vuln-scan` real mode.
+  // Empty/omitted → mock findings (default). Real mode shells out to `gvm-cli`.
+  gvm?: {
+    host?: string;        // GMP host (default 127.0.0.1)
+    port?: number;        // GMP TLS port (default 9390)
+    user?: string;
+    password?: string;
+    socketPath?: string;  // unix socket alternative to host/port
+  };
 }
 
 const CONFIG_DIR = path.join(os.homedir(), '.zti');
@@ -42,4 +51,23 @@ export function saveConfig(cfg: ZtiConfig): void {
 
 export function configPath(): string {
   return CONFIG_PATH;
+}
+
+// Local state directories under ~/.zti (created lazily, owner-only).
+export function ztiDir(...parts: string[]): string {
+  const p = path.join(CONFIG_DIR, ...parts);
+  return p;
+}
+
+export function ensureDir(dir: string): string {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return dir;
+}
+
+export function scansDir(): string {
+  return ensureDir(path.join(CONFIG_DIR, 'scans'));
+}
+
+export function logsDir(): string {
+  return ensureDir(path.join(CONFIG_DIR, 'logs'));
 }

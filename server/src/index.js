@@ -229,6 +229,7 @@ import { scfFrameworksRouter } from "./routes/scf-frameworks.js";
 import { ddRouter } from "./routes/dd.js";
 import { riskRouter } from "./routes/risk.js";
 import { ztiHubRouter } from "./routes/zti-hub.js";
+import { vulnScanRouter } from "./routes/vuln-scan.js";
 
 
 
@@ -320,6 +321,7 @@ app.use("/api/dd", ddRouter);
 app.use("/api/risk", riskRouter);
 
 app.use("/api/zti-hub", ztiHubRouter);
+app.use("/api/vuln-scan", vulnScanRouter);
 
 
 
