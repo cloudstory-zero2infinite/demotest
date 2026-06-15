@@ -230,12 +230,23 @@ import { ddRouter } from "./routes/dd.js";
 import { riskRouter } from "./routes/risk.js";
 import { ztiHubRouter } from "./routes/zti-hub.js";
 import { vulnScanRouter } from "./routes/vuln-scan.js";
+import { cspmScanRouter } from "./routes/cspm-scan.js";
 
 
 
 
 
 dotenv.config();
+
+// Safety net: a stray unhandled promise rejection or uncaught exception (e.g. a
+// fire-and-forget DB insert that rejects) would otherwise terminate the whole
+// API process under Node. Log it and keep serving instead of crashing.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
 
 
 
@@ -322,6 +333,7 @@ app.use("/api/risk", riskRouter);
 
 app.use("/api/zti-hub", ztiHubRouter);
 app.use("/api/vuln-scan", vulnScanRouter);
+app.use("/api/cspm-scan", cspmScanRouter);
 
 
 

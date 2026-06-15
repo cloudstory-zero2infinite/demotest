@@ -200,7 +200,7 @@ export type CapabilityCreate = Omit<Capability, 'id' | 'created_at' | 'updated_a
 export type CapabilityUpdate = Partial<Omit<CapabilityCreate, 'org_id' | 'user_id'>>;
 
 // Control Registry Types
-export type ControlStatus = 'Enforced' | 'NotEnforced' | 'In-Review';
+export type ControlStatus = 'Enforced' | 'NotEnforced' | 'In-Review' | 'NotAssessed';
 export type ControlType = 'NN' | 'Regulatory' | 'Standard' | 'Custom';
 export type EnforcementType = 'org_wide' | 'Asset_specific' | 'BU_specific';
 
@@ -311,6 +311,49 @@ export interface VulnScanDiffRow {
     priority: string | null;
   } | null;
   conflict: boolean;
+}
+
+// ── ZTI Hub Services: CSPM (Cloud Security Posture Management) ────────────────
+
+export interface CspmScanJob {
+  id: string;
+  scope_type: 'all' | 'framework' | 'provider' | 'control';
+  scope_value: string | null;
+  provider: string | null;
+  status: 'running' | 'completed' | 'failed' | 'staged' | 'imported';
+  summary: { controls_total?: number; fully_passed?: number; partially_passed?: number; failed?: number; na?: number } | null;
+  is_mock: boolean;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  result_count: number;
+  pending_count: number;
+}
+
+export interface CspmCheckResult {
+  id: string;
+  scf_control_id: string | null;
+  nn_ctl_name: string | null;
+  control_name: string;
+  provider: string | null;
+  checks_total: number;
+  checks_passed: number;
+  checks_failed: number;
+  checks_na: number;
+  pass_pct: number;
+  result_status: 'pass' | 'partial' | 'fail' | 'na';
+  raw: Array<{ check_id: string; status: string; total: number; failed: number }> | null;
+  review_status: 'pending' | 'approved' | 'discarded' | 'imported';
+  imported_control_id: string | null;
+  created_at: string;
+}
+
+// One staged CSPM result alongside the control_registry row it maps to.
+export interface CspmPreviewRow {
+  result: CspmCheckResult;
+  current: { id: string; ctl_id: string; ctl_name: string; ctl_status: ControlStatus; maturity_score: number | null } | null;
+  matched: boolean;
+  proposed: { ctl_status: 'NotEnforced' | 'In-Review'; maturity_score: number; needs_review: boolean };
 }
 
 // ── SCF Frameworks & Fw-ControlRegistry recompute ────────────────────────────

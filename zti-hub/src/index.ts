@@ -4,6 +4,7 @@ import { integrateGcp } from './gcp.js';
 import { startDaemon } from './daemon.js';
 import { checkControl, checkFramework, status, setMode, cliLogs, setupProwler, doctor } from './commands.js';
 import { vulnScan, scanWorker } from './vulnscan.js';
+import { cspm } from './cspm.js';
 import { completion } from './completion.js';
 
 const HELP = `
@@ -19,6 +20,8 @@ Usage:
   zti check-framework <name>       Run checks for every control mapped to a framework
   zti vuln-scan <target>           Run an OpenVAS vulnerability scan (all|subnet <CIDR>|ip <addr>|local)
   zti vuln-scan report [job-id]    Show scan results; optionally send to your ZTI workspace
+  zti cspm scan [scope]            Run a CSPM posture scan (all | framework <name> | control <SCF#> | provider <gcp>)
+  zti cspm report [job-id]         Show CSPM results; optionally send to your ZTI workspace
   zti cli-logs [--tail N]          Show the local CLI activity log
   zti config --real | --mock       Switch between real scans and mock results
   zti completion bash | zsh        Print a shell tab-completion script
@@ -69,6 +72,10 @@ async function main() {
 
     case 'vuln-scan':
       await vulnScan(sub, rest);
+      break;
+
+    case 'cspm':
+      await cspm(sub, rest);
       break;
 
     // Hidden: detached worker that actually runs a scan (spawned by vuln-scan).

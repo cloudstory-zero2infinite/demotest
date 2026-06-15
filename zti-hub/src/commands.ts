@@ -158,6 +158,7 @@ async function runChecks(api: HubApi, cfg: ZtiConfig, label: string, checks: Che
     for (const spec of specs) {
       const o = outcomes.get(spec.check_id);
       if (!o || o.status === 'na' || o.status === 'manual') continue;
+      if (!spec.scf_control_id) continue; // check-control/framework always carry one
       const result_status = o.status === 'pass' ? 'pass' : o.status === 'fail' ? 'fail' : 'error';
       try {
         await api.postRun(spec.scf_control_id, spec.check_id, {

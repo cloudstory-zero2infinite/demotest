@@ -158,7 +158,11 @@ const generateBulkControlRegistryIds = async (orgId, count) => {
 
 function logActivity(payload) {
 
-  supabaseAdmin.from('all_activity_log').insert(payload).then(() => {});
+  // Fire-and-forget, but never let a logging failure become an unhandled
+  // rejection (Node 22 exits the process on those).
+  supabaseAdmin.from('all_activity_log').insert(payload).then(() => {}).catch((e) => {
+    console.error('[control-registry] logActivity failed:', e?.message || e);
+  });
 
 }
 
@@ -630,6 +634,8 @@ router.get('/:id/evidence-review', requireAuth, async (req, res) => {
 
       (data.evidence_files || []).map(async (f) => {
 
+        if (!f.storage_path) return { ...f, signed_url: null };
+
         const { data: signedData, error: signErr } = await supabaseAdmin.storage
 
           .from(EVIDENCE_BUCKET)
@@ -685,6 +691,8 @@ router.get('/:id/evidence-files', requireAuth, async (req, res) => {
     const filesWithUrls = await Promise.all(
 
       metadata.map(async (f) => {
+
+        if (!f.storage_path) return { ...f, signed_url: null };
 
         const { data: signedData, error: signErr } = await supabaseAdmin.storage
 
@@ -1047,6 +1055,13 @@ router.post('/:id/approve-enforcement', requireAuth, async (req, res) => {
       .update({
 
         ctl_status: review.requested_status,
+
+        // Preserve a maturity score carried in from a CSPM import (e.g. 50% for
+        // 1/2 checks passed). Manual enforcements that carry no score fall back
+        // to 100% so legacy behaviour is unchanged.
+        maturity_score: review.requested_status === 'Enforced'
+          ? (control.maturity_score != null ? control.maturity_score : 100)
+          : control.maturity_score,
 
         evidence_metadata: mergedEvidence,
 

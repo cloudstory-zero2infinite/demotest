@@ -14,6 +14,7 @@ const SUBCOMMANDS = [
   'check-control',
   'check-framework',
   'vuln-scan',
+  'cspm',
   'cli-logs',
   'config',
   'status',
@@ -25,6 +26,7 @@ const SUBCOMMANDS = [
 const SUBSUB: Record<string, string[]> = {
   integrate: ['gcp', 'prowler'],
   'vuln-scan': ['all', 'subnet', 'ip', 'local', 'report'],
+  cspm: ['scan', 'report', 'all', 'framework', 'control', 'provider'],
   config: ['--real', '--mock'],
   completion: ['bash', 'zsh'],
 };

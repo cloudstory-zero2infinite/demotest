@@ -68,6 +68,10 @@ export function scansDir(): string {
   return ensureDir(path.join(CONFIG_DIR, 'scans'));
 }
 
+export function cspmDir(): string {
+  return ensureDir(path.join(CONFIG_DIR, 'cspm'));
+}
+
 export function logsDir(): string {
   return ensureDir(path.join(CONFIG_DIR, 'logs'));
 }

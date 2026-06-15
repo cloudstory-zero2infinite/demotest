@@ -334,6 +334,37 @@ router.get('/control-checks', requireDevice, async (req, res) => {
   }
 });
 
+// Every associated check across all controls (SCF + NN) for a full CSPM posture
+// scan (`zti cspm scan`). Device-token accessible (the user-facing
+// /associated-controls is JWT-only).
+router.get('/all-checks', requireDevice, async (_req, res) => {
+  try {
+    const { data: assoc, error } = await supabaseAdmin
+      .from('control_check_associations')
+      .select('scf_control_id, nn_ctl_name, check_id');
+    if (error) throw error;
+    if (!assoc || assoc.length === 0) return res.json([]);
+    const checkIds = [...new Set(assoc.map((a) => a.check_id))];
+    const { data: lib } = await supabaseAdmin
+      .from('control_checks_library')
+      .select('check_id, title, provider, service, severity')
+      .in('check_id', checkIds);
+    const byId = new Map((lib || []).map((c) => [c.check_id, c]));
+    res.json(
+      assoc
+        .map((a) => ({
+          scf_control_id: a.scf_control_id,
+          nn_ctl_name: a.nn_ctl_name,
+          ...(byId.get(a.check_id) || { check_id: a.check_id }),
+        }))
+        .filter((r) => r.check_id)
+    );
+  } catch (err) {
+    console.error('[zti-hub] all-checks error:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // Checks for every control mapped to an SCF framework (on-demand `zti check-framework`).
 router.get('/framework-checks', requireDevice, async (req, res) => {
   try {

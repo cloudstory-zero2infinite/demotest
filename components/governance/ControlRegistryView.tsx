@@ -568,7 +568,7 @@ const CTL_STATUS_OPTIONS: ControlStatus[] = ['Enforced', 'NotEnforced'];
 
 
 
-const ALL_CTL_STATUSES: ControlStatus[] = ['Enforced', 'NotEnforced', 'In-Review'];
+const ALL_CTL_STATUSES: ControlStatus[] = ['Enforced', 'NotEnforced', 'In-Review', 'NotAssessed'];
 
 
 
@@ -610,6 +610,8 @@ const STATUS_BADGE: Record<ControlStatus, string> = {
 
     'In-Review': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
 
+    NotAssessed: 'bg-gray-100 text-gray-600 dark:bg-gray-700/50 dark:text-gray-300',
+
 
 
 };
@@ -633,6 +635,8 @@ const STATUS_LABEL: Record<ControlStatus, string> = {
 
 
     'In-Review': 'In-Review',
+
+    NotAssessed: 'NotAssessed',
 
 
 
@@ -2216,7 +2220,7 @@ const DEFAULT_FORM: FormData = {
 
 
 
-    ctl_status: 'NotEnforced',
+    ctl_status: 'NotAssessed',
 
 
 
@@ -2805,7 +2809,7 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
                         <div className="md:col-span-2 mt-2 mb-2 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600">
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
                                 Control Maturity Score
-                                <span className="ml-2 text-xs font-normal text-blue-600 dark:text-blue-400 font-bold">{formData.ctl_status === 'Enforced' ? 100 : (formData.maturity_score || 0)}%</span>
+                                <span className="ml-2 text-xs font-normal text-blue-600 dark:text-blue-400 font-bold">{(formData.maturity_score || 0)}%</span>
                             </label>
                             
                             <input
@@ -2814,7 +2818,7 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
                                 min="0"
                                 max="100"
                                 step="1"
-                                value={formData.ctl_status === 'Enforced' ? 100 : (formData.maturity_score || 0)}
+                                value={(formData.maturity_score || 0)}
                                 onChange={e => {
                                     const v = Number(e.target.value);
                                     // Slider hitting 100 auto-promotes status to Enforced. The
@@ -4311,7 +4315,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                ctl_status: (CTL_STATUS_OPTIONS.includes(r.ctl_status as ControlStatus) ? r.ctl_status : 'NotEnforced') as ControlStatus,
+                ctl_status: (CTL_STATUS_OPTIONS.includes(r.ctl_status as ControlStatus) ? r.ctl_status : 'NotAssessed') as ControlStatus,
 
 
 
@@ -4636,14 +4640,8 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                    {/* ZTI Hub status pill — green when a hub is beaconing for this org. */}
-                    <div
-                        title={hubStatus.active ? `ZTI Hub online${hubStatus.deviceName ? ` (${hubStatus.deviceName})` : ''}` : 'ZTI Hub offline'}
-                        className={`flex items-center gap-1.5 px-2.5 rounded-md text-xs font-medium ${hubStatus.active ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'}`}
-                    >
-                        <span className={`inline-block w-2 h-2 rounded-full ${hubStatus.active ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`} />
-                        Hub {hubStatus.active ? 'online' : 'offline'}
-                    </div>
+                    {/* Hub connectivity pill moved to the global header (next to the
+                        demo toggle). The hubStatus poll above still gates the ▶ buttons. */}
 
                     <button onClick={handleConnectHub} disabled={registeringHub} title="Generate a ZTI Hub device token" className="p-2 text-gray-400 hover:text-emerald-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50">
                         <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5v14" /></svg>
@@ -5188,20 +5186,20 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                                                     <input 
                                                         type="range" 
                                                         min="0" max="100" step="1"
-                                                        value={ctl.ctl_status === 'Enforced' ? 100 : (editValues[ctl.id]?.maturity_score ?? ctl.maturity_score ?? 0)}
+                                                        value={editValues[ctl.id]?.maturity_score ?? ctl.maturity_score ?? 0}
                                                         onChange={e => updateField(ctl.id, 'maturity_score', Number(e.target.value))}
                                                         disabled={ctl.ctl_status === 'Enforced'}
                                                         className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700 accent-blue-600"
                                                     />
                                                 ) : (
                                                     <div className="w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700 mt-1">
-                                                        <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${ctl.ctl_status === 'Enforced' ? 100 : (ctl.maturity_score ?? 0)}%` }}></div>
+                                                        <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${ctl.maturity_score ?? 0}%` }}></div>
                                                     </div>
                                                 )}
                                                 <span className="text-xs font-medium text-gray-700 dark:text-gray-300 w-8 text-right">
-                                                    {ctl.ctl_status === 'Enforced' ? '100%' : (isEditing && selectedIds.has(ctl.id) 
-                                                        ? `${editValues[ctl.id]?.maturity_score ?? ctl.maturity_score ?? 0}%` 
-                                                        : `${ctl.maturity_score ?? 0}%`)}
+                                                    {isEditing && selectedIds.has(ctl.id)
+                                                        ? `${editValues[ctl.id]?.maturity_score ?? ctl.maturity_score ?? 0}%`
+                                                        : `${ctl.maturity_score ?? 0}%`}
                                                 </span>
                                             </div>
                                         ) : (
