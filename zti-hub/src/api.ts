@@ -77,4 +77,32 @@ export class HubApi {
   frameworkChecks(framework: string) {
     return this.req<CheckSpec[]>(`/api/zti-hub/framework-checks?framework=${encodeURIComponent(framework)}`);
   }
+
+  // ── Vulnerability scan (OpenVAS) ──────────────────────────────────────────
+  createScanJob(body: {
+    target_type: string;
+    target_value?: string | null;
+    authorized: boolean;
+    consent_by?: string;
+    is_mock: boolean;
+  }) {
+    return this.req<{ id: string }>('/api/vuln-scan/jobs', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  postScanStatus(jobId: string, status: 'running' | 'completed' | 'failed', summary?: unknown) {
+    return this.req<{ ok: boolean }>(`/api/vuln-scan/jobs/${jobId}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ status, summary }),
+    });
+  }
+
+  postScanFindings(jobId: string, findings: unknown[]) {
+    return this.req<{ staged: number }>(`/api/vuln-scan/jobs/${jobId}/findings`, {
+      method: 'POST',
+      body: JSON.stringify({ findings }),
+    });
+  }
 }

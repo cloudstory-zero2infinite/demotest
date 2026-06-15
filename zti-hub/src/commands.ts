@@ -1,6 +1,7 @@
 import { loadConfig, saveConfig, configPath } from './config.js';
 import { HubApi, type CheckSpec } from './api.js';
 import { runCheck } from './checks.js';
+import { readLogs, logPath } from './logger.js';
 
 async function runAndReport(api: HubApi, cfg: ReturnType<typeof loadConfig>, checks: CheckSpec[]): Promise<void> {
   if (!checks.length) {
@@ -67,6 +68,32 @@ export async function status(): Promise<void> {
   } catch (e: any) {
     console.log(`Beacon:        FAILED · ${e.message}`);
   }
+}
+
+// `zti cli-logs [--tail N]` — show the local CLI activity log.
+export function cliLogs(args: string[]): void {
+  let n = 50;
+  const ti = args.indexOf('--tail');
+  if (ti !== -1 && args[ti + 1]) {
+    const parsed = parseInt(args[ti + 1], 10);
+    if (!Number.isNaN(parsed)) n = parsed;
+  }
+  const entries = readLogs(n);
+  if (!entries.length) {
+    console.log(`No CLI logs yet. (${logPath()})`);
+    return;
+  }
+  const RED = '\x1b[31m';
+  const YEL = '\x1b[33m';
+  const DIM = '\x1b[2m';
+  const RESET = '\x1b[0m';
+  for (const e of entries) {
+    const { ts, level, event, ...rest } = e;
+    const color = level === 'error' ? RED : level === 'warn' ? YEL : '';
+    const extra = Object.keys(rest).length ? ` ${DIM}${JSON.stringify(rest)}${RESET}` : '';
+    console.log(`${DIM}${ts}${RESET} ${color}${level.toUpperCase().padEnd(5)}${RESET} ${event}${extra}`);
+  }
+  console.log(`${DIM}— ${entries.length} entry(ies) from ${logPath()}${RESET}`);
 }
 
 // `zti config --real` / `--mock`

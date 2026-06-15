@@ -2,7 +2,9 @@
 import { authenticate } from './auth.js';
 import { integrateGcp } from './gcp.js';
 import { startDaemon } from './daemon.js';
-import { checkControl, checkFramework, status, setMode } from './commands.js';
+import { checkControl, checkFramework, status, setMode, cliLogs } from './commands.js';
+import { vulnScan, scanWorker } from './vulnscan.js';
+import { completion } from './completion.js';
 
 const HELP = `
 zti — ZTI Hub CLI
@@ -13,16 +15,20 @@ Usage:
   zti start                        Run the hub: beacon + process queued checks (every 60s)
   zti check-control <SCF#>         Run checks associated with one SCF control on demand
   zti check-framework <name>       Run checks for every control mapped to a framework
-  zti config --real | --mock       Switch between real Prowler scans and mock results
+  zti vuln-scan <target>           Run an OpenVAS vulnerability scan (all|subnet <CIDR>|ip <addr>|local)
+  zti vuln-scan report [job-id]    Show scan results; optionally send to your ZTI workspace
+  zti cli-logs [--tail N]          Show the local CLI activity log
+  zti config --real | --mock       Switch between real scans and mock results
+  zti completion bash | zsh        Print a shell tab-completion script
   zti status                       Show config + beacon health
   zti help                         Show this help
 
 Examples:
   zti authenticate
-  zti integrate gcp
-  zti start
+  zti vuln-scan subnet 10.0.0.0/24
+  zti vuln-scan report
   zti check-control THR-03
-  zti check-framework "CIS CSC 8.1"
+  zti cli-logs --tail 20
 `;
 
 async function main() {
@@ -52,6 +58,24 @@ async function main() {
     case 'check-framework':
       // Allow unquoted multi-word framework names.
       await checkFramework([sub, ...rest].filter(Boolean).join(' '));
+      break;
+
+    case 'vuln-scan':
+      await vulnScan(sub, rest);
+      break;
+
+    // Hidden: detached worker that actually runs a scan (spawned by vuln-scan).
+    case '__scan-worker':
+      await scanWorker(sub, rest[0], rest[1] || '');
+      break;
+
+    case 'cli-logs':
+    case 'logs':
+      cliLogs([sub, ...rest].filter(Boolean));
+      break;
+
+    case 'completion':
+      completion(sub);
       break;
 
     case 'config':

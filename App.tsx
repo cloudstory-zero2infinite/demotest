@@ -34,6 +34,7 @@ import { GovernanceTab } from "./components/tabs/GovernanceTab";
 
 import { ComplianceTab } from "./components/tabs/ComplianceTab";
 import { RiskTab } from "./components/tabs/RiskTab";
+import { ZtiHubServicesTab } from "./components/tabs/ZtiHubServicesTab";
 
 import { ActivityLogsTab } from "./components/tabs/ActivityLogsTab";
 
@@ -622,6 +623,10 @@ const App: React.FC = () => {
 
         <div className={activeTab === "risk" ? "" : "hidden"}>
           <RiskTab isActive={activeTab === "risk"} />
+        </div>
+
+        <div className={activeTab === "zti_hub_services" ? "" : "hidden"}>
+          <ZtiHubServicesTab isActive={activeTab === "zti_hub_services"} />
         </div>
 
         <div className={activeTab === "logs" ? "" : "hidden"}>

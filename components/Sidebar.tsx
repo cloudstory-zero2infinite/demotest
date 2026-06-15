@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 
 
 
-export type MainTab = 'dashboard' | 'organisation' | 'program' | 'governance' | 'compliance' | 'risk' | 'logs';
+export type MainTab = 'dashboard' | 'organisation' | 'program' | 'governance' | 'compliance' | 'risk' | 'zti_hub_services' | 'logs';
 
 export type OrgSubTab = 'view_org' | 'tenant_admin' | 'templates' | 'settings';
 
@@ -118,6 +118,16 @@ const LogsIcon = () => (
 
 );
 
+const HubServicesIcon = () => (
+
+    <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+
+    </svg>
+
+);
+
 const ChevronDown = ({ open }: { open: boolean }) => (
 
     <svg className={`w-3.5 h-3.5 flex-shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -175,6 +185,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'compliance', label: 'Compliance', icon: <ComplianceIcon /> },
 
         { id: 'risk', label: 'Risk Management', icon: <RiskIcon /> },
+
+        { id: 'zti_hub_services', label: 'ZTI Hub Services', icon: <HubServicesIcon /> },
 
         { id: 'logs', label: 'Activity Logs', icon: <LogsIcon /> },
 
