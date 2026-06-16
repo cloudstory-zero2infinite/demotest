@@ -21,7 +21,13 @@ export async function ensureLoggedIn(page: Page) {
     // Not logged in yet, proceed below
   }
 
-  await _emailLogin(page, dashboardHeading);
+  const loginMode = process.env.LOGIN_MODE || 'email';
+
+  if (loginMode === 'google') {
+    await _googleLogin(page, dashboardHeading);
+  } else {
+    await _emailLogin(page, dashboardHeading);
+  }
 
   // Save session so subsequent tests skip login entirely
   await page.context().storageState({ path: AUTH_FILE });
@@ -68,4 +74,59 @@ async function _emailLogin(page: Page, dashboardHeading: Locator) {
 
   await expect(dashboardHeading).toBeVisible({ timeout: 30000 });
   console.log('[auth] Email login successful.');
+}
+
+// ─── Manual Google OAuth login ──────────────────────────────────────────
+// User manually enters Google credentials in popup, Playwright waits for OAuth to complete
+async function _googleLogin(page: Page, dashboardHeading: Locator) {
+  console.log('[auth] Starting Google OAuth login (manual entry)');
+
+  // Click "Login with Google" button
+  const googleLoginBtn = page.getByRole('button', { name: /google|sign.*google/i });
+  await googleLoginBtn.waitFor({ state: 'visible', timeout: 5000 });
+  console.log('[auth] Clicking "Login with Google" button...');
+  await googleLoginBtn.click();
+
+  // Wait for Google OAuth popup to open
+  console.log('[auth] Waiting for Google login popup... (you have 5 minutes to manually login)');
+  const popupPromise = page.context().waitForEvent('page');
+  const googlePage = await popupPromise;
+
+  console.log('[auth] Google popup opened. Waiting for you to complete manual login...');
+
+  // Wait for popup to close OR for main page to redirect back
+  // Whichever happens first indicates login completion
+  try {
+    await googlePage.waitForLoadState('domcontentloaded', { timeout: 300000 }); // 5 min timeout
+
+    // Wait for popup to close automatically after successful login
+    await googlePage.isClosed().catch(() => {});
+
+    // Give the popup a moment to close, then close it if still open
+    await page.waitForTimeout(2000);
+    if (!googlePage.isClosed()) {
+      await googlePage.close().catch(() => {});
+    }
+  } catch {
+    // Popup may have already closed, that's OK
+  }
+
+  // Wait for main page to complete OAuth redirect
+  console.log('[auth] Waiting for OAuth redirect to complete...');
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForTimeout(2000); // Extra buffer for session to be set
+
+  // Optional onboarding step
+  try {
+    const nameInput = page.locator('input[placeholder*="name"]');
+    if (await nameInput.isVisible({ timeout: 5000 })) {
+      console.log('[auth] Onboarding required - entering test user name...');
+      await nameInput.fill('E2E Google Test User');
+      await page.getByRole('button', { name: /Continue|Save/i }).click();
+    }
+  } catch { /* optional step */ }
+
+  // Wait for dashboard to appear
+  await expect(dashboardHeading).toBeVisible({ timeout: 30000 });
+  console.log('[auth] Google OAuth login successful ✓');
 }

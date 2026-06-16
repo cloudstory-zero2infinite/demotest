@@ -4557,13 +4557,9 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
         link.download = `control-registry-${new Date().toISOString().split('T')[0]}.csv`;
-
-
-
+        document.body.appendChild(link);
         link.click();
-
-
-
+        document.body.removeChild(link);
     };
 
 
@@ -4671,7 +4667,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                    <button onClick={handleExportCSV} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                    <button onClick={handleExportCSV} title="Export CSV" data-testid="control-registry-export-csv" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
 
 
 

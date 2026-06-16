@@ -2509,7 +2509,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                     <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <UploadIcon className="h-5 w-5" />
                     </button>
-                    <button onClick={handleExportCSV} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                    <button onClick={handleExportCSV} title="Export CSV" data-testid="assets-export-csv" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <DownloadIcon className="h-5 w-5" />
                     </button>
                     <button onClick={() => setModalState({ type: 'add' })} title="Add Asset" aria-label="Add new asset" data-testid="asset-add-btn" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">

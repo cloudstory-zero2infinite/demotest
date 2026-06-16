@@ -10,7 +10,8 @@
     "server": "cd server && npm run dev",
     "server:install": "cd server && npm install",
     "test:ui": "rm -rf e2e/screenshots/* && npx playwright test --config=playwright.config.ts --headed",
-    "test:ui:reset": "rm -f e2e/fixtures/user.json && rm -rf e2e/screenshots/* && npx playwright test --config=playwright.config.ts --headed"
+    "test:ui:reset": "rm -f e2e/fixtures/user.json && rm -rf e2e/screenshots/* && npx playwright test --config=playwright.config.ts --headed",
+    "postinstall": "[ \"$CI\" != \"true\" ] && playwright install || true"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.101.0",
