@@ -96,7 +96,18 @@ export class AssetActions {
         await expect(ownerInput).toBeVisible({ timeout: 5000 });
         // Allow more time for UI state change (some animations/update delays observed)
         await expect(ownerInput).not.toHaveAttribute('readonly', { timeout: 15000 });
-        await ownerInput.fill(newOwner);
+        // React 19 controlled inputs ignore fill()/pressSequentially because the value prop
+        // re-asserts the state value on every render. Use the native value setter to bypass
+        // React's wrapper, then dispatch 'input' + 'change' events so React's onChange handler
+        // picks up the new value and updates formData state.
+        await ownerInput.evaluate((el, value) => {
+            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+            nativeInputValueSetter?.call(el, value);
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+        }, newOwner);
+        // Wait for React to commit the formData state update before submitting.
+        await this.page.waitForTimeout(800);
         await expect(ownerInput).toHaveValue(newOwner, { timeout: 5000 });
 
         const [response] = await Promise.all([
