@@ -3,11 +3,11 @@ import * as dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 
-/**
- * Read environment variables from file.
- * https://github.com/motdotla/dotenv
- */
 dotenv.config();
+
+// When BASE_URL is set (e.g. for pre-prod runs), skip the local dev server.
+const BASE_URL = process.env.BASE_URL ?? 'http://localhost:5174';
+const isRemote = !!process.env.BASE_URL;
 
 export default defineConfig({
   testDir: './e2e/specs',
@@ -17,16 +17,17 @@ export default defineConfig({
   workers: 1,
 
   reporter: [['html', { open: 'never' }]],
-  timeout: 10000,
+  timeout: isRemote ? 60000 : 10000,
 
   use: {
-    baseURL: 'http://localhost:5174',
+    baseURL: BASE_URL,
     screenshot: 'off',
     video: 'off',
     trace: 'off',
     headless: !!process.env.CI,
-    actionTimeout: 10000,
-    navigationTimeout: 10000,
+    // Remote runs get longer timeouts to absorb Cloud Run cold starts
+    actionTimeout: isRemote ? 30000 : 10000,
+    navigationTimeout: isRemote ? 30000 : 10000,
     // Use a large viewport so the app renders in a full-size layout.
     // (Playwright does not allow `viewport: null` when device emulation sets `deviceScaleFactor`.)
     viewport: { width: 1920, height: 1080 },
@@ -47,12 +48,17 @@ export default defineConfig({
     },
   ],
 
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5174',
-    reuseExistingServer: true,
-    stdout: 'pipe',
-    stderr: 'pipe',
-    timeout: 120000,
-  },
+  // Only spin up a local dev server when not targeting a remote URL.
+  ...(isRemote
+    ? {}
+    : {
+        webServer: {
+          command: 'npm run dev',
+          url: 'http://localhost:5174',
+          reuseExistingServer: true,
+          stdout: 'pipe',
+          stderr: 'pipe',
+          timeout: 120000,
+        },
+      }),
 });

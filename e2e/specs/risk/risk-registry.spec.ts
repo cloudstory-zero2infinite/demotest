@@ -143,7 +143,7 @@ test.describe('Risk Management / Risk Registry', () => {
         const [response] = await Promise.all([
             page.waitForResponse(
                 res => res.url().includes('/api/risk') && res.request().method() === 'POST',
-                { timeout: 20000 }
+                { timeout: 45000 }
             ),
             page.evaluate(() => {
                 const buttons = Array.from(document.querySelectorAll('button'));

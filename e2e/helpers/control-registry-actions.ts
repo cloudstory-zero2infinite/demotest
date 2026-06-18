@@ -32,7 +32,7 @@ export class ControlRegistryActions {
         const [response] = await Promise.all([
             this.page.waitForResponse(
                 res => res.url().includes('/api/control-registry') && res.request().method() === 'POST',
-                { timeout: 20000 }
+                { timeout: 45000 }
             ),
             dialog.locator('button[type="submit"]').click(),
         ]);
@@ -73,7 +73,7 @@ export class ControlRegistryActions {
             this.page.waitForResponse(
                 res => res.url().includes('/api/control-registry') &&
                     (res.request().method() === 'PUT' || res.request().method() === 'PATCH'),
-                { timeout: 20000 }
+                { timeout: 45000 }
             ),
             dialog.locator('button[type="submit"]').click(),
         ]);
@@ -107,7 +107,7 @@ export class ControlRegistryActions {
         const [response] = await Promise.all([
             this.page.waitForResponse(
                 res => res.url().includes('/api/control-registry') && res.request().method() === 'DELETE',
-                { timeout: 20000 }
+                { timeout: 45000 }
             ),
             deleteConfirmBtn.click(),
         ]);

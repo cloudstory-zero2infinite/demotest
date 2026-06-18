@@ -79,7 +79,7 @@ async function _dismissOnboardingOverlay(page: Page) {
     // A hard reload re-establishes the session correctly.
     console.log('[auth] Onboarding overlay appeared after login — reloading...');
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.getByRole('heading', { name: /Security Score/i }).waitFor({ state: 'visible', timeout: 20000 });
+    await page.getByRole('heading', { name: /Security Score/i }).waitFor({ state: 'visible', timeout: 45000 });
     console.log('[auth] Reload cleared the overlay.');
   } catch {
     // No overlay — nothing to do
@@ -97,15 +97,24 @@ async function _emailLogin(page: Page, dashboardHeading: Locator) {
   console.log(`[auth] Starting email login for: ${email}`);
 
   const loginWithEmailBtn = page.getByRole('button', { name: 'Login with Email', exact: true });
+  const emailInput = page.locator('input[type="email"]');
 
   try {
     await loginWithEmailBtn.waitFor({ state: 'visible', timeout: 5000 });
     await loginWithEmailBtn.click();
   } catch {
-    console.log('[auth] "Login with Email" button not found — form may already be open.');
+    console.log('[auth] "Login with Email" button not found — checking form state...');
+    // If the email input is also hidden the page is in an unexpected auth state
+    // (e.g. showing a "check your email" screen). Reload and try the button again.
+    const emailVisible = await emailInput.isVisible({ timeout: 2000 }).catch(() => false);
+    if (!emailVisible) {
+      console.log('[auth] Email input hidden — reloading page to recover...');
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await loginWithEmailBtn.waitFor({ state: 'visible', timeout: 15000 });
+      await loginWithEmailBtn.click();
+    }
   }
 
-  const emailInput = page.locator('input[type="email"]');
   const passwordInput = page.locator('input[type="password"]');
 
   await emailInput.waitFor({ state: 'visible', timeout: 10000 });

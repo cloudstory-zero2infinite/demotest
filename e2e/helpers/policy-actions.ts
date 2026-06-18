@@ -36,7 +36,7 @@ export class PolicyActions {
         const [response] = await Promise.all([
             this.page.waitForResponse(
                 res => res.url().includes('/api/policies') && res.request().method() === 'POST',
-                { timeout: 20000 }
+                { timeout: 45000 }
             ),
             this.page.getByRole('button', { name: /^Save$/i }).first().click(),
         ]);
@@ -114,7 +114,7 @@ export class PolicyActions {
         // Wait for DELETE API call
         await this.page.waitForResponse(
             res => res.url().includes('/api/policies') && res.request().method() === 'DELETE',
-            { timeout: 20000 }
+            { timeout: 45000 }
         );
 
         // Modal should close (or at least the title heading should disappear)

@@ -165,6 +165,6 @@ test.describe('Global Header / Actions', () => {
 
         await expect(
             page.getByRole('button', { name: /Login with Email|Sign in|Sign In|Login with Google/i }).first()
-        ).toBeVisible({ timeout: 20000 });
+        ).toBeVisible({ timeout: 45000 });
     });
 });

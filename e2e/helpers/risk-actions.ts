@@ -52,7 +52,7 @@ export class RiskActions {
         const [response] = await Promise.all([
             this.page.waitForResponse(
                 res => res.url().includes('/api/risk') && res.request().method() === 'POST',
-                { timeout: 20000 }
+                { timeout: 45000 }
             ),
             modal.locator('button').filter({ hasText: /Add risk/i }).click(),
         ]);
@@ -82,7 +82,7 @@ export class RiskActions {
         const [response] = await Promise.all([
             this.page.waitForResponse(
                 res => res.url().includes('/api/risk') && (res.request().method() === 'PUT' || res.request().method() === 'PATCH'),
-                { timeout: 20000 }
+                { timeout: 45000 }
             ),
             modal.locator('button').filter({ hasText: /Save changes/i }).click(),
         ]);
@@ -104,7 +104,7 @@ export class RiskActions {
         const [response] = await Promise.all([
             this.page.waitForResponse(
                 res => res.url().includes('/api/risk') && res.request().method() === 'DELETE',
-                { timeout: 20000 }
+                { timeout: 45000 }
             ),
             row.locator('button[title="Delete"]').click(),
         ]);

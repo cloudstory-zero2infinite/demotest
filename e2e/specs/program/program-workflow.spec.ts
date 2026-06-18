@@ -135,7 +135,7 @@ test.describe('Program / Workflow', () => {
         const [response] = await Promise.all([
             page.waitForResponse(
                 res => res.url().includes('/api/program') && res.request().method() === 'POST',
-                { timeout: 20000 }
+                { timeout: 45000 }
             ),
             dialog.locator('button').filter({ hasText: /Create child task/i }).first().click(),
         ]);
@@ -158,7 +158,7 @@ test.describe('Program / Workflow', () => {
         const [detachRes] = await Promise.all([
             page.waitForResponse(
                 res => res.url().includes('/api/program') && res.request().method() === 'PUT',
-                { timeout: 20000 }
+                { timeout: 45000 }
             ),
             detachBtn.click(),
         ]);
@@ -193,7 +193,7 @@ test.describe('Program / Workflow', () => {
         const [saveRes] = await Promise.all([
             page.waitForResponse(
                 res => res.url().includes('/api/program') && res.request().method() === 'PUT',
-                { timeout: 20000 }
+                { timeout: 45000 }
             ),
             dialog.locator('button[type="submit"]').filter({ hasText: /^Save$/ }).first().click(),
         ]);
