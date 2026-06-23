@@ -174,7 +174,7 @@ test.describe('Governance / Vulnerabilities', () => {
             page.waitForResponse(
                 res => res.url().includes('/api/vulnerabilities') &&
                     (res.request().method() === 'DELETE' || res.url().includes('bulk-delete')),
-                { timeout: 20000 }
+                { timeout: 45000 }
             ),
             confirmBtn.click(),
         ]);

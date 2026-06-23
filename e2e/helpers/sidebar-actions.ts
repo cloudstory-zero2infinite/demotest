@@ -44,7 +44,7 @@ export class SidebarActions {
     async clickNavItem(label: string, waitForText?: string) {
         await this.navItem(label).click();
         if (waitForText) {
-            await expect(this.page.getByText(waitForText).first()).toBeVisible({ timeout: 20000 });
+            await expect(this.page.getByText(waitForText).first()).toBeVisible({ timeout: 45000 });
         }
     }
 

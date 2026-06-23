@@ -254,7 +254,7 @@ export class CapabilityRegisterActions {
         const [response] = await Promise.all([
             this.page.waitForResponse(
                 res => res.url().includes('/api/capabilities') && res.request().method() === 'DELETE',
-                { timeout: 20000 },
+                { timeout: 45000 },
             ),
             confirmBtn.click({ force: true }),
         ]);

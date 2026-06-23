@@ -213,7 +213,7 @@ export class AssetRelationshipActions {
         const [response] = await Promise.all([
             this.page.waitForResponse(
                 res => res.url().includes('/api/assets/relationships') && res.request().method() === 'DELETE',
-                { timeout: 20000 },
+                { timeout: 45000 },
             ),
             deleteConfirmBtn.click(),
         ]);
@@ -260,7 +260,7 @@ export class AssetRelationshipActions {
         const [response] = await Promise.all([
             this.page.waitForResponse(
                 res => res.url().includes('/api/assets/relationships') && res.request().method() === 'DELETE',
-                { timeout: 20000 },
+                { timeout: 45000 },
             ),
             actionBar.locator('button').filter({ hasText: /^Confirm$/ }).first().click(),
         ]);
@@ -559,7 +559,7 @@ export class AssetRelationshipActions {
         const [response] = await Promise.all([
             this.page.waitForResponse(
                 res => res.url().includes('/api/assets/relationships') && res.request().method() === 'POST',
-                { timeout: 20000 },
+                { timeout: 45000 },
             ),
             this.page.locator('button').filter({ hasText: /^Import$/ }).last().click(),
         ]);

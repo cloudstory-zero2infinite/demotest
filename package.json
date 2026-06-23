@@ -11,6 +11,8 @@
     "server:install": "cd server && npm install",
     "test:ui": "rm -rf e2e/screenshots/* && npx playwright test --config=playwright.config.ts --headed",
     "test:ui:reset": "rm -f e2e/fixtures/user.json && rm -rf e2e/screenshots/* && npx playwright test --config=playwright.config.ts --headed",
+    "test:preprod": "rm -f e2e/fixtures/user.json && rm -rf e2e/screenshots/* && BASE_URL=https://pre-prod-987276481381.asia-south1.run.app npx playwright test --config=playwright.config.ts --headed",
+    "test:preprod:headless": "rm -f e2e/fixtures/user.json && rm -rf e2e/screenshots/* && BASE_URL=https://pre-prod-987276481381.asia-south1.run.app npx playwright test --config=playwright.config.ts",
     "postinstall": "[ \"$CI\" != \"true\" ] && playwright install || true"
   },
   "dependencies": {

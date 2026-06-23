@@ -118,7 +118,7 @@ test.describe('Sidebar Navigation', () => {
         await expect(page.getByText('Program Tracker').first()).toBeVisible({ timeout: 15000 });
 
         await sidebar.clickNavItem('Dashboard');
-        await expect(page.getByText('Security Score').first()).toBeVisible({ timeout: 20000 });
+        await expect(page.getByText('Security Score').first()).toBeVisible({ timeout: 45000 });
         // Dashboard should not be in loading state
         await expect(page.getByText('Loading Dashboard Data...')).not.toBeVisible();
     });

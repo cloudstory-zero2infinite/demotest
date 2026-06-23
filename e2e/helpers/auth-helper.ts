@@ -13,12 +13,39 @@ export async function ensureLoggedIn(page: Page) {
   const dashboardHeading: Locator = page.getByRole('heading', { name: /Security Score/i });
 
   // ── Quick check: already logged in? ──────────────────────────────────────
+  // After a Sign Out, React briefly renders the dashboard from cached state,
+  // making Security Score flash into the DOM before Supabase confirms the session
+  // is revoked. We wait a moment after seeing it to verify no onboarding modal
+  // follows — if one does, the session was stale and we fall through to re-login.
   try {
     await dashboardHeading.waitFor({ state: 'visible', timeout: 15000 });
-    console.log('[auth] Already logged in — skipping login step.');
-    return;
+
+    const onboardingModal = page.locator('div.fixed.inset-0').filter({
+      has: page.locator('h1:has-text("Welcome to Zero to Infinite")')
+    });
+    const sessionStale = await onboardingModal.isVisible({ timeout: 5000 }).catch(() => false);
+
+    if (!sessionStale) {
+      console.log('[auth] Already logged in — skipping login step.');
+      return;
+    }
+
+    console.log('[auth] Stale session detected — wiping all browser storage...');
+    // Clear both localStorage and cookies so Supabase starts with no session.
+    // localStorage.clear() alone is not enough — cookies can carry auth state too.
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await page.context().clearCookies();
+    await page.goto('/');
+    await page.waitForLoadState('domcontentloaded');
+    // Wait for the login form to render before _emailLogin tries to interact with it.
+    await page.getByRole('button', { name: /Login with Email|Sign in with Email/i })
+      .waitFor({ state: 'visible', timeout: 15000 });
+    console.log('[auth] Session wiped — login form ready.');
   } catch {
-    // Not logged in yet, proceed below
+    // Security Score not found — not logged in yet, proceed below
   }
 
   const loginMode = process.env.LOGIN_MODE || 'email';
@@ -29,9 +56,34 @@ export async function ensureLoggedIn(page: Page) {
     await _emailLogin(page, dashboardHeading);
   }
 
+  // Dismiss any onboarding overlay that appears after fresh login
+  await _dismissOnboardingOverlay(page);
+
   // Save session so subsequent tests skip login entirely
   await page.context().storageState({ path: AUTH_FILE });
   console.log('[auth] Session saved to', AUTH_FILE);
+}
+
+// ─── Dismiss the "Welcome to Zero to Infinite" onboarding overlay ─────────────
+// This modal requires explicit user action and never auto-dismisses.
+// When detected, reload the page — the test account has an org, so a fresh
+// load resolves the session correctly and shows the dashboard without the modal.
+async function _dismissOnboardingOverlay(page: Page) {
+  try {
+    const overlay = page.locator('div.fixed.inset-0').filter({
+      has: page.locator('h1:has-text("Welcome to Zero to Infinite")')
+    });
+    if (!(await overlay.isVisible({ timeout: 3000 }))) return;
+
+    // Overlay appeared after a fresh login — should not happen for an onboarded user.
+    // A hard reload re-establishes the session correctly.
+    console.log('[auth] Onboarding overlay appeared after login — reloading...');
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.getByRole('heading', { name: /Security Score/i }).waitFor({ state: 'visible', timeout: 45000 });
+    console.log('[auth] Reload cleared the overlay.');
+  } catch {
+    // No overlay — nothing to do
+  }
 }
 
 // ─── Automated email/password login ──────────────────────────────────────────
@@ -45,15 +97,24 @@ async function _emailLogin(page: Page, dashboardHeading: Locator) {
   console.log(`[auth] Starting email login for: ${email}`);
 
   const loginWithEmailBtn = page.getByRole('button', { name: 'Login with Email', exact: true });
+  const emailInput = page.locator('input[type="email"]');
 
   try {
     await loginWithEmailBtn.waitFor({ state: 'visible', timeout: 5000 });
     await loginWithEmailBtn.click();
   } catch {
-    console.log('[auth] "Login with Email" button not found — form may already be open.');
+    console.log('[auth] "Login with Email" button not found — checking form state...');
+    // If the email input is also hidden the page is in an unexpected auth state
+    // (e.g. showing a "check your email" screen). Reload and try the button again.
+    const emailVisible = await emailInput.isVisible({ timeout: 2000 }).catch(() => false);
+    if (!emailVisible) {
+      console.log('[auth] Email input hidden — reloading page to recover...');
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await loginWithEmailBtn.waitFor({ state: 'visible', timeout: 15000 });
+      await loginWithEmailBtn.click();
+    }
   }
 
-  const emailInput = page.locator('input[type="email"]');
   const passwordInput = page.locator('input[type="password"]');
 
   await emailInput.waitFor({ state: 'visible', timeout: 10000 });

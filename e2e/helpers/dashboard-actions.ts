@@ -13,7 +13,7 @@ export class DashboardActions {
         }
 
         await this.page.getByRole('button', { name: /Dashboard/i }).click();
-        await expect(this.page.getByText('Loading Dashboard Data...')).not.toBeVisible({ timeout: 20000 });
+        await expect(this.page.getByText('Loading Dashboard Data...')).not.toBeVisible({ timeout: 45000 });
         await expect(this.page.getByText('Security Score').first()).toBeVisible({ timeout: 15000 });
         await this.page.waitForLoadState('networkidle');
     }

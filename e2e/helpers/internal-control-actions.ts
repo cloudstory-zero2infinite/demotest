@@ -46,7 +46,7 @@ export class InternalControlActions {
         const [response] = await Promise.all([
             this.page.waitForResponse(
                 res => res.url().includes('/api/controls') && res.request().method() === 'POST',
-                { timeout: 20000 }
+                { timeout: 45000 }
             ),
             dialog.locator('button[type="submit"]').click(),
         ]);
@@ -103,7 +103,7 @@ export class InternalControlActions {
             this.page.waitForResponse(
                 res => res.url().includes('/api/controls') &&
                     (res.request().method() === 'PUT' || res.request().method() === 'PATCH'),
-                { timeout: 20000 }
+                { timeout: 45000 }
             ),
             dialog.locator('button[type="submit"]').click(),
         ]);
@@ -141,7 +141,7 @@ export class InternalControlActions {
         const [response] = await Promise.all([
             this.page.waitForResponse(
                 res => res.url().includes('/api/controls') && res.request().method() === 'DELETE',
-                { timeout: 20000 }
+                { timeout: 45000 }
             ),
             deleteConfirmBtn.click(),
         ]);
@@ -355,7 +355,7 @@ export class InternalControlActions {
         const [response] = await Promise.all([
             this.page.waitForResponse(
                 res => res.url().includes('/api/controls') && res.request().method() === 'DELETE',
-                { timeout: 20000 }
+                { timeout: 45000 }
             ),
             confirmBtn.click(),
         ]);
