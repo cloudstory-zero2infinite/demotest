@@ -11,8 +11,13 @@ import { nnControlsRouter } from './routes/nn-controls.js';
 import { controlFrameworkRouter } from './routes/control-framework.js';
 import { controlChecksRouter } from './routes/control-checks.js';
 import { platformAnalyticsRouter } from './routes/platform-analytics.js';
+import { qaRouter } from './routes/qa.js';
 
-dotenv.config();
+// Load server/.env by absolute path (see supabase.js) so it works whether
+// launched from server/ (npm run server) or internal-tool/ (npm run start).
+dotenv.config({
+  path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env'),
+});
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -39,6 +44,7 @@ app.use('/api/internal/nn-controls', nnControlsRouter);
 app.use('/api/internal/control-framework', controlFrameworkRouter);
 app.use('/api/internal/control-checks', controlChecksRouter);
 app.use('/api/internal/platform-analytics', platformAnalyticsRouter);
+app.use('/api/internal/qa', qaRouter);
 
 // Serve the built frontend (production). In dev the Vite server handles this.
 const __filename = fileURLToPath(import.meta.url);

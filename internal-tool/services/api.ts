@@ -19,6 +19,9 @@ import {
   PlatformAnalytics,
   CampaignMarker,
   ReleaseRecord,
+  QaSuitesResponse,
+  QaTestsResponse,
+  QaRun,
 } from '../types';
 
 // Empty string → same-origin (production). Undefined → fall back to localhost (dev).
@@ -241,4 +244,28 @@ export async function signInWithGoogle() {
 export async function signOut() {
   await supabase.auth.signOut();
   cachedToken = null;
+}
+
+// ───────── QA / E2E test runner ─────────
+export const listQaSuites = () => request<QaSuitesResponse>('/api/internal/qa/suites');
+
+export const listQaTests = () => request<QaTestsResponse>('/api/internal/qa/tests');
+
+export const startQaRun = (suite: string) =>
+  request<QaRun>('/api/internal/qa/run', {
+    method: 'POST',
+    body: JSON.stringify({ suite }),
+  });
+
+export const getQaRun = (runId: string) =>
+  request<QaRun>(`/api/internal/qa/run/${encodeURIComponent(runId)}`);
+
+export async function downloadQaReport(runId: string): Promise<Blob> {
+  const token = await getToken();
+  const res = await fetch(
+    `${API_BASE_URL}/api/internal/qa/run/${encodeURIComponent(runId)}/report`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+  );
+  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+  return res.blob();
 }

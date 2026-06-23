@@ -194,3 +194,72 @@ export interface ReleaseRecord {
   notes: string | null;
   created_at: string;
 }
+
+// ───────── QA / E2E test runner ─────────
+export interface QaSuite {
+  id: string;
+  name: string;
+  specFiles: number;
+}
+
+export interface QaSuitesResponse {
+  baseUrl: string;
+  busy: boolean;
+  suites: QaSuite[];
+}
+
+export type QaRunStatus = 'running' | 'passed' | 'failed' | 'error';
+export type QaTestStatus = 'passed' | 'failed' | 'skipped' | 'flaky';
+
+export interface QaFailure {
+  suite: string;
+  title: string;
+  error: string;
+}
+
+// A single test case as enumerated by `--list` (no status yet).
+export interface QaTestListItem {
+  id: string;
+  suite: string;
+  title: string;
+}
+
+export interface QaTestsResponse {
+  tests: QaTestListItem[];
+}
+
+// A single test case's result within a run. `id` is present in final parsed
+// results; live progress entries are merged by suite+title instead.
+export interface QaTest {
+  id?: string;
+  suite: string;
+  title: string;
+  status: QaTestStatus;
+  durationMs: number;
+  error?: string;
+}
+
+export interface QaSummary {
+  total: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+  flaky: number;
+  durationMs: number;
+}
+
+export interface QaRun {
+  runId: string;
+  suite: string;
+  status: QaRunStatus;
+  baseUrl: string;
+  version: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  summary: QaSummary | null;
+  failures: QaFailure[];
+  tests: QaTest[];
+  progress: { total: number; completed: number } | null;
+  error: string | null;
+  hasReport: boolean;
+}
