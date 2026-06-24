@@ -4,9 +4,16 @@ import { HubApi } from './api.js';
 import { ask } from './prompt.js';
 
 function openBrowser(url: string): void {
-  const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+  const isWin = process.platform === 'win32';
+  const cmd = process.platform === 'darwin' ? 'open' : isWin ? 'cmd' : 'xdg-open';
+  const args = isWin ? ['/c', 'start', '""', url] : [url];
+
   try {
-    spawn(cmd, [url], { stdio: 'ignore', detached: true }).unref();
+    const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+    child.on('error', () => {
+      /* user can open manually */
+    });
+    child.unref();
   } catch {
     /* user can open manually */
   }

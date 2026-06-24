@@ -21,6 +21,12 @@ export interface ZtiConfig {
     password?: string;
     socketPath?: string;  // unix socket alternative to host/port
   };
+  ad?: {
+    server?: string;
+    domain?: string;
+    username?: string;
+    password?: string;
+  };
 }
 
 const CONFIG_DIR = path.join(os.homedir(), '.zti');

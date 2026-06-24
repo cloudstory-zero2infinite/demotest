@@ -27,6 +27,8 @@ read-only GCP credential.
 ```bash
 zti authenticate                 # sign in via the app, paste the device token
 zti integrate gcp                # point the hub at a read-only GCP project
+zti integrate openvas            # configure Greenbone/OpenVAS credentials/host
+zti integrate prowler            # install the managed Prowler scan engine
 zti start                        # daemon: beacon + drain the check queue every 60s
 zti check-control THR-03         # run checks for one SCF control, now
 zti check-framework "CIS CSC 8.1"# run checks for every control mapped to a framework

@@ -1,6 +1,36 @@
 import { Router } from 'express';
 import { supabaseAdmin } from '../supabase.js';
 import { requireAuth } from '../middleware/auth.js';
+import { marked } from 'marked';
+marked.setOptions({ gfm: true, breaks: true });
+import puppeteer from 'puppeteer';
+import PizZip from 'pizzip';
+import Docxtemplater from 'docxtemplater';
+import http from 'http';
+import https from 'https';
+
+async function fetchImageBase64(url) {
+  if (!url) return '';
+  return new Promise((resolve) => {
+    const protocol = url.startsWith('https') ? https : http;
+    protocol.get(url, (res) => {
+      if (res.statusCode !== 200) {
+        resolve('');
+        return;
+      }
+      const mimeType = res.headers['content-type'] || 'image/png';
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const buffer = Buffer.concat(chunks);
+        resolve(`data:${mimeType};base64,${buffer.toString('base64')}`);
+      });
+    }).on('error', (err) => {
+      console.error('[fetchImageBase64] Error fetching image:', err);
+      resolve('');
+    });
+  });
+}
 
 const router = Router();
 
@@ -73,6 +103,24 @@ function extractMetadata(markdown) {
 
     const reviewDateMatch = line.match(/next[_\s-]*review[_\s-]*date[:\s]+(\d{4}-\d{2}-\d{2})/i);
     if (reviewDateMatch) refresh_date = reviewDateMatch[1];
+
+    // Support tables with horizontal headers: | Document ID: ... | Owner: ... |
+    if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
+      const parts = line.split('|').map(p => p.trim()).filter(Boolean);
+      for (const part of parts) {
+        const docIdTbl = part.match(/Document\s*ID:\s*(.+)/i);
+        if (docIdTbl) policy_ref = docIdTbl[1].trim();
+
+        const ownerTbl = part.match(/Owner:\s*(.+)/i);
+        if (ownerTbl) owner_name = ownerTbl[1].trim();
+
+        const typeTbl = part.match(/Document\s*Type:\s*(.+)/i);
+        if (typeTbl) document_type = typeTbl[1].trim();
+
+        const verTbl = part.match(/Version:\s*(.+)/i);
+        if (verTbl) version = verTbl[1].trim();
+      }
+    }
   }
 
   return { name, policy_ref, version, owner_name, document_type, refresh_date };
@@ -339,6 +387,1369 @@ router.get('/:id/approval', requireAuth, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+
+// ── Markdown Parsing Helpers for Policy Documents ──────────────────────────
+
+function parseMarkdownIntoSections(markdown) {
+  if (!markdown) return [];
+  const lines = markdown.split(/\r?\n/);
+  const sections = [];
+  let currentSection = {
+    level: 0,
+    title: 'Root',
+    cleanTitle: 'root',
+    number: null,
+    lines: []
+  };
+
+  for (const line of lines) {
+    const headerMatch = line.match(/^(#{1,6})\s+(.+)$/);
+    if (headerMatch) {
+      if (currentSection.level > 0 || currentSection.lines.length > 0) {
+        sections.push({
+          level: currentSection.level,
+          title: currentSection.title,
+          cleanTitle: currentSection.cleanTitle,
+          number: currentSection.number,
+          content: currentSection.lines.join('\n').trim()
+        });
+      }
+      
+      const level = headerMatch[1].length;
+      const title = headerMatch[2].trim();
+      
+      const numMatch = title.match(/^(\d+)[\s._.-]*(.*)$/);
+      let number = null;
+      let cleanTitle = title.toLowerCase();
+      if (numMatch) {
+        number = parseInt(numMatch[1], 10);
+        cleanTitle = numMatch[2].toLowerCase();
+      }
+      
+      currentSection = {
+        level,
+        title,
+        cleanTitle,
+        number,
+        lines: []
+      };
+    } else {
+      currentSection.lines.push(line);
+    }
+  }
+
+  if (currentSection.level > 0 || currentSection.lines.length > 0) {
+    sections.push({
+      level: currentSection.level,
+      title: currentSection.title,
+      cleanTitle: currentSection.cleanTitle,
+      number: currentSection.number,
+      content: currentSection.lines.join('\n').trim()
+    });
+  }
+
+  return sections;
+}
+
+function stripStandardTemplateElements(markdown) {
+  if (!markdown) return '';
+  let lines = markdown.split(/\r?\n/);
+  let cleanedLines = [];
+  let inTable = false;
+  let skippedTitle = false;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    
+    if (!skippedTitle && trimmed.startsWith('# ')) {
+      skippedTitle = true;
+      continue;
+    }
+    
+    // Detect table block start/end
+    const isTableLine = trimmed.startsWith('|') && trimmed.endsWith('|');
+    
+    if (isTableLine) {
+      if (!inTable) {
+        // We are entering a table. Let's look ahead to see what table this is.
+        let tableLines = [];
+        let j = i;
+        while (j < lines.length && lines[j].trim().startsWith('|') && lines[j].trim().endsWith('|')) {
+          tableLines.push(lines[j].trim());
+          j++;
+        }
+        const tableContent = tableLines.join('\n').toLowerCase();
+        const isMetadata = tableContent.includes('metadata') || tableContent.includes('document info') || tableContent.includes('document id:') || tableContent.includes('owner:');
+        const isApproval = tableContent.includes('role') && (tableContent.includes('name') || tableContent.includes('function') || tableContent.includes('approved') || tableContent.includes('created') || tableContent.includes('status:'));
+        const isHistory = tableContent.includes('version') && (tableContent.includes('revision') || tableContent.includes('changes') || tableContent.includes('description') || tableContent.includes('date'));
+        const isRef = tableContent.includes('clause') || tableContent.includes('reference') || tableContent.includes('standard') || tableContent.includes('control');
+        
+        if (isMetadata || isApproval || isHistory || isRef) {
+          // Skip this entire table block
+          i = j - 1;
+          continue;
+        } else {
+          inTable = true;
+        }
+      }
+    } else {
+      inTable = false;
+    }
+    
+    const lowerTrimmed = trimmed.toLowerCase();
+    
+    if (
+      lowerTrimmed.startsWith('**document id:**') ||
+      lowerTrimmed.startsWith('**owner:**') ||
+      lowerTrimmed.startsWith('**document type:**') ||
+      lowerTrimmed.startsWith('**integrity hash:**') ||
+      lowerTrimmed.startsWith('**version:**') ||
+      lowerTrimmed.startsWith('**title:**') ||
+      lowerTrimmed.startsWith('**status:**') ||
+      lowerTrimmed.startsWith('applicability:') ||
+      lowerTrimmed.startsWith('**applicability:**') ||
+      lowerTrimmed.startsWith('integrity hash:') ||
+      lowerTrimmed.startsWith('**integrity hash:**') ||
+      lowerTrimmed === 'revision history' ||
+      lowerTrimmed === '## revision history' ||
+      lowerTrimmed === '### revision history' ||
+      lowerTrimmed === 'standard reference' ||
+      lowerTrimmed === '## standard reference' ||
+      lowerTrimmed === '### standard reference' ||
+      lowerTrimmed === 'standard reference:' ||
+      lowerTrimmed === '## standard reference:' ||
+      lowerTrimmed === '### standard reference:' ||
+      lowerTrimmed === 'applicability' ||
+      lowerTrimmed === '## applicability' ||
+      lowerTrimmed === '### applicability'
+    ) {
+      continue;
+    }
+    
+    if (trimmed.startsWith('●') && (lowerTrimmed.includes('standard reference') || lowerTrimmed.includes('applicability'))) {
+      continue;
+    }
+    
+    cleanedLines.push(line);
+  }
+  
+  return cleanedLines.join('\n').trim();
+}
+
+function extractSectionContent(sections, keywords, number) {
+  if (number !== undefined && number !== null) {
+    const match = sections.find(s => s.number === number && keywords.every(kw => s.cleanTitle.includes(kw)));
+    if (match) return match.content;
+  }
+  const match = sections.find(s => keywords.every(kw => s.cleanTitle.includes(kw)));
+  if (match) return match.content;
+  
+  if (number !== undefined && number !== null) {
+    const match = sections.find(s => s.number === number);
+    if (match) return match.content;
+  }
+
+  return '';
+}
+
+function extractTables(markdown) {
+  if (!markdown) return [];
+  const lines = markdown.split(/\r?\n/);
+  const tables = [];
+  let currentTable = null;
+
+  for (const line of lines) {
+    const isTableLine = line.trim().startsWith('|') && line.trim().endsWith('|');
+    if (isTableLine) {
+      if (!currentTable) {
+        currentTable = [];
+      }
+      currentTable.push(line.trim());
+    } else {
+      if (currentTable) {
+        tables.push(currentTable.join('\n'));
+        currentTable = null;
+      }
+    }
+  }
+  if (currentTable) {
+    tables.push(currentTable.join('\n'));
+  }
+  return tables;
+}
+
+function getApprovalMatrix(markdown) {
+  const tables = extractTables(markdown);
+  for (const table of tables) {
+    const headerLine = table.split('\n')[0].toLowerCase();
+    if (headerLine.includes('role') && (headerLine.includes('name') || headerLine.includes('function') || headerLine.includes('approved') || headerLine.includes('created'))) {
+      return table;
+    }
+  }
+  return '';
+}
+
+function getRevisionHistory(markdown) {
+  const tables = extractTables(markdown);
+  for (const table of tables) {
+    const headerLine = table.split('\n')[0].toLowerCase();
+    if (headerLine.includes('version') && (headerLine.includes('revision') || headerLine.includes('changes') || headerLine.includes('description'))) {
+      return table;
+    }
+  }
+  return '';
+}
+
+function getStandardReferences(markdown) {
+  const tables = extractTables(markdown);
+  for (const table of tables) {
+    const headerLine = table.split('\n')[0].toLowerCase();
+    if (headerLine.includes('clause') || headerLine.includes('reference') || headerLine.includes('standard') || headerLine.includes('control')) {
+      return table;
+    }
+  }
+  return '';
+}
+
+function getApplicability(markdown) {
+  if (!markdown) return '';
+  const lines = markdown.split(/\r?\n/);
+  for (const line of lines) {
+    if (line.toLowerCase().includes('applicability:')) {
+      return line.replace(/^\*\*applicability:\*\*\s*/i, '').trim();
+    }
+  }
+  return '';
+}
+
+function getDocumentMetadata(markdown, policy) {
+  const tables = extractTables(markdown);
+  for (const table of tables) {
+    const headerLine = table.split('\n')[0].toLowerCase();
+    if (headerLine.includes('metadata') || headerLine.includes('document info')) {
+      return table;
+    }
+  }
+
+  const lines = markdown.split(/\r?\n/);
+  const metadataLines = [];
+  for (const line of lines) {
+    if (line.trim().startsWith('#') || line.trim().startsWith('##')) {
+      break;
+    }
+    if (line.includes('**') && line.includes(':')) {
+      metadataLines.push(line.trim());
+    }
+  }
+
+  if (metadataLines.length > 0) {
+    return metadataLines.join('\n');
+  }
+
+  return `**Document ID:** ${policy.policy_id || 'N/A'}\n` +
+         `**Title:** ${policy.name || 'N/A'}\n` +
+         `**Version:** ${policy.version || 'V1.0'}\n` +
+         `**Status:** ${policy.policy_status || 'Draft'}\n` +
+         `**Owner:** ${policy.owner_name || 'N/A'}`;
+}
+
+function generateTOC(markdown) {
+  if (!markdown) return '';
+  const lines = markdown.split(/\r?\n/);
+  const tocLines = [];
+  let headingCount = 0;
+  for (const line of lines) {
+    const match = line.match(/^(#{1,3})\s+(.+)$/);
+    if (match) {
+      headingCount++;
+      const level = match[1].length;
+      const text = match[2].trim();
+      if (level === 1 && headingCount === 1) {
+        continue;
+      }
+      const indent = '  '.repeat(level - 1);
+      tocLines.push(`${indent}* ${text}`);
+    }
+  }
+  return tocLines.join('\n');
+}
+
+// GET /api/policies/:id/download — generate final PDF or DOCX using the selected template
+router.get('/:id/download', requireAuth, async (req, res) => {
+  const policyId = req.params.id;
+  const { format = 'pdf', templateId } = req.query;
+
+  try {
+    // 1. Fetch policy document
+    const { data: policy, error: policyErr } = await supabaseAdmin
+      .from('policy_documents')
+      .select('*')
+      .eq('policy_id', policyId)
+      .eq('org_id', req.orgId)
+      .single();
+
+    if (policyErr || !policy) {
+      return res.status(404).json({ message: 'Policy not found.' });
+    }
+
+    // 2. Fetch organization and settings
+    const { data: org, error: orgErr } = await supabaseAdmin
+      .from('organizations')
+      .select('*')
+      .eq('id', req.orgId)
+      .single();
+
+    if (orgErr || !org) {
+      return res.status(404).json({ message: 'Organization not found.' });
+    }
+
+    const { data: settings, error: settingsErr } = await supabaseAdmin
+      .from('org_settings')
+      .select('*')
+      .eq('org_id', req.orgId)
+      .maybeSingle();
+
+    // 3. Fetch template
+    const isAdmin = ['admin', 'tenant_admin', 'cxo'].includes(req.userRole);
+    let selectedTemplateId;
+    if (isAdmin) {
+      selectedTemplateId = templateId || settings?.selected_template_id;
+    } else {
+      selectedTemplateId = settings?.selected_template_id;
+    }
+    let template = null;
+    let standardTemplate = null;
+
+    if (selectedTemplateId && selectedTemplateId !== 'standard') {
+      const { data: tData } = await supabaseAdmin
+        .from('policy_templates')
+        .select('*')
+        .eq('id', selectedTemplateId)
+        .eq('org_id', req.orgId)
+        .maybeSingle();
+      template = tData;
+      
+      if (template && template.name === 'Standard Template') {
+        template = null;
+        selectedTemplateId = 'standard';
+      }
+    }
+
+    if (selectedTemplateId === 'standard') {
+      const { data: stdTempData } = await supabaseAdmin
+        .from('policy_templates')
+        .select('*')
+        .eq('org_id', req.orgId)
+        .eq('name', 'Standard Template')
+        .maybeSingle();
+      standardTemplate = stdTempData;
+    }
+
+    // 4. Compile placeholders
+    const logoUrl = settings?.logo_url || '';
+    const signatureUrl = settings?.signature_url || '';
+
+    const includeLogo = selectedTemplateId === 'standard'
+      ? !!(standardTemplate?.placeholders?.include_logo)
+      : true;
+
+    const includeSignature = selectedTemplateId === 'standard'
+      ? (standardTemplate?.placeholders?.include_signature !== false)
+      : true;
+
+    // Convert logoUrl to base64 for reliable rendering in Puppeteer context
+    let logoBase64 = '';
+    if (logoUrl && includeLogo) {
+      logoBase64 = await fetchImageBase64(logoUrl);
+    }
+
+    const logoHtml = logoBase64 
+      ? `<img src="${logoBase64}" alt="Company Logo" class="policy-logo" style="max-height: 60px; max-width: 200px; object-fit: contain;" />` 
+      : '';
+
+    const signatureHtml = includeSignature
+      ? (signatureUrl
+        ? `<div class="signature-block" style="margin-top: 30px; page-break-inside: avoid;">
+             <p style="margin-bottom: 5px; font-weight: 600;">Authorized Signature:</p>
+             <img src="${signatureUrl}" alt="Signature" style="max-height: 60px; max-width: 150px; object-fit: contain; margin-bottom: 5px;" />
+             <div style="border-top: 1px solid #ccc; width: 200px; margin-top: 2px;"></div>
+             <p style="font-size: 11px; color: #666; margin: 2px 0;">Signed on behalf of: ${org.name}</p>
+             <p style="font-size: 11px; color: #666; margin: 2px 0;">Date: ${new Date().toLocaleDateString()}</p>
+           </div>`
+        : `<div class="signature-block" style="margin-top: 30px; page-break-inside: avoid;">
+             <p style="margin-bottom: 40px; font-weight: 600;">Authorized Signature:</p>
+             <div style="border-top: 1px solid #ccc; width: 200px; margin-top: 2px;"></div>
+             <p style="font-size: 11px; color: #666; margin: 2px 0;">Signed on behalf of: ${org.name}</p>
+             <p style="font-size: 11px; color: #666; margin: 2px 0;">Date: ________________________</p>
+           </div>`)
+      : '';
+
+    // Fetch review and approval details from activity logs & onboarding roles
+    let createdName = policy.owner_name || 'N/A';
+    let createdRole = 'Author';
+    let createdDate = policy.created_at ? new Date(policy.created_at).toLocaleDateString() : 'N/A';
+
+    let reviewedName = 'N/A';
+    let reviewedRole = 'Reviewer';
+    let reviewedDate = 'N/A';
+
+    let approvedName = 'N/A';
+    let approvedRole = 'Approver';
+    let approvedDate = 'N/A';
+
+    const formatRole = (role) => {
+      if (!role) return '';
+      if (role === 'cxo') return 'CXO';
+      if (role === 'admin' || role === 'tenant_admin') return 'Administrator';
+      return role.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    };
+
+    try {
+      if (policy.user_id) {
+        const { data: creatorOnboarding } = await supabaseAdmin
+          .from('org_onboarding')
+          .select('role, email')
+          .eq('user_id', policy.user_id)
+          .eq('org_id', req.orgId)
+          .maybeSingle();
+        
+        if (creatorOnboarding) {
+          if (creatorOnboarding.role) {
+            createdRole = formatRole(creatorOnboarding.role);
+          }
+          if (creatorOnboarding.email) {
+            createdName = creatorOnboarding.email;
+          }
+        }
+      }
+
+      const { data: creationLogs } = await supabaseAdmin
+        .from('all_activity_log')
+        .select('*')
+        .eq('module', 'Policy')
+        .eq('entity_id', policyId)
+        .eq('org_id', req.orgId)
+        .eq('action', 'policy_created')
+        .limit(1);
+
+      if (creationLogs && creationLogs.length > 0) {
+        const cLog = creationLogs[0];
+        createdName = cLog.event_data?.actor_name || cLog.event_data?.user_email || cLog.email || createdName;
+      }
+
+      const { data: reviewLogs } = await supabaseAdmin
+        .from('all_activity_log')
+        .select('*')
+        .eq('module', 'Policy')
+        .eq('entity_id', policyId)
+        .eq('org_id', req.orgId)
+        .eq('action', 'policy_reviewed')
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (reviewLogs && reviewLogs.length > 0) {
+        const rLog = reviewLogs[0];
+        reviewedName = rLog.event_data?.actor_name || rLog.event_data?.user_email || 'N/A';
+        reviewedDate = new Date(rLog.created_at).toLocaleDateString();
+        
+        if (rLog.user_id) {
+          const { data: revOnb } = await supabaseAdmin
+            .from('org_onboarding')
+            .select('role')
+            .eq('user_id', rLog.user_id)
+            .eq('org_id', req.orgId)
+            .maybeSingle();
+          if (revOnb?.role) {
+            reviewedRole = formatRole(revOnb.role);
+          }
+        }
+      }
+
+      const { data: approvalLogs } = await supabaseAdmin
+        .from('all_activity_log')
+        .select('*')
+        .eq('module', 'Policy')
+        .eq('entity_id', policyId)
+        .eq('org_id', req.orgId)
+        .eq('action', 'policy_approved')
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if (approvalLogs && approvalLogs.length > 0) {
+        const aLog = approvalLogs[0];
+        approvedName = aLog.event_data?.actor_name || aLog.event_data?.user_email || 'N/A';
+        approvedDate = new Date(aLog.created_at).toLocaleDateString();
+        
+        if (aLog.user_id) {
+          const { data: appOnb } = await supabaseAdmin
+            .from('org_onboarding')
+            .select('role')
+            .eq('user_id', aLog.user_id)
+            .eq('org_id', req.orgId)
+            .maybeSingle();
+          if (appOnb?.role) {
+            approvedRole = formatRole(appOnb.role);
+          }
+        }
+      }
+    } catch (logErr) {
+      console.error('[download] Failed to fetch sign-off details:', logErr.message);
+    }
+
+    // Extract review date and format it
+    const reviewDate = policy.refresh_date ? new Date(policy.refresh_date).toLocaleDateString() : 'N/A';
+    const publishedDate = policy.published_date ? new Date(policy.published_date).toLocaleDateString() : new Date().toLocaleDateString();
+
+    // Parse metadata live from markdown as fallbacks
+    const liveMeta = extractMetadata(policy.markdown || '');
+    const currentOwner = (createdName && createdName !== 'N/A') ? createdName : (liveMeta.owner_name || policy.owner_name || 'N/A');
+    const currentPolicyRef = liveMeta.policy_ref || policy.policy_id;
+    const currentVersion = liveMeta.version || policy.version || 'V1.0';
+    const currentDocumentType = liveMeta.document_type || policy.document_type || 'Policy';
+
+    // Create base metadata values map for pre-replacement in policy content
+    const metadataValues = {
+      company_name: org.name,
+      organization_name: org.name,
+      company_location: org.location || '',
+      company_website: org.website || '',
+      policy_title: policy.name,
+      policy_id: currentPolicyRef,
+      document_id: currentPolicyRef,
+      policy_ref: currentPolicyRef,
+      policy_version: currentVersion,
+      version: currentVersion,
+      policy_status: policy.policy_status || 'draft',
+      status: policy.policy_status || 'draft',
+      policy_owner: currentOwner,
+      owner_name: currentOwner,
+      policy_refresh_date: reviewDate,
+      policy_published_date: publishedDate,
+      created_name: createdName,
+      created_role: createdRole,
+      created_date: createdDate,
+      reviewed_name: reviewedName,
+      reviewed_role: reviewedRole,
+      reviewed_date: reviewedDate,
+      approved_name: approvedName,
+      approved_role: approvedRole,
+      approved_date: approvedDate,
+      document_type: policy.document_type || 'Policy',
+      role: createdRole, // Fallback for single generic role placeholder
+      created_at: createdDate,
+      next_review_date: reviewDate,
+      published_date: publishedDate,
+      updated_at: new Date(policy.updated_at).toLocaleDateString(),
+      description: policy.description || 'Initial Release',
+      org_name: org.name,
+      integrity_hash: `${policy.policy_id}.hash`,
+      approver_name: approvedName, // Fallback for single generic approver name placeholder
+    };
+
+    // Pre-replace organization and policy metadata placeholders inside the policy markdown content
+    const policyMarkdown = replacePlaceholders(policy.markdown || '', metadataValues);
+
+    const cleanPolicyMarkdown = selectedTemplateId === 'standard'
+      ? stripStandardTemplateElements(policyMarkdown)
+      : policyMarkdown;
+
+    // Compile markdown policy content to HTML using the pre-replaced markdown
+    const policyContentHtml = marked.parse(cleanPolicyMarkdown || '# ' + policy.name + '\n\nNo content.');
+
+    // Custom template variables (user defined)
+    const customVars = template?.placeholders || {};
+
+    // ── Parse Policy Markdown into Sections & Tables ─────────────────────────
+    const sections = parseMarkdownIntoSections(policyMarkdown);
+
+    const docMetadataMd = getDocumentMetadata(policyMarkdown, policy);
+    const appMatrixMd = getApprovalMatrix(policyMarkdown);
+    const revHistoryMd = getRevisionHistory(policyMarkdown);
+    const stdRefMd = getStandardReferences(policyMarkdown);
+    let applicabilityMd = getApplicability(policyMarkdown);
+    if (applicabilityMd) {
+      applicabilityMd = applicabilityMd
+        .replace(/Simplify3X Software Pvt\. Ltd\./gi, org.name)
+        .replace(/Simplify3X/gi, org.name);
+    } else {
+      applicabilityMd = `This document is applicable to ${org.name} and all associated Business Units, Third parties, Employees and all stakeholders of ${org.name}.`;
+    }
+    const tocMd = generateTOC(policyMarkdown);
+
+    // Extract content for numbered sections 1 to 9
+    const purposeMd = extractSectionContent(sections, ['purpose'], 1);
+    const scopeMd = extractSectionContent(sections, ['scope'], 2);
+    const termsMd = extractSectionContent(sections, ['term', 'definition'], 3);
+    const assessMd = extractSectionContent(sections, ['assessment', 'model'], 4);
+    const buWeightMd = extractSectionContent(sections, ['business', 'unit', 'weightage'], 5);
+    const scoreCalcMd = extractSectionContent(sections, ['final', 'score', 'calculation'], 6);
+    const scoreInterpMd = extractSectionContent(sections, ['score', 'interpretation'], 7);
+    const governanceMd = extractSectionContent(sections, ['governance', 'review'], 8);
+    const auditJustMd = extractSectionContent(sections, ['audit', 'justification'], 9);
+
+    // Helper to format html values
+    const parseToHtml = (md) => md ? marked.parse(md) : '';
+
+    // Values for DOCX (mail-merge: clean text/markdown)
+    const placeholderValues = {
+      company_name: org.name,
+      organization_name: org.name,
+      company_location: org.location || '',
+      company_website: org.website || '',
+      policy_title: policy.name,
+      policy_id: currentPolicyRef,
+      document_id: currentPolicyRef,
+      policy_ref: currentPolicyRef,
+      policy_version: currentVersion,
+      version: currentVersion,
+      policy_status: policy.policy_status || 'draft',
+      status: policy.policy_status || 'draft',
+      policy_owner: currentOwner,
+      owner_name: currentOwner,
+      policy_refresh_date: reviewDate,
+      policy_published_date: publishedDate,
+      company_logo: logoUrl || 'Logo Placeholder',
+      header_content: template?.header_text || '',
+      footer_content: template?.footer_text || '',
+      signature_block: signatureUrl || 'Signature Placeholder',
+      policy_content: policyMarkdown,
+      
+      created_name: createdName,
+      created_role: createdRole,
+      created_date: createdDate,
+      reviewed_name: reviewedName,
+      reviewed_role: reviewedRole,
+      reviewed_date: reviewedDate,
+      approved_name: approvedName,
+      approved_role: approvedRole,
+      approved_date: approvedDate,
+
+      document_type: policy.document_type || 'Policy',
+      role: createdRole, // Fallback for single generic role placeholder
+      created_at: createdDate,
+      next_review_date: reviewDate,
+      published_date: publishedDate,
+      updated_at: new Date(policy.updated_at).toLocaleDateString(),
+      description: policy.description || 'Initial Release',
+      org_name: org.name,
+      integrity_hash: `${policy.policy_id}.hash`,
+      approver_name: approvedName, // Fallback for single generic approver name placeholder
+
+      document_metadata: docMetadataMd,
+      approval_matrix: appMatrixMd,
+      revision_history: revHistoryMd,
+      standard_references: stdRefMd,
+      applicability: applicabilityMd,
+      table_of_contents: tocMd,
+
+      '1._purpose': purposeMd,
+      '2._scope': scopeMd,
+      '3._terms_and_definitions': termsMd,
+      '4._assessment_model': assessMd,
+      '5._business_unit_weightage': buWeightMd,
+      '6._final_score_calculation': scoreCalcMd,
+      '7._score_interpretation': scoreInterpMd,
+      '8._governance_and_review': governanceMd,
+      '9._audit_justification_statement': auditJustMd,
+
+      digital_signature_block: includeSignature
+        ? (signatureUrl
+          ? `Authorized Signature:\nSigned on behalf of: ${org.name}\nDate: ${new Date().toLocaleDateString()}\nSignature Image URL: ${signatureUrl}`
+          : `Authorized Signature:\nSigned on behalf of: ${org.name}\nDate: ________________________`)
+        : '',
+      ...customVars
+    };
+
+    // Values for PDF (HTML template: fully parsed HTML tags)
+    const htmlValues = {
+      company_name: org.name,
+      organization_name: org.name,
+      company_location: org.location || '',
+      company_website: org.website || '',
+      policy_title: policy.name,
+      policy_id: currentPolicyRef,
+      document_id: currentPolicyRef,
+      policy_ref: currentPolicyRef,
+      policy_version: currentVersion,
+      version: currentVersion,
+      policy_status: policy.policy_status || 'draft',
+      status: policy.policy_status || 'draft',
+      policy_owner: currentOwner,
+      owner_name: currentOwner,
+      policy_refresh_date: reviewDate,
+      policy_published_date: publishedDate,
+      company_logo: logoHtml,
+      header_content: template?.header_text || '',
+      footer_content: template?.footer_text || '',
+      signature_block: signatureHtml,
+      policy_content: policyContentHtml,
+
+      created_name: createdName,
+      created_role: createdRole,
+      created_date: createdDate,
+      reviewed_name: reviewedName,
+      reviewed_role: reviewedRole,
+      reviewed_date: reviewedDate,
+      approved_name: approvedName,
+      approved_role: approvedRole,
+      approved_date: approvedDate,
+
+      document_type: policy.document_type || 'Policy',
+      role: createdRole, // Fallback for single generic role placeholder
+      created_at: createdDate,
+      next_review_date: reviewDate,
+      published_date: publishedDate,
+      updated_at: new Date(policy.updated_at).toLocaleDateString(),
+      description: policy.description || 'Initial Release',
+      org_name: org.name,
+      integrity_hash: `${policy.policy_id}.hash`,
+      approver_name: approvedName, // Fallback for single generic approver name placeholder
+
+      document_metadata: parseToHtml(docMetadataMd),
+      approval_matrix: parseToHtml(appMatrixMd),
+      revision_history: parseToHtml(revHistoryMd),
+      standard_references: parseToHtml(stdRefMd),
+      applicability: parseToHtml(applicabilityMd),
+      table_of_contents: parseToHtml(tocMd),
+
+      '1._purpose': parseToHtml(purposeMd),
+      '2._scope': parseToHtml(scopeMd),
+      '3._terms_and_definitions': parseToHtml(termsMd),
+      '4._assessment_model': parseToHtml(assessMd),
+      '5._business_unit_weightage': parseToHtml(buWeightMd),
+      '6._final_score_calculation': parseToHtml(scoreCalcMd),
+      '7._score_interpretation': parseToHtml(scoreInterpMd),
+      '8._governance_and_review': parseToHtml(governanceMd),
+      '9._audit_justification_statement': parseToHtml(auditJustMd),
+      
+      digital_signature_block: signatureHtml,
+      ...customVars
+    };
+
+    // If format is DOCX
+    if (format.toLowerCase() === 'docx') {
+      if (template && template.file_path) {
+        // A DOCX template was uploaded! Download it and do mail-merge.
+        const storagePrefix = '/Template-docs/';
+        const idx = template.file_path.indexOf(storagePrefix);
+        if (idx === -1) {
+          throw new Error('Invalid template file path format.');
+        }
+        const storagePath = template.file_path.substring(idx + storagePrefix.length);
+
+        // Download from Supabase
+        const { data: fileData, error: downloadErr } = await supabaseAdmin.storage
+          .from('Template-docs')
+          .download(storagePath);
+
+        if (downloadErr) throw downloadErr;
+
+        // Load into Pizzip & Docxtemplater
+        const arrayBuffer = await fileData.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const zip = new PizZip(buffer);
+        const doc = new Docxtemplater(zip, {
+          paragraphLoop: true,
+          linebreaks: true,
+        });
+
+        // Run render
+        doc.render(placeholderValues);
+        const outBuffer = doc.getZip().generate({ type: 'nodebuffer' });
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        res.setHeader('Content-Disposition', `attachment; filename="${policy.policy_id}.docx"`);
+        return res.send(outBuffer);
+      } else {
+        // Fallback: Generate a clean DOCX programmatically using existing `docx` library
+        const docxLib = await import('docx');
+        const { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell } = docxLib;
+
+        const docChildren = [];
+        const isStandard = selectedTemplateId === 'standard';
+
+        if (isStandard) {
+          // Title
+          docChildren.push(new Paragraph({
+            children: [
+              new TextRun({ text: policy.name, bold: true, size: 36, color: "1e3a8a" })
+            ],
+            heading: HeadingLevel.HEADING_1,
+            spacing: { after: 240 }
+          }));
+
+          // Metadata Table
+          docChildren.push(new Table({
+            rows: [
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Document ID: ", bold: true }), new TextRun(policy.policy_id)] })] }),
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Owner: ", bold: true }), new TextRun(policy.owner_name || "N/A")] })] }),
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Document Type: ", bold: true }), new TextRun(policy.document_type || "Policy")] })] }),
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Integrity HASH: ", bold: true }), new TextRun(`${policy.policy_id}.hash`)] })] }),
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Version: ", bold: true }), new TextRun(policy.version || "V1.0")] })] }),
+                ]
+              })
+            ],
+            width: { size: 100, type: docxLib.WidthType.PERCENTAGE }
+          }));
+          
+          docChildren.push(new Paragraph({ text: "", spacing: { after: 120 } }));
+
+          // Sign-off Table
+          docChildren.push(new Table({
+            rows: [
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Status", bold: true })] })] }),
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Name & Role", bold: true })] })] }),
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Date", bold: true })] })] }),
+                ]
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Created" })] }),
+                  new TableCell({ children: [new Paragraph({ text: `${createdName} (${createdRole})` })] }),
+                  new TableCell({ children: [new Paragraph({ text: createdDate })] }),
+                ]
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Reviewed" })] }),
+                  new TableCell({ children: [new Paragraph({ text: `${reviewedName} (${reviewedRole})` })] }),
+                  new TableCell({ children: [new Paragraph({ text: reviewedDate })] }),
+                ]
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Approved" })] }),
+                  new TableCell({ children: [new Paragraph({ text: `${approvedName} (${approvedRole})` })] }),
+                  new TableCell({ children: [new Paragraph({ text: approvedDate })] }),
+                ]
+              })
+            ],
+            width: { size: 100, type: docxLib.WidthType.PERCENTAGE }
+          }));
+
+          docChildren.push(new Paragraph({ text: "", spacing: { after: 240 } }));
+
+          // REVISION HISTORY
+          docChildren.push(new Paragraph({
+            children: [new TextRun({ text: "REVISION HISTORY", bold: true, size: 24 })],
+            spacing: { before: 120, after: 120 }
+          }));
+          docChildren.push(new Table({
+            rows: [
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Version", bold: true })] })] }),
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Date", bold: true })] })] }),
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Created By", bold: true })] })] }),
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "Description of Changes", bold: true })] })] }),
+                ]
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: policy.version || "V1.0" })] }),
+                  new TableCell({ children: [new Paragraph({ text: new Date(policy.updated_at).toLocaleDateString() })] }),
+                  new TableCell({ children: [new Paragraph({ text: createdName })] }),
+                  new TableCell({ children: [new Paragraph({ text: policy.description || "Initial Release" })] }),
+                ]
+              })
+            ],
+            width: { size: 100, type: docxLib.WidthType.PERCENTAGE }
+          }));
+
+          docChildren.push(new Paragraph({ text: "", spacing: { after: 240 } }));
+
+          // Standard Reference
+          docChildren.push(new Paragraph({
+            children: [new TextRun({ text: "Standard Reference:", bold: true, size: 24 })],
+            spacing: { before: 120, after: 120 }
+          }));
+          docChildren.push(new Table({
+            rows: [
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: "ISO 27001 Clause Ref", bold: true })] })] })
+                ]
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: stdRefMd || "N/A" })] })
+                ]
+              })
+            ],
+            width: { size: 100, type: docxLib.WidthType.PERCENTAGE }
+          }));
+
+          docChildren.push(new Paragraph({ text: "", spacing: { after: 240 } }));
+
+          // Applicability
+          docChildren.push(new Paragraph({
+            children: [new TextRun({ text: "Applicability:", bold: true, size: 24 })],
+            spacing: { before: 120, after: 120 }
+          }));
+          docChildren.push(new Paragraph({
+            text: applicabilityMd || `This document is applicable to ${org.name} and all associated Business Units, Third parties, Employees and all stakeholders of ${org.name}.`,
+            spacing: { after: 240 }
+          }));
+
+          // Integrity Hash
+          docChildren.push(new Paragraph({
+            children: [
+              new TextRun({ text: "Integrity Hash: ", bold: true }),
+              new TextRun({ text: `ISMS Hash Repository - ${policy.policy_id}.hash` })
+            ],
+            spacing: { after: 240 }
+          }));
+        }
+
+        // Split policy markdown by lines and add paragraphs
+        const lines = (cleanPolicyMarkdown || '').split('\n');
+        for (const line of lines) {
+          if (line.startsWith('# ')) {
+            docChildren.push(new Paragraph({
+              children: [new TextRun({ text: line.replace('# ', ''), bold: true, size: 28 })],
+              heading: HeadingLevel.HEADING_2,
+              spacing: { before: 200, after: 100 }
+            }));
+          } else if (line.startsWith('## ')) {
+            docChildren.push(new Paragraph({
+              children: [new TextRun({ text: line.replace('## ', ''), bold: true, size: 24 })],
+              heading: HeadingLevel.HEADING_3,
+              spacing: { before: 180, after: 100 }
+            }));
+          } else if (line.trim() !== '') {
+            docChildren.push(new Paragraph({
+              text: line,
+              spacing: { after: 120 }
+            }));
+          }
+        }
+
+        if (isStandard && includeSignature) {
+          // Signature text
+          docChildren.push(new Paragraph({ text: "", spacing: { before: 240 } }));
+          docChildren.push(new Paragraph({
+            children: [new TextRun({ text: "Authorized Signature:", bold: true })],
+            spacing: { after: 120 }
+          }));
+          if (signatureUrl) {
+            docChildren.push(new Paragraph({
+              children: [new TextRun({ text: `Signature image available at: ${signatureUrl}`, italic: true })],
+              spacing: { after: 120 }
+            }));
+          }
+          docChildren.push(new Paragraph({
+            children: [
+              new TextRun({ text: `Signed on behalf of: ${org.name}` }),
+            ]
+          }));
+        }
+
+        const wordDoc = new Document({
+          sections: [{
+            properties: {},
+            children: docChildren
+          }]
+        });
+
+        const docxBuffer = await Packer.toBuffer(wordDoc);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        res.setHeader('Content-Disposition', `attachment; filename="${policy.policy_id}.docx"`);
+        return res.send(docxBuffer);
+      }
+    }
+
+    // Default to PDF Format
+    // Construct HTML template
+    let htmlTemplate = '';
+    let hasOverlayFields = false;
+    let overlayHtml = '';
+
+    if (template && template.placeholders && Array.isArray(template.placeholders.fields) && template.placeholders.fields.length > 0) {
+      hasOverlayFields = true;
+      const fields = template.placeholders.fields;
+      for (const field of fields) {
+        let content = '';
+        if (field.type === 'signature') {
+          const sigSrc = field.image_url || signatureUrl;
+          if (sigSrc) {
+            content = `<img src="${sigSrc}" style="width: 100%; height: 100%; object-fit: contain;" />`;
+          } else {
+            content = `<div style="width: 100%; height: 100%; border-bottom: 1px solid #1f2937; display: flex; align-items: flex-end; justify-content: center; font-size: 10px; color: #9ca3af; padding-bottom: 2px;">(Signature)</div>`;
+          }
+        } else if (field.type === 'stamp') {
+          if (field.image_url) {
+            content = `<img src="${field.image_url}" style="width: 100%; height: 100%; object-fit: contain;" />`;
+          } else {
+            content = `<div style="width: 100%; height: 100%; border: 2px dashed #9ca3af; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #9ca3af;">Stamp</div>`;
+          }
+        } else if (field.type === 'logo') {
+          const logoSrc = field.mapping === 'default_logo' ? logoUrl : (field.image_url || logoUrl);
+          if (logoSrc) {
+            content = `<img src="${logoSrc}" style="width: 100%; height: 100%; object-fit: contain;" />`;
+          } else {
+            content = `<div style="width: 100%; height: 100%; border: 2px dashed #9ca3af; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #9ca3af;">Logo</div>`;
+          }
+        } else {
+          let textVal = '';
+          if (field.value) {
+            textVal = field.value;
+          } else if (field.mapping === 'company_name') {
+            textVal = org.name;
+          } else if (field.mapping === 'policy_owner') {
+            textVal = policy.owner_name || '';
+          } else if (field.mapping === 'current_user') {
+            textVal = req.user?.email || '';
+          } else {
+            if (field.type === 'fullname') textVal = policy.owner_name || '';
+            else if (field.type === 'signdate') textVal = new Date().toLocaleDateString();
+            else if (field.type === 'email') textVal = req.user?.email || '';
+            else if (field.type === 'company') textVal = org.name;
+            else if (field.type === 'jobtitle') textVal = 'Authorized Signatory';
+            else textVal = field.value || '';
+          }
+          content = `<span style="font-family: inherit; font-size: 13px; color: #1f2937; white-space: pre-wrap; word-break: break-all;">${textVal}</span>`;
+        }
+
+        overlayHtml += `
+          <div style="position: absolute; left: ${field.x}%; top: ${field.y}%; width: ${field.width}px; height: ${field.height}px; box-sizing: border-box; overflow: hidden; pointer-events: none; display: flex; align-items: center; justify-content: flex-start; z-index: 10;">
+            ${content}
+          </div>
+        `;
+      }
+    }
+
+    if (template && template.content_html) {
+      // Use the edited template layout (supporting both Markdown and legacy HTML)
+      let baseHtml = template.content_html;
+      
+      // If it's Markdown/text (doesn't contain typical HTML paragraph/table/heading tags), compile it
+      if (!/<p>|<table|<h[1-6]/i.test(baseHtml)) {
+        baseHtml = marked.parse(baseHtml);
+      }
+      
+      const hasPolicyContentPlaceholder = baseHtml.includes('policy_content') || 
+                                          baseHtml.includes('_purpose') || 
+                                          baseHtml.includes('_scope') || 
+                                          baseHtml.includes('document_metadata');
+      
+      baseHtml = replacePlaceholders(baseHtml, htmlValues);
+
+      // Make sure there is policy_content in template, if not append it
+      if (!hasPolicyContentPlaceholder) {
+        baseHtml = `<div class="template-wrapper">${baseHtml}</div><hr/><div class="policy-wrapper">${policyContentHtml}</div><div class="signature-wrapper">${signatureHtml}</div>`;
+      }
+
+      htmlTemplate = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body { font-family: "Helvetica Neue", Arial, sans-serif; margin: 0; padding: 0; background: #f3f4f6; }
+            .a4-wrapper {
+              position: relative;
+              width: 794px;
+              min-height: 1123px;
+              margin: 0 auto;
+              background: #ffffff;
+              padding: 40px;
+              box-sizing: border-box;
+              color: #1f2937;
+              line-height: 1.6;
+            }
+            .policy-preview-content {
+              margin-top: 20px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="a4-wrapper">
+            ${overlayHtml}
+            <div class="policy-preview-content">
+              ${baseHtml}
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+    } else if (selectedTemplateId === 'standard') {
+      const defaultLayout = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body { font-family: "Helvetica Neue", Arial, sans-serif; padding: 40px; color: #1f2937; line-height: 1.6; font-size: 13px; }
+            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #3b82f6; padding-bottom: 15px; margin-bottom: 25px; }
+            .company-name { font-size: 20px; font-weight: 700; color: #1e3a8a; margin: 0; }
+            .header-text { font-size: 10px; color: #6b7280; margin-top: 3px; }
+            
+            table.workflow-table, table.history-table, .standard-reference-content table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 20px;
+              font-size: 11px;
+            }
+            table.workflow-table th, table.workflow-table td,
+            table.history-table th, table.history-table td,
+            .standard-reference-content table th, .standard-reference-content table td {
+              border: 1px solid #e5e7eb;
+              padding: 8px 10px;
+              text-align: left;
+            }
+            table.workflow-table th, table.history-table th, .standard-reference-content table th {
+              background: #f3f4f6;
+              font-weight: 600;
+              color: #374151;
+            }
+            
+            .policy-content { margin-top: 25px; }
+            .policy-content h1 { font-size: 20px; font-weight: 700; color: #1e3a8a; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; margin-top: 0; }
+            .policy-content h2 { font-size: 15px; font-weight: 600; color: #1e40af; margin-top: 20px; }
+            .policy-content h3 { font-size: 13px; font-weight: 600; color: #1f2937; margin-top: 15px; }
+            .policy-content p { margin: 8px 0; }
+            .policy-content table { border-collapse: collapse; width: 100%; margin: 15px 0; font-size: 11px; }
+            .policy-content th, .policy-content td { border: 1px solid #e5e7eb; padding: 6px 10px; text-align: left; }
+            .policy-content th { background: #f3f4f6; font-weight: 600; }
+            .policy-content blockquote { border-left: 4px solid #3b82f6; padding: 8px 16px; background: #f0f7ff; margin: 10px 0; font-style: italic; }
+            .policy-content ul, .policy-content ol { padding-left: 20px; margin: 10px 0; }
+            .policy-content li { margin-bottom: 4px; }
+            .footer { border-top: 1px solid #e5e7eb; padding-top: 12px; margin-top: 50px; font-size: 9px; color: #9ca3af; display: flex; justify-content: space-between; page-break-inside: avoid; }
+            @media print {
+              body { padding: 20px; }
+              .page-break { page-break-before: always; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <h1 class="company-name">{{company_name}}</h1>
+              <div class="header-text">{{header_content}}</div>
+            </div>
+            {{company_logo}}
+          </div>
+
+          <h1 class="policy-title" style="font-size: 20px; font-weight: 700; color: #1e3a8a; margin-top: 0; margin-bottom: 20px;">{{policy_title}}</h1>
+          
+          <!-- Metadata Block -->
+          <div class="metadata-block" style="margin-bottom: 25px; font-size: 13px; line-height: 1.8; color: #1f2937;">
+            <div><strong>Document ID:</strong> {{policy_id}}</div>
+            <div><strong>Owner:</strong> {{policy_owner}}</div>
+            <div><strong>Document Type:</strong> {{document_type}}</div>
+            <div><strong>Integrity HASH:</strong> {{integrity_hash}}</div>
+            <div><strong>Version:</strong> {{policy_version}}</div>
+          </div>
+
+          <!-- Sign-off Workflow Table -->
+          <table class="workflow-table">
+            <thead>
+              <tr>
+                <th>Role</th>
+                <th>Name</th>
+                <th>Function</th>
+                <th>Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Created</strong></td>
+                <td>{{created_name}}</td>
+                <td>{{created_role}}</td>
+                <td>{{created_date}}</td>
+              </tr>
+              <tr>
+                <td><strong>Reviewed</strong></td>
+                <td>{{reviewed_name}}</td>
+                <td>{{reviewed_role}}</td>
+                <td>{{reviewed_date}}</td>
+              </tr>
+              <tr>
+                <td><strong>Approved</strong></td>
+                <td>{{approved_name}}</td>
+                <td>{{approved_role}}</td>
+                <td>{{approved_date}}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- Revision History Section -->
+          <h3 style="margin-top: 25px; margin-bottom: 10px; color: #1e3a8a; font-size: 15px; font-weight: 600;">REVISION HISTORY</h3>
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th>Version</th>
+                <th>DATE</th>
+                <th>CREATED BY</th>
+                <th>DESCRIPTION OF CHANGES</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>{{policy_version}}</td>
+                <td>{{updated_at}}</td>
+                <td>{{created_name}}</td>
+                <td>{{description}}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- Standard Reference Section -->
+          <h3 style="margin-top: 25px; margin-bottom: 10px; color: #1e3a8a; font-size: 15px; font-weight: 600;">Standard Reference</h3>
+          <div class="standard-reference-content" style="margin-bottom: 20px;">
+            {{standard_references}}
+          </div>
+
+          <!-- Applicability & Integrity Hash Section -->
+          <p style="margin-top: 20px; margin-bottom: 10px; font-size: 13px; color: #1f2937;"><strong>Applicability:</strong> {{applicability}}</p>
+          <p style="margin-bottom: 25px; font-size: 13px; color: #1f2937;"><strong>Integrity Hash:</strong> ISMS Hash Repository - {{integrity_hash}}</p>
+          
+          <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 30px 0;" />
+
+          <div class="policy-content">
+            {{policy_content}}
+          </div>
+
+          {{signature_block}}
+
+          <div class="footer">
+            <span>{{footer_content}}</span>
+            <span>Generated securely by ZeroTo1 GRC</span>
+          </div>
+        </body>
+        </html>
+      `;
+      htmlTemplate = replacePlaceholders(defaultLayout, htmlValues);
+    } else {
+      // No template configured - download policy exactly as it appears in the Preview
+      htmlTemplate = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body { font-family: "Helvetica Neue", Arial, sans-serif; padding: 40px; color: #1f2937; line-height: 1.6; font-size: 13px; }
+            h1 { font-size: 20px; font-weight: 700; color: #1e3a8a; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; margin-top: 0; }
+            h2 { font-size: 15px; font-weight: 600; color: #1e40af; margin-top: 20px; }
+            h3 { font-size: 13px; font-weight: 600; color: #1f2937; margin-top: 15px; }
+            p { margin: 8px 0; }
+            table { border-collapse: collapse; width: 100%; margin: 15px 0; font-size: 11px; }
+            th, td { border: 1px solid #e5e7eb; padding: 6px 10px; text-align: left; }
+            th { background: #f3f4f6; font-weight: 600; }
+            blockquote { border-left: 4px solid #3b82f6; padding: 8px 16px; background: #f0f7ff; margin: 10px 0; font-style: italic; }
+            ul, ol { padding-left: 20px; margin: 10px 0; }
+            li { margin-bottom: 4px; }
+          </style>
+        </head>
+        <body>
+          <div class="policy-content">
+            ${policyContentHtml}
+          </div>
+        </body>
+        </html>
+      `;
+    }
+
+    // If client requested preview HTML, return it directly
+    if (req.query.preview === 'true') {
+      res.setHeader('Content-Type', 'text/html');
+      return res.send(htmlTemplate);
+    }
+
+    // 5. Generate PDF using Puppeteer
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    const page = await browser.newPage();
+    await page.setContent(htmlTemplate, { waitUntil: 'networkidle0' });
+    
+    const pdfOptions = {
+      format: 'A4',
+      margin: hasOverlayFields 
+        ? { top: '0', bottom: '0', left: '0', right: '0' }
+        : { top: '15mm', bottom: '15mm', left: '15mm', right: '15mm' },
+      printBackground: true
+    };
+
+    if (selectedTemplateId === 'standard' && includeLogo && logoBase64) {
+      pdfOptions.displayHeaderFooter = true;
+      pdfOptions.margin = { top: '25mm', bottom: '18mm', left: '15mm', right: '15mm' };
+      pdfOptions.headerTemplate = `
+        <div style="font-size: 8px; width: 100%; display: flex; justify-content: flex-end; align-items: center; padding: 5px 20px 0 20px; font-family: 'Helvetica Neue', Arial, sans-serif; box-sizing: border-box;">
+          <img src="${logoBase64}" style="max-height: 25px; max-width: 100px; object-fit: contain;" />
+        </div>
+      `;
+      pdfOptions.footerTemplate = `
+        <div style="font-size: 8px; width: 100%; display: flex; justify-content: space-between; padding: 0 20px 5px 20px; font-family: 'Helvetica Neue', Arial, sans-serif; color: #9ca3af; box-sizing: border-box;">
+          <span></span>
+          <span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
+        </div>
+      `;
+    }
+
+    const pdfBuffer = await page.pdf(pdfOptions);
+
+    await browser.close();
+
+    // 6. Record in rendered_documents and log activity
+    try {
+      await supabaseAdmin.from('rendered_documents').insert({
+        org_id: req.orgId,
+        policy_id: policyId,
+        policy_version: parseInt(policy.version?.replace(/[^0-9]/g, '') || '1'),
+        format: 'pdf',
+        status: 'completed',
+        file_name: `${policy.policy_id}.pdf`,
+        file_size_bytes: pdfBuffer.length,
+        file_hash: '',
+        storage_path: `rendered/${req.orgId}/${policyId}-${Date.now()}.pdf`
+      });
+
+      logActivity({
+        action: 'policy_downloaded',
+        module: 'Policy',
+        entity_id: policyId,
+        entity_name: policy.name,
+        user_id: req.userId,
+        org_id: req.orgId,
+        severity: 'info',
+        event_data: {
+          actor_name: req.user?.email || req.userId,
+          format: 'pdf',
+          template_name: template?.name || 'Default Template'
+        }
+      });
+    } catch (dbErr) {
+      console.error('[download] Failed to record rendered document or log activity:', dbErr.message);
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${policy.policy_id}.pdf"`);
+    res.send(Buffer.from(pdfBuffer));
+
+  } catch (err) {
+    console.error('[download] Error generating document:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Helper function to replace placeholders case-insensitively
+function replacePlaceholders(html, values) {
+  let result = html;
+  for (const [key, val] of Object.entries(values)) {
+    const escapedKey = key.replace(/[.*+?^\${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`{{\\s*${escapedKey}\\s*}}`, 'gi');
+    result = result.replace(regex, () => val ?? '');
+  }
+  return result;
+}
 
 // ── GET /:id ──────────────────────────────────────────────────────────────
 router.get('/:id', requireAuth, async (req, res) => {
