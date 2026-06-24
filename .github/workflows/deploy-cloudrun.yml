@@ -5,6 +5,11 @@ on:
     branches:
       - main
       - prod
+    # Don't redeploy when a push only touches E2E test assets.
+    paths-ignore:
+      - 'e2e/**'
+      - 'playwright.config.ts'
+      - 'playwright-report/**'
 
 env:
   PROJECT_ID: gen-lang-client-0099829502
