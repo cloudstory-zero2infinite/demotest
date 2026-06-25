@@ -69,7 +69,41 @@ router.get('/users', requireAuth, async (req, res) => {
       .eq('org_id', req.orgId)
       .order('created_at', { ascending: false });
     if (error) throw error;
-    res.json(data || []);
+
+    // Fetch last login for each user from activity logs
+    if (!data || data.length === 0) {
+      return res.json([]);
+    }
+
+    const enrichedData = await Promise.all(
+      data.map(async (member) => {
+        try {
+          // Get last login activity (google_login, github_login, etc.)
+          const { data: lastActivity } = await supabaseAdmin
+            .from('all_activity_log')
+            .select('created_at, action')
+            .eq('user_id', member.user_id)
+            .eq('org_id', req.orgId)
+            .in('action', ['google_login', 'github_login', 'google_login_initiated', 'github_login_initiated'])
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+          return {
+            ...member,
+            last_login: lastActivity?.created_at || null,
+          };
+        } catch {
+          // If no login found, return null for last_login
+          return {
+            ...member,
+            last_login: null,
+          };
+        }
+      })
+    );
+
+    res.json(enrichedData);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

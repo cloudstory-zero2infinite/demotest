@@ -1,7 +1,7 @@
-import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import type { ZtiConfig } from './config.js';
 import { prioritize } from './priority.js';
+import { collectorFromConfig, type RawVuln } from './openvas.js';
 
 export type TargetType = 'all' | 'subnet' | 'ip' | 'local';
 
@@ -84,43 +84,39 @@ function mockScan(target: ScanTarget): ScanFinding[] {
   });
 }
 
-// ── Real scanner (experimental) ───────────────────────────────────────────────
-// Drives a running Greenbone/GVM instance via `gvm-cli`. A full GMP scan is a
-// multi-step workflow (create target → create task → start → poll → get report);
-// here we run a connectivity probe and surface a clear error until the full
-// orchestration is enabled in Phase 5. Treat as experimental, mirroring runProwler.
-function realScan(target: ScanTarget, cfg: ZtiConfig): Promise<ScanFinding[]> {
-  return new Promise((resolve, reject) => {
-    const gvm = cfg.gvm || {};
-    const conn = gvm.socketPath
-      ? ['socket', '--socketpath', gvm.socketPath]
-      : ['tls', '--hostname', gvm.host || '127.0.0.1', '--port', String(gvm.port || 9390)];
-    const args = [...conn];
-    if (gvm.user) args.push('--gmp-username', gvm.user);
-    if (gvm.password) args.push('--gmp-password', gvm.password);
-    args.push('--xml', '<get_version/>');
-
-    const proc = spawn('gvm-cli', args);
-    let out = '';
-    let err = '';
-    proc.stdout.on('data', (d) => (out += d.toString()));
-    proc.stderr.on('data', (d) => (err += d.toString()));
-    proc.on('error', (e) =>
-      reject(new Error(`gvm-cli not runnable (install Greenbone gvm-tools): ${e.message}`))
-    );
-    proc.on('close', (code) => {
-      if (code !== 0 || !/get_version_response/.test(out)) {
-        reject(new Error(`GVM connectivity failed: ${err || out || 'no response'}`));
-        return;
-      }
-      // Connectivity OK but full scan orchestration is not yet wired (Phase 5).
-      reject(
-        new Error(
-          'GVM reachable, but real scan orchestration is not enabled yet (Phase 5). Use `zti config --mock` for now.'
-        )
-      );
-    });
+export function rawVulnsToScanFindings(rawFindings: RawVuln[]): ScanFinding[] {
+  return rawFindings.map((v) => {
+    const cvss = parseFloat(String(v.severity)) || 0.0;
+    const inKev = false;
+    const { severity, priority } = prioritize(cvss, inKev);
+    return {
+      host: v.host,
+      port: v.port,
+      cve_id: v.cve && v.cve !== 'N/A' ? v.cve : undefined,
+      vuln_name: v.name,
+      description: v.description,
+      cvss_score: cvss,
+      severity,
+      priority,
+      in_kev: inKev,
+      raw: v,
+    };
   });
+}
+
+async function realScan(target: ScanTarget, cfg: ZtiConfig): Promise<ScanFinding[]> {
+  const collector = collectorFromConfig(cfg, target.type);
+
+  const discoveredHosts: any[] = [];
+  if (target.type === 'ip' && target.value) {
+    discoveredHosts.push({ name: target.value, ip_address: target.value });
+  } else if (target.type === 'local') {
+    discoveredHosts.push({ name: 'localhost', ip_address: '127.0.0.1' });
+  }
+
+  const rawFindings = await collector.fetchVulnerabilities(discoveredHosts);
+
+  return rawVulnsToScanFindings(rawFindings);
 }
 
 export async function runScan(target: ScanTarget, cfg: ZtiConfig): Promise<ScanFinding[]> {

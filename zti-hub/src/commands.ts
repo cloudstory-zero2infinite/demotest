@@ -229,6 +229,7 @@ export async function status(): Promise<void> {
   console.log(`Authenticated: ${cfg.token ? 'yes' : 'no'}`);
   console.log(`Mode:          ${cfg.mock ? 'mock' : 'real (Prowler)'}`);
   console.log(`GCP:           ${cfg.gcp?.projectId ? cfg.gcp.projectId : 'not integrated'}`);
+  console.log(`OpenVAS:       ${cfg.gvm?.host || cfg.gvm?.socketPath ? (cfg.gvm.socketPath ? 'integrated (socket)' : `integrated (${cfg.gvm.host})`) : 'not integrated'}`);
   if (!cfg.token) return;
   try {
     const r = await new HubApi(cfg).beacon(cfg.gcp ? { gcp_integrated: true, gcp_project_id: cfg.gcp.projectId } : {});
@@ -291,8 +292,10 @@ export async function doctor(): Promise<void> {
 
   // Integrated providers (today: gcp via cfg.gcp; provider registry comes next phase).
   const gcpIntegrated = !!(cfg.gcp?.projectId || cfg.gcp?.credentialsPath);
+  const openvasIntegrated = !!(cfg.gvm?.host || cfg.gvm?.socketPath);
   const providers: string[] = [];
   if (gcpIntegrated) providers.push(`gcp${cfg.gcp?.projectId ? ` (${cfg.gcp.projectId})` : ''}`);
+  if (openvasIntegrated) providers.push(`openvas${cfg.gvm?.socketPath ? ` (socket)` : ` (${cfg.gvm?.host})`}`);
   console.log(`Providers:       ${providers.length ? providers.join(', ') : 'none integrated'}`);
 
   const rt = await runtimeStatus();
