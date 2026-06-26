@@ -76,35 +76,123 @@ function confidenceScore({ passed, failed, skipped, flaky, total, successPct }) 
 const esc = (s) =>
   String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+// Cap how many failing tests we list in the email; the full set is always in
+// the attached report. Keeps the body small even if many tests fail.
+const MAX_FAILURES_SHOWN = 25;
+
+// RAG color by score: green >=95, amber 85-94, red <85.
+const ragColor = (score) => (score >= 95 ? '#16a34a' : score >= 85 ? '#d97706' : '#dc2626');
+
+// Group failures by suite, most-failing suite first → [ [suite, [titles…]], … ]
+function groupFailures(failures) {
+  const m = new Map();
+  for (const f of failures) {
+    if (!m.has(f.suite)) m.set(f.suite, []);
+    m.get(f.suite).push(f.title);
+  }
+  return [...m.entries()].sort((a, b) => b[1].length - a[1].length);
+}
+
+function failuresHtml(failures) {
+  if (!failures.length) {
+    return `<tr><td style="padding:16px 24px">
+      <div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:14px 16px;color:#047857;font-size:14px;font-weight:600">
+        ✓ All executed tests passed.
+      </div></td></tr>`;
+  }
+  const groups = groupFailures(failures); // EVERY failing suite is listed
+  let budget = MAX_FAILURES_SHOWN; // cap on individual titles, shared across suites
+  const blocks = groups.map(([suite, titles]) => {
+    const slice = budget > 0 ? titles.slice(0, budget) : [];
+    budget -= slice.length;
+    const extra = titles.length - slice.length;
+    const items = slice.map((t) => `<li>${esc(t)}</li>`).join('');
+    const extraNote = extra > 0
+      ? `<li style="color:#9ca3af">…and ${extra} more — see attached report</li>`
+      : '';
+    return `
+      <div style="margin:0 0 10px">
+        <div style="font-size:13px;font-weight:700;color:#b91c1c;margin-bottom:3px">
+          ${esc(suite)} <span style="color:#9ca3af;font-weight:600">(${titles.length})</span>
+        </div>
+        <ul style="margin:0;padding-left:18px;font-size:13px;color:#374151;line-height:1.5">
+          ${items}${extraNote}
+        </ul>
+      </div>`;
+  });
+  return `<tr><td style="padding:8px 24px 4px">
+    <div style="font-size:14px;font-weight:700;color:#b91c1c;margin-bottom:8px">Failing tests (${failures.length}) across ${groups.length} suite(s)</div>
+    ${blocks.join('')}
+  </td></tr>`;
+}
+
+function chip(label, value, color) {
+  return `<td style="padding:0 6px 0 0">
+    <div style="background:${color};border-radius:8px;padding:10px 14px;text-align:center">
+      <div style="color:#fff;font-size:20px;font-weight:800;line-height:1">${value}</div>
+      <div style="color:rgba(255,255,255,0.85);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-top:3px">${label}</div>
+    </div>
+  </td>`;
+}
+
+function statCell(label, value, color) {
+  return `<td style="padding:10px 4px;text-align:center;border-right:1px solid #f1f5f9">
+    <div style="font-size:18px;font-weight:700;color:${color || '#111827'}">${value}</div>
+    <div style="font-size:11px;color:#6b7280;margin-top:2px">${label}</div>
+  </td>`;
+}
+
 function buildHtml({ version, passed, failed, skipped, flaky, total, pct, confidence, failures }) {
-  const color = failed === 0 ? '#10b981' : '#ef4444';
-  const failList = failures.length
-    ? `<h3 style="margin:16px 0 6px;font-size:14px;color:#ef4444">Failures (${failures.length})</h3>
-       <ul style="margin:0;padding-left:18px;font-size:13px;color:#374151">
-         ${failures.map((f) => `<li><b>${esc(f.suite)}</b> › ${esc(f.title)}</li>`).join('')}
-       </ul>`
-    : `<p style="font-size:13px;color:#10b981;margin:12px 0">All tests passed. 🎉</p>`;
+  const allGreen = failed === 0;
+  const bannerBg = allGreen ? '#16a34a' : '#dc2626';
+  const bannerText = allGreen ? '✓ Passed' : `✕ ${failed} failed`;
   return `
-  <div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:640px;color:#111827">
-    <h2 style="margin:0 0 4px">ZTI E2E — pre-prod report</h2>
-    <p style="margin:0 0 2px;font-size:13px;color:#6b7280">Build <b>${esc(version || 'unknown')}</b></p>
-    <p style="margin:0 0 12px;font-size:12px;color:#9ca3af">${esc(BASE_URL)}</p>
-    <div style="display:inline-block;padding:10px 16px;border-radius:8px;background:${color};color:#fff;font-size:18px;font-weight:700;margin-right:8px">
-      ${pct}% passed
-    </div>
-    <div style="display:inline-block;padding:10px 16px;border-radius:8px;background:#1f2937;color:#fff;font-size:18px;font-weight:700">
-      confidence ${confidence}
-    </div>
-    <table style="margin-top:14px;border-collapse:collapse;font-size:13px">
-      <tr><td style="padding:4px 14px 4px 0;color:#6b7280">Total</td><td style="font-weight:600">${total}</td></tr>
-      <tr><td style="padding:4px 14px 4px 0;color:#6b7280">Passed</td><td style="font-weight:600;color:#10b981">${passed}</td></tr>
-      <tr><td style="padding:4px 14px 4px 0;color:#6b7280">Failed</td><td style="font-weight:600;color:#ef4444">${failed}</td></tr>
-      <tr><td style="padding:4px 14px 4px 0;color:#6b7280">Skipped</td><td style="font-weight:600">${skipped}</td></tr>
-      ${flaky ? `<tr><td style="padding:4px 14px 4px 0;color:#6b7280">Flaky</td><td style="font-weight:600;color:#f59e0b">${flaky}</td></tr>` : ''}
+  <div style="background:#f3f4f6;padding:24px 0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
+      <!-- Header -->
+      <tr><td style="background:#0f172a;padding:20px 24px">
+        <div style="color:#fff;font-size:18px;font-weight:800;letter-spacing:.01em">ZTI E2E — pre-prod report</div>
+        <div style="color:#94a3b8;font-size:13px;margin-top:4px">Build <span style="color:#e2e8f0;font-weight:600">${esc(version || 'unknown')}</span></div>
+        <div style="color:#64748b;font-size:11px;margin-top:2px">${esc(BASE_URL)}</div>
+      </td></tr>
+
+      <!-- Status banner -->
+      <tr><td style="padding:0">
+        <div style="background:${bannerBg};color:#fff;font-size:14px;font-weight:700;padding:8px 24px">${bannerText} · ${pct}% pass rate</div>
+      </td></tr>
+
+      <!-- Headline chips -->
+      <tr><td style="padding:18px 24px 6px">
+        <table role="presentation" cellpadding="0" cellspacing="0">
+          <tr>
+            ${chip('Pass rate', pct + '%', ragColor(pct))}
+            ${chip('Confidence', confidence, ragColor(confidence))}
+          </tr>
+        </table>
+      </td></tr>
+
+      <!-- Stat strip -->
+      <tr><td style="padding:10px 24px 4px">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #f1f5f9;border-radius:8px">
+          <tr>
+            ${statCell('Total', total)}
+            ${statCell('Passed', passed, '#16a34a')}
+            ${statCell('Failed', failed, failed ? '#dc2626' : '#111827')}
+            ${statCell('Skipped', skipped)}
+            ${statCell('Flaky', flaky, flaky ? '#d97706' : '#111827')}
+          </tr>
+        </table>
+      </td></tr>
+
+      <!-- Failures -->
+      ${failuresHtml(failures)}
+
+      <!-- Footer -->
+      <tr><td style="padding:14px 24px 20px;border-top:1px solid #f1f5f9">
+        <div style="font-size:13px;color:#374151">📎 Full HTML report (with screenshots) attached as <b>e2e-report.zip</b> — unzip and open <code>index.html</code>.</div>
+        ${RUN_URL ? `<div style="font-size:12px;color:#9ca3af;margin-top:4px">If the attachment was stripped, download it from the <a href="${esc(RUN_URL)}" style="color:#2563eb">workflow run</a> → Artifacts → "e2e-report".</div>` : ''}
+      </td></tr>
     </table>
-    ${failList}
-    <p style="margin:18px 0 0;font-size:13px;color:#374151">📎 Full HTML report (with screenshots) attached as <b>e2e-report.zip</b> — unzip and open <code>index.html</code>.</p>
-    ${RUN_URL ? `<p style="margin:4px 0 0;font-size:12px;color:#9ca3af">If the attachment was stripped, download it from the <a href="${esc(RUN_URL)}" style="color:#2563eb">workflow run</a> → Artifacts → "e2e-report".</p>` : ''}
   </div>`;
 }
 

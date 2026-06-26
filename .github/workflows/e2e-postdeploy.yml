@@ -97,10 +97,12 @@ jobs:
           html_body: ${{ steps.mail.outputs.html }}
           attachments: e2e-report.zip
 
-      - name: Reflect test outcome
+      # Reporting workflow — never fail the job on test failures. Failures are
+      # surfaced via the email (subject + grouped list), the attached report,
+      # and the confidence score in release_log. Just leave a soft annotation.
+      - name: Note test outcome
         if: always()
         run: |
           if [ "${{ steps.run.outcome }}" != "success" ]; then
-            echo "::error::E2E run reported failures — see the emailed report / artifact."
-            exit 1
+            echo "::warning::E2E run reported failures — see the emailed report / artifact."
           fi
