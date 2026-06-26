@@ -1,8 +1,8 @@
 // Builds the E2E report email (subject + HTML) from the Playwright JSON report,
-// and persists the run's outcome onto the matching release_log row (the deploy
-// this E2E ran against). Run inside the e2e-postdeploy GitHub Action.
+// and persists the run's outcome as a row in the dedicated `e2e_runs` table.
+// Run inside the e2e-postdeploy GitHub Action.
 // Self-contained — only Node built-ins + @playwright/test (a dev dependency)
-// for the version probe; uses global fetch (Node 18+) for the Supabase PATCH.
+// for the version probe; uses global fetch (Node 18+) for the Supabase insert.
 import fs from 'fs';
 import { chromium } from '@playwright/test';
 
@@ -13,6 +13,15 @@ const COMMIT_SHA = process.env.COMMIT_SHA || '';
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const AUTH_FILE = 'e2e/fixtures/user.json';
+
+// What kicked off this run → stored as `source` for later analytics filtering.
+const SOURCE = (() => {
+  const e = process.env.GITHUB_EVENT_NAME || '';
+  if (e === 'workflow_run') return 'post-deploy';
+  if (e === 'workflow_dispatch') return 'manual';
+  if (e === 'push') return 'test';
+  return e || 'unknown';
+})();
 
 // ── Parse the Playwright JSON report into counts + failures + timings ──
 function parse(report) {
@@ -198,46 +207,47 @@ function buildHtml({ version, passed, failed, skipped, flaky, total, pct, confid
   </div>`;
 }
 
-// ── Persist the run onto the matching release_log row (the deploy it ran against) ──
-async function persist({ version, passed, failed, skipped, flaky, total, pct, confidence, status }) {
-  if (!SUPABASE_URL || !SUPABASE_KEY || !COMMIT_SHA) {
-    console.log('[report] skipping release_log update (no SUPABASE/COMMIT_SHA env)');
+// ── Persist the run into the dedicated `e2e_runs` table (one INSERT per run) ──
+async function persist({ version, passed, failed, skipped, flaky, total, pct, confidence, status, durationMs }) {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    console.log('[report] skipping e2e_runs insert (no SUPABASE env)');
     return;
   }
   try {
-    const url =
-      `${SUPABASE_URL}/rest/v1/release_log` +
-      `?commit_sha=eq.${encodeURIComponent(COMMIT_SHA)}&environment=eq.pre-prod`;
-    const res = await fetch(url, {
-      method: 'PATCH',
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/e2e_runs`, {
+      method: 'POST',
       headers: {
         apikey: SUPABASE_KEY,
         Authorization: `Bearer ${SUPABASE_KEY}`,
         'Content-Type': 'application/json',
-        Prefer: 'return=representation',
+        Prefer: 'return=minimal',
       },
       body: JSON.stringify({
-        e2e_total: total,
-        e2e_passed: passed,
-        e2e_failed: failed,
-        e2e_skipped: skipped,
-        e2e_flaky: flaky,
-        e2e_success_pct: pct,
-        e2e_confidence: confidence,
-        e2e_status: status,
-        e2e_run_url: RUN_URL,
-        e2e_finished_at: new Date().toISOString(),
+        source: SOURCE, // 'post-deploy' | 'manual' | 'test'
+        environment: 'pre-prod',
+        app_version: version,
+        commit_sha: COMMIT_SHA || null,
+        total,
+        passed,
+        failed,
+        skipped,
+        flaky,
+        success_pct: pct,
+        confidence,
+        status,
+        duration_ms: durationMs,
+        run_url: RUN_URL || null,
+        finished_at: new Date().toISOString(),
       }),
     });
-    const body = await res.json().catch(() => []);
     if (!res.ok) {
-      console.warn('[report] release_log PATCH failed (non-fatal):', res.status, JSON.stringify(body).slice(0, 200));
+      const body = await res.text().catch(() => '');
+      console.warn('[report] e2e_runs insert failed (non-fatal):', res.status, body.slice(0, 200));
     } else {
-      const n = Array.isArray(body) ? body.length : 0;
-      console.log(`[report] release_log rows updated: ${n}${n === 0 ? ' (no matching deploy row — expected for manual/test runs)' : ''}`);
+      console.log(`[report] e2e_runs row inserted (source=${SOURCE})`);
     }
   } catch (e) {
-    console.warn('[report] release_log PATCH error (non-fatal):', e.message);
+    console.warn('[report] e2e_runs insert error (non-fatal):', e.message);
   }
 }
 
@@ -248,7 +258,7 @@ const main = async () => {
   } catch {
     report = { suites: [] };
   }
-  const { passed, failed, skipped, flaky, failures } = parse(report);
+  const { passed, failed, skipped, flaky, failures, durationMs } = parse(report);
   const total = passed + failed + skipped;
   const denom = passed + failed;
   const pct = denom > 0 ? Math.round((passed / denom) * 1000) / 10 : 0;
@@ -263,7 +273,7 @@ const main = async () => {
   const subject = `E2E Report | ${env} | ${version || 'unknown'} | ${summary}`;
   const html = buildHtml({ version, passed, failed, skipped, flaky, total, pct, confidence, failures });
 
-  await persist({ version, passed, failed, skipped, flaky, total, pct, confidence, status });
+  await persist({ version, passed, failed, skipped, flaky, total, pct, confidence, status, durationMs });
 
   const out = process.env.GITHUB_OUTPUT;
   if (out) {
