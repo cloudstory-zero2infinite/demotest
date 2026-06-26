@@ -5,11 +5,7 @@ on:
   workflow_run:
     workflows: ['Deploy to Cloud Run']
     types: [completed]
-  workflow_dispatch: {} # manual run from the Actions tab (default branch only)
-  # TEMPORARY — lets us test on this branch before merging to main.
-  # Remove this `push` block before opening the PR.
-  push:
-    branches: [feature/E2E-Email-Trigger-Pre-Prod-Deployment]
+  workflow_dispatch: {} # manual run from the Actions tab
 
 permissions:
   contents: read
@@ -19,7 +15,6 @@ jobs:
     # Only run for a successful pre-prod (main) deploy, or manual/test triggers.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'push' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
