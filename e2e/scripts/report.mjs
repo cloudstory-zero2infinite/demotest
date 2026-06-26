@@ -102,27 +102,29 @@ function failuresHtml(failures) {
   }
   const groups = groupFailures(failures); // EVERY failing suite is listed
   let budget = MAX_FAILURES_SHOWN; // cap on individual titles, shared across suites
-  const blocks = groups.map(([suite, titles]) => {
+  const items = groups.map(([suite, titles]) => {
     const slice = budget > 0 ? titles.slice(0, budget) : [];
     budget -= slice.length;
     const extra = titles.length - slice.length;
-    const items = slice.map((t) => `<li>${esc(t)}</li>`).join('');
+    const tests = slice.map((t) => `<li style="margin:3px 0">${esc(t)}</li>`).join('');
     const extraNote = extra > 0
-      ? `<li style="color:#9ca3af">…and ${extra} more — see attached report</li>`
+      ? `<li style="margin:3px 0;color:#9ca3af;list-style:none">…and ${extra} more — see attached report</li>`
       : '';
     return `
-      <div style="margin:0 0 10px">
-        <div style="font-size:13px;font-weight:700;color:#b91c1c;margin-bottom:3px">
-          ${esc(suite)} <span style="color:#9ca3af;font-weight:600">(${titles.length})</span>
+      <li style="margin:0 0 14px">
+        <div style="font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#111827">
+          ${esc(suite.toUpperCase())} <span style="color:#9ca3af;font-weight:600">(${titles.length})</span>
         </div>
-        <ul style="margin:0;padding-left:18px;font-size:13px;color:#374151;line-height:1.5">
-          ${items}${extraNote}
+        <ul style="margin:5px 0 0;padding-left:22px;font-size:14px;color:#4b5563;line-height:1.55">
+          ${tests}${extraNote}
         </ul>
-      </div>`;
-  });
-  return `<tr><td style="padding:8px 24px 4px">
-    <div style="font-size:14px;font-weight:700;color:#b91c1c;margin-bottom:8px">Failing tests (${failures.length}) across ${groups.length} suite(s)</div>
-    ${blocks.join('')}
+      </li>`;
+  }).join('');
+  return `<tr><td style="padding:10px 24px 6px">
+    <div style="font-size:15px;font-weight:700;color:#b91c1c;margin-bottom:12px">Failing tests (${failures.length}) across ${groups.length} suite(s)</div>
+    <ol style="margin:0;padding-left:24px">
+      ${items}
+    </ol>
   </td></tr>`;
 }
 
@@ -147,8 +149,8 @@ function buildHtml({ version, passed, failed, skipped, flaky, total, pct, confid
   const bannerBg = allGreen ? '#16a34a' : '#dc2626';
   const bannerText = allGreen ? '✓ Passed' : `✕ ${failed} failed`;
   return `
-  <div style="background:#f3f4f6;padding:24px 0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
+  <div style="background:#f3f4f6;padding:24px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;color:#1f2937">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
       <!-- Header -->
       <tr><td style="background:#0f172a;padding:20px 24px">
         <div style="color:#fff;font-size:18px;font-weight:800;letter-spacing:.01em">ZTI E2E — pre-prod report</div>
@@ -254,9 +256,11 @@ const main = async () => {
   const version = await captureVersion();
   const status = failed > 0 ? 'failed' : total > 0 ? 'passed' : 'error';
 
-  const subject =
-    `E2E pre-prod ${version || ''} — ${passed}/${denom} passed (${pct}%, conf ${confidence})` +
-    (failed ? ` · ${failed} failed` : '');
+  const env = 'pre-prod';
+  const summary = failed > 0
+    ? `❌ ${failed} failed · ${passed}/${denom} passed (${pct}%)`
+    : `✅ ${passed}/${denom} passed (${pct}%)`;
+  const subject = `E2E Report | ${env} | ${version || 'unknown'} | ${summary}`;
   const html = buildHtml({ version, passed, failed, skipped, flaky, total, pct, confidence, failures });
 
   await persist({ version, passed, failed, skipped, flaky, total, pct, confidence, status });
