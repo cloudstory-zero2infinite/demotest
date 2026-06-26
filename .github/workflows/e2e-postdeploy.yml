@@ -1,0 +1,106 @@
+name: E2E pre-prod report
+
+on:
+  # Runs after the pre-prod deploy ("Deploy to Cloud Run" on push to main) succeeds.
+  workflow_run:
+    workflows: ['Deploy to Cloud Run']
+    types: [completed]
+  workflow_dispatch: {} # manual run from the Actions tab (default branch only)
+  # TEMPORARY — lets us test on this branch before merging to main.
+  # Remove this `push` block before opening the PR.
+  push:
+    branches: [feature/E2E-Email-Trigger-Pre-Prod-Deployment]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    # Only run for a successful pre-prod (main) deploy, or manual/test triggers.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright (chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E against pre-prod
+        id: run
+        continue-on-error: true # never block the email/report on test failures
+        env:
+          BASE_URL: ${{ secrets.PREPROD_BASE_URL || 'https://pre-prod-987276481381.asia-south1.run.app' }}
+          LOGIN_MODE: email
+          E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
+          E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
+          CI: 'true'
+          QA_SCREENSHOTS: 'on'
+          PLAYWRIGHT_JSON_OUTPUT_NAME: results.json
+          PLAYWRIGHT_HTML_REPORT: playwright-report
+          PLAYWRIGHT_HTML_OPEN: never
+        run: npx playwright test --reporter=html,json
+
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: playwright-report
+          retention-days: 5
+
+      - name: Zip report for email attachment
+        if: always()
+        run: zip -qr e2e-report.zip playwright-report || echo "no report to zip"
+
+      - name: Build email + persist run to release_log
+        id: mail
+        if: always()
+        env:
+          RESULTS_JSON: results.json
+          BASE_URL: ${{ secrets.PREPROD_BASE_URL || 'https://pre-prod-987276481381.asia-south1.run.app' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # The commit that was deployed — matches release_log.commit_sha.
+          # workflow_run gives the deploy's sha; fall back to this run's sha for
+          # manual/push test triggers (which won't match a release row — fine).
+          COMMIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node e2e/scripts/report.mjs
+
+      - name: Send report email
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_HOST }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          # 587 → STARTTLS (secure:false). If your SMTP_PORT is 465 (SSL), set secure: true.
+          secure: false
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASS }}
+          from: ZTI E2E <${{ secrets.SMTP_FROM }}>
+          to: ${{ secrets.E2E_REPORT_RECIPIENTS || vars.E2E_REPORT_RECIPIENTS }}
+          subject: ${{ steps.mail.outputs.subject }}
+          html_body: ${{ steps.mail.outputs.html }}
+          attachments: e2e-report.zip
+
+      - name: Reflect test outcome
+        if: always()
+        run: |
+          if [ "${{ steps.run.outcome }}" != "success" ]; then
+            echo "::error::E2E run reported failures — see the emailed report / artifact."
+            exit 1
+          fi
