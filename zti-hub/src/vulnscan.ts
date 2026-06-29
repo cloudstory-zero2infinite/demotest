@@ -6,7 +6,7 @@ import { loadConfig, scansDir } from './config.js';
 import { HubApi } from './api.js';
 import { ask } from './prompt.js';
 import { logInfo, logWarn, logError } from './logger.js';
-import { runScan, summarize, rawVulnsToScanFindings, type ScanTarget, type TargetType, type ScanFinding } from './scanner.js';
+import { runScan, summarize, type ScanTarget, type TargetType, type ScanFinding } from './scanner.js';
 
 // ── ANSI helpers ────────────────────────────────────────────────────────────
 const RED_BG = '\x1b[41m\x1b[1m\x1b[97m';
@@ -198,14 +198,6 @@ export async function scanWorker(jobId: string, type: string, value: string): Pr
       await api.postScanStatus(jobId, 'completed', summary);
     } catch {
       /* offline is fine; local record holds the results */
-    }
-    if (findings.length) {
-      try {
-        await api.postScanFindings(jobId, findings);
-        logInfo('vuln_scan_staged_to_workspace', { jobId, staged: findings.length });
-      } catch (e: any) {
-        logWarn('vuln_scan_stage_failed', { jobId, error: e.message });
-      }
     }
     logInfo('vuln_scan_completed', { jobId, ...summary });
   } catch (e: any) {
