@@ -1,13 +1,11 @@
 #!/usr/bin/env node
 import { authenticate } from './auth.js';
 import { integrateGcp } from './gcp.js';
-import { integrateOpenvas, ingestOpenvas } from './openvas.js';
 import { startDaemon } from './daemon.js';
 import { checkControl, checkFramework, status, setMode, cliLogs, setupProwler, doctor } from './commands.js';
 import { vulnScan, scanWorker } from './vulnscan.js';
 import { cspm } from './cspm.js';
 import { completion } from './completion.js';
-import { integrateActiveDirectory, hostAuditCmd, adAuditCmd, auditCmd } from './activedirectory.js';
 
 const HELP = `
 zti — ZTI Hub CLI
@@ -15,9 +13,6 @@ zti — ZTI Hub CLI
 Usage:
   zti authenticate                 Register this machine and store a device token
   zti integrate gcp                Configure read-only GCP access for checks
-  zti integrate openvas            Configure Greenbone/OpenVAS credentials (saved locally)
-  zti integrate ad                 Configure Active Directory / LDAP credentials (saved locally)
-  zti ingest <source>              Ingest findings from a log source (openvas, …)
   zti integrate prowler            Install the managed Prowler scan engine (no pip/Docker needed)
   zti doctor                       Show scan-engine + integration health
   zti start                        Run the hub: beacon + process queued checks (every 60s)
@@ -27,9 +22,6 @@ Usage:
   zti vuln-scan report [job-id]    Show scan results; optionally send to your ZTI workspace
   zti cspm scan [scope]            Run a CSPM posture scan (all | framework <name> | control <SCF#> | provider <gcp>)
   zti cspm report [job-id]         Show CSPM results; optionally send to your ZTI workspace
-  zti host-audit                   Run a Standalone Workstation Host Security Audit
-  zti ad-audit                     Run an Active Directory DC Security Audit
-  zti audit                        Automatically run Host or AD Security Audit based on machine type
   zti cli-logs [--tail N]          Show the local CLI activity log
   zti config --real | --mock       Switch between real scans and mock results
   zti completion bash | zsh        Print a shell tab-completion script
@@ -54,20 +46,10 @@ async function main() {
       await authenticate();
       break;
 
-    case 'ingest':
-      if (sub === 'openvas') await ingestOpenvas();
-      else {
-        console.error('Usage: zti ingest <source>   e.g. zti ingest openvas');
-        process.exitCode = 1;
-      }
-      break;
-
     case 'integrate':
       if (sub === 'gcp') await integrateGcp();
       else if (sub === 'prowler') await setupProwler();
-      else if (sub === 'openvas') await integrateOpenvas();
-      else if (sub === 'ad' || sub === 'AD') await integrateActiveDirectory();
-      else console.error('Usage: zti integrate gcp | prowler | openvas | ad');
+      else console.error('Usage: zti integrate gcp | prowler');
       break;
 
     case 'doctor':
@@ -94,18 +76,6 @@ async function main() {
 
     case 'cspm':
       await cspm(sub, rest);
-      break;
-
-    case 'host-audit':
-      await hostAuditCmd();
-      break;
-
-    case 'ad-audit':
-      await adAuditCmd();
-      break;
-
-    case 'audit':
-      await auditCmd();
       break;
 
     // Hidden: detached worker that actually runs a scan (spawned by vuln-scan).
