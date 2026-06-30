@@ -12,7 +12,7 @@ export interface ZtiConfig {
     projectId?: string;
     credentialsPath?: string;
   };
-  // OpenVAS / Greenbone (GVM) connection for `zti vuln-scan` real mode.
+  // OpenVAS / Greenbone (GVM) connection for `zti vuln-scan` real mode
   // Empty/omitted → mock findings (default). Real mode shells out to `gvm-cli`.
   gvm?: {
     host?: string;        // GMP host (default 127.0.0.1)

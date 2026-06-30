@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "server": "cd server && npm run dev",
+    "server": "cd server ; npm run dev",
     "server:install": "cd server && npm install",
     "test:ui": "rm -rf e2e/screenshots/* && npx playwright test --config=playwright.config.ts --headed",
     "test:ui:reset": "rm -f e2e/fixtures/user.json && rm -rf e2e/screenshots/* && npx playwright test --config=playwright.config.ts --headed",
@@ -15,6 +15,7 @@
     "test:preprod:headless": "rm -f e2e/fixtures/user.json && rm -rf e2e/screenshots/* && BASE_URL=https://pre-prod-987276481381.asia-south1.run.app npx playwright test --config=playwright.config.ts",
     "postinstall": "node -e \"if(process.env.CI !== 'true') require('child_process').execSync('npx playwright install', {stdio: 'inherit'})\""
   },
+  
   "dependencies": {
     "@supabase/supabase-js": "^2.101.0",
     "@types/d3-force": "^3.0.10",

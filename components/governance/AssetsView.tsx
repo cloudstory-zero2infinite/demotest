@@ -214,7 +214,7 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
 
 
-        // Handle custom fields
+        // Handle custom field
 
         if (name.startsWith('custom_field_')) {
 

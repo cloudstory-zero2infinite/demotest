@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 @layer utilities {
-  /* Hide scrollbar for Chrome, Safari, Opera and Firefox/IE/Edge */
+  
   .scrollbar-none::-webkit-scrollbar {
     display: none;
   }

@@ -34,7 +34,7 @@ async function fetchImageBase64(url) {
 
 const router = Router();
 
-// ── Utility: log to all_activity_log (fire-and-forget) ─────────────────────
+// ── Utility: log to all_activity_log (fire-and-forget) 
 function logActivity(payload) {
   supabaseAdmin.from('all_activity_log').insert(payload).then(() => {});
 }

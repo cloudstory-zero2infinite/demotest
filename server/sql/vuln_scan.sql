@@ -14,7 +14,7 @@ create table if not exists public.vuln_scan_jobs (
   target_type  text not null check (target_type in ('all','subnet','ip','local')),
   target_value text,                                  -- CIDR / IP / null for all|local
   authorized   boolean not null default false,        -- operator affirmed authorization
-  consent_by   text,                                  -- device name / operator identity
+  consent_by   text,                                  -- device name 
   consent_at   timestamptz,
   status       text not null default 'running'
                check (status in ('running','completed','failed','staged','imported')),

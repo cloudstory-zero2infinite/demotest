@@ -28,7 +28,7 @@ app.include_router(policy_router, prefix="/policy")
 from mapper_agent.router import router as mapper_router
 app.include_router(mapper_router, prefix="/mapper")
 
-# Fw-ControlRegistry Agent — recomputes an org's standard control_registry
+
 # rows from the SCF reference tables based on its framework selection.
 from fwcr_agent.router import router as fwcr_router
 app.include_router(fwcr_router, prefix="/fwcr")

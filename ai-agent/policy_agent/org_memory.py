@@ -71,7 +71,7 @@ def approve_pending(pending_id: str, reviewer_id: str) -> dict:
         org_id = row["org_id"]
         diff_md = row["diff_md"]
 
-        # Append-merge into org_memory (upsert).
+        # Append-merge into org_memory.
         cur.execute(
             """
             INSERT INTO public.org_memory (org_id, content_md, updated_at, updated_by)

@@ -164,7 +164,7 @@ function runPowerShell(cmd: string): string {
   }
 }
 
-/** Detects if the machine is standalone or domain joined. */
+/** Detects if the machine is standalone , domain joined. */
 export function detectMachineState(): MachineState {
   const cfg = loadConfig();
 

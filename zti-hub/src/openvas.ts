@@ -48,7 +48,7 @@ export function collectorFromConfig(cfg: ZtiConfig, targetType?: string): OpenVa
 }
 
 /**
- * OpenVAS Vulnerability Collector
+ * OpenVAS Vulnerability Collector.
  * Authenticates against the Greenbone Security Assistant (GSA) HTTP proxy at port 9392
  * using the same credentials as the web UI, then fetches scan results via the GMP-over-HTTP API.
  * Falls back to a real-time local OS vulnerability audit when OPENVAS_USE_LOCAL_OS=true.

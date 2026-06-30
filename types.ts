@@ -983,7 +983,7 @@ export interface PolicyComplianceMeta {
   org_id: string;
   policy_id: string;
   framework: string; // e.g., "ISO 27001", "NIST CSF"
-  control_id: string; // e.g., "A.5.1.1"
+  control_id: string; 
   control_name: string | null;
   status: 'compliant' | 'partial' | 'non_compliant' | 'n/a';
   evidence_url: string | null;
@@ -1020,7 +1020,7 @@ export interface DocumentGenerationConfig {
   default_format: DocumentFormat;
   enable_digital_signing: boolean;
   signing_certificate_id: string | null;
-  retention_days: number; // How long to keep rendered documents
+  retention_days: number; 
   enable_watermark: boolean;
   watermark_text: string | null;
   include_version_footer: boolean;

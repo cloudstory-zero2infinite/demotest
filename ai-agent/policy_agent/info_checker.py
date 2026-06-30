@@ -45,7 +45,7 @@ def check_sufficiency(policy_family: str, org_memory: str) -> dict:
     except Exception as e:
         import traceback
         traceback.print_exc()
-        # Fail-open is dangerous here — fail-closed so we never draft on bad context.
+        # Fail-open is dangerous here  fail-closed so we never draft on bad context.
         return {
             "sufficient": False,
             "missing": required,

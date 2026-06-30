@@ -11,7 +11,7 @@ export interface CheckSpec {
   severity?: string;
 }
 
-// One control's aggregated CSPM posture result (uploaded to the workspace).
+// One control's aggregated CSPM posture result (uploaded to workspace).
 export interface CspmControlResult {
   scf_control_id?: string | null;
   nn_ctl_name?: string | null;

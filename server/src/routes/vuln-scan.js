@@ -11,7 +11,7 @@ const router = Router();
 // ════════════════════════════════════════════════════════════
 
 // Create a scan job. The CLI calls this right after the operator confirms the
-// red authorization consent, then launches OpenVAS detached.
+
 // Audit jobs use target_type='local' (DB constraint) and scanner='ad' to distinguish from OpenVAS.
 const ALLOWED_TARGET_TYPES = ['all', 'subnet', 'ip', 'local'];
 const AUDIT_TARGET_ALIASES = ['ad', 'host'];

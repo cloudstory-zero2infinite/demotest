@@ -1,7 +1,7 @@
 """System prompts and the per-policy-type requirements manifest."""
 
 # What facts must exist in org_memory before drafting a given policy.
-# Policy families are kept generic for v1: 'generic', 'ISO27001', 'SOC2'.
+
 POLICY_REQUIREMENTS: dict[str, list[str]] = {
     "generic": [
         "business_overview",

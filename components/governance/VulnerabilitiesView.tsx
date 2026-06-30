@@ -41,7 +41,7 @@ const sanitizeInput = (input: string): string => {
 
     return input
 
-        .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
+        .replace(/[\x00-\x1F\x7F]/g, '') 
 
         .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '') // Remove script tags
 

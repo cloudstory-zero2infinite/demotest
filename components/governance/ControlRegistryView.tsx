@@ -18,7 +18,7 @@ import { CustomField } from '../../services/supabase';
 
 
 
-// ctl_ref_fw moved from TEXT to JSONB (array of framework names) in 2026-05.
+// ctl_ref_fw moved from TEXT to JSONB (array of framework names) 
 // The legacy form/edit UIs still keep the field as a CSV-style string for
 // human editing; convert at the API boundary using these helpers.
 const toFwArray = (v: unknown): string[] => {

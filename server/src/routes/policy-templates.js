@@ -10,11 +10,26 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 const CAN_WRITE = ['admin', 'tenant_admin', 'cxo'];
 const COLS = 'id, org_id, name, description, file_path, placeholders, header_text, footer_text, content_html, created_at, updated_at';
 
+// Helper for logging to the global all_activity_log (powers the Activity Logs tab).
+function logActivity(req, { action, entity_id, entity_name, event_data }) {
+  supabaseAdmin.from('all_activity_log').insert({
+    action,
+    module: 'Policy',
+    entity_id: entity_id ? String(entity_id) : null,
+    entity_name: entity_name || null,
+    event_data: { ...(event_data || {}), user_email: req.user?.email || null },
+    severity: 'info',
+    user_id: req.userId,
+    org_id: req.orgId,
+    user_agent: req.headers['user-agent'] || null,
+  }).then(() => {}).catch(err => console.error('Error logging to all_activity_log:', err));
+}
+
 export function convertHtmlToMarkdown(html) {
   if (!html) return '';
   let md = html;
 
-  // Remove whitespace/newlines between tags to avoid unwanted gaps
+  // Remove whitespace/newlines between tags to avoid unwanted gap
   md = md.replace(/>\s+</g, '><');
 
   // Convert headings
@@ -210,6 +225,15 @@ router.post('/', requireAuth, upload.single('template'), async (req, res) => {
       .single();
 
     if (error) throw error;
+    logActivity(req, {
+      action: 'policy_template_created',
+      entity_id: data.id,
+      entity_name: data.name,
+      event_data: {
+        description: data.description,
+        file_path: data.file_path,
+      }
+    });
     res.json(data);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -261,6 +285,15 @@ router.put('/:id', requireAuth, async (req, res) => {
           .single();
 
         if (insertErr) throw insertErr;
+         logActivity(req, {
+          action: 'policy_template_created',
+          entity_id: newTemp.id,
+          entity_name: newTemp.name,
+          event_data: {
+            description: newTemp.description,
+            file_path: newTemp.file_path,
+          }
+        });
         return res.json(newTemp);
       }
     }
@@ -275,6 +308,14 @@ router.put('/:id', requireAuth, async (req, res) => {
 
     if (error) throw error;
     if (!data) return res.status(404).json({ message: 'Template not found' });
+    logActivity(req, {
+      action: 'policy_template_updated',
+      entity_id: data.id,
+      entity_name: data.name,
+      event_data: {
+        updated_fields: Object.keys(patch).filter(k => k !== 'updated_at')
+      }
+    });
     res.json(data);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -324,6 +365,15 @@ router.post('/upload-asset', requireAuth, upload.single('file'), async (req, res
       .from('Policy-logo')
       .getPublicUrl(fileName);
 
+      logActivity(req, {
+      action: 'policy_template_asset_uploaded',
+      entity_name: originalname,
+      event_data: {
+        public_url: publicUrl,
+        mimetype
+      }
+    });
+
     res.json({ publicUrl });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -340,7 +390,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
     // 1. Fetch template to get file path
     const { data: template, error: fetchErr } = await supabaseAdmin
       .from('policy_templates')
-      .select('file_path')
+        .select('name, file_path')
       .eq('id', req.params.id)
       .eq('org_id', req.orgId)
       .single();
@@ -370,6 +420,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
       .eq('org_id', req.orgId);
 
     if (deleteErr) throw deleteErr;
+
+    logActivity(req, {
+      action: 'policy_template_deleted',
+      entity_id: req.params.id,
+      entity_name: template.name || 'Standard Template',
+      event_data: {
+        file_path: template.file_path,
+      }
+    });
 
     res.json({ success: true });
   } catch (err) {

@@ -125,7 +125,7 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
     const [actionLoading, setActionLoading] = useState<number | null>(null);
     const [confirmRemove, setConfirmRemove] = useState<number | null>(null);
 
-    // Contacts
+    // Contact
     const [contacts, setContacts] = useState<OrgContact[]>([]);
     const [contactModal, setContactModal] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | null; contact?: OrgContact }>({ type: null });
     const [contactForm, setContactForm] = useState({ name: '', email: '', department: '' });

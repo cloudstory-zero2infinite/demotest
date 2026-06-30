@@ -11,7 +11,7 @@ const PROVIDER_ORDER = ['gcp', 'aws', 'azure'];
 const PROVIDER_LABEL: Record<string, string> = { gcp: 'GCP', aws: 'AWS', azure: 'Azure' };
 const providerLabel = (p: string) => PROVIDER_LABEL[p] || p.toUpperCase();
 
-// ANSI
+// ANSII
 const RED = '\x1b[31m';
 const GREEN = '\x1b[32m';
 const YEL = '\x1b[33m';

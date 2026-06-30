@@ -189,7 +189,7 @@ app.get("*", (req, res) => {
 
 
 
-// Check for expired policies + send expiry reminders every 6 hours.
+
 // Reminder sends are idempotent (reminder_*_sent_at flags), so the 6h cadence
 // is safe — each of the 14d/7d/1d reminders goes out at most once per cycle.
 cron.schedule('0 */6 * * *', () => {

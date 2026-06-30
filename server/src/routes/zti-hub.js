@@ -79,7 +79,7 @@ router.get('/status', requireAuth, async (req, res) => {
   }
 });
 
-// List this org's registered devices.
+
 router.get('/devices', requireAuth, async (req, res) => {
   try {
     if (!req.orgId) return res.json([]);

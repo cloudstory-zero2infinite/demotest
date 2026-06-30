@@ -9,7 +9,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 *
 // GET /api/org-settings — returns org settings, auto-creates default if none
 router.get('/', requireAuth, async (req, res) => {
   try {
-    // Fetch org_settings row
+    
     const { data, error } = await supabaseAdmin
       .from('org_settings')
       .select('policy_refresh_months, policy_expiry_template_id, logo_url, signature_url, selected_template_id')
