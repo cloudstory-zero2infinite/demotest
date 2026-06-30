@@ -250,6 +250,7 @@ export interface ZtiHubDevice {
   created_at: string;
   revoked_at: string | null;
   online: boolean;
+  sources: string[];
 }
 
 export interface ControlCheckResult {
@@ -271,6 +272,7 @@ export interface VulnScanJob {
   status: 'running' | 'completed' | 'failed' | 'staged' | 'imported';
   summary: { total?: number; critical?: number; high?: number; medium?: number; low?: number; info?: number; kev?: number } | null;
   is_mock: boolean;
+  scanner?: string | null;
   consent_by: string | null;
   consent_at: string | null;
   started_at: string | null;
@@ -465,7 +467,7 @@ export type ControlRegistryUpdate = Partial<Omit<ControlRegistryCreate, 'org_id'
 
 // Vulnerability Management Types
 export type VulnerabilityStatus = 'Planned' | 'Remediated' | 'NA';
-export type VulnerabilitySource = 'KEV' | 'Scanning' | 'PT' | 'Reported-Ext';
+export type VulnerabilitySource = 'KEV' | 'Scanning' | 'PT' | 'Reported-Ext' | 'AD';
 
 export interface Vulnerability {
     id: string; // Primary key

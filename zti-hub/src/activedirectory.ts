@@ -6,7 +6,10 @@ import { execSync } from 'node:child_process';
 import ldap from 'ldapjs';
 import { loadConfig, saveConfig, scansDir, type ZtiConfig } from './config.js';
 import { ask } from './prompt.js';
-import { logWarn } from './logger.js';
+import { logWarn, logInfo } from './logger.js';
+import { HubApi } from './api.js';
+import { prioritize } from './priority.js';
+import type { ScanFinding } from './scanner.js';
 
 // ANSI styling helpers
 const RED = '\x1b[31m';
@@ -43,6 +46,98 @@ export interface HardwareInfo {
   totalPhysicalMemoryGB: number;
   diskSummary: string[];
   clockSpeedMHz?: number;
+}
+
+const SEVERITY_CVSS: Record<AuditFinding['severity'], number> = {
+  CRITICAL: 9.5,
+  HIGH: 8.0,
+  MEDIUM: 5.0,
+  LOW: 2.0,
+  INFO: 0,
+};
+
+function auditFindingsToScanFindings(
+  findings: AuditFinding[],
+  host: string,
+  auditType: 'Standalone' | 'ActiveDirectory'
+): ScanFinding[] {
+  return findings.map((f) => {
+    const cvss = SEVERITY_CVSS[f.severity] ?? 0;
+    const { severity, priority } = prioritize(cvss, false);
+    const desc = f.description + (f.remediation ? `\n\nRemediation: ${f.remediation}` : '');
+    return {
+      host,
+      cve_id: f.id,
+      vuln_name: f.name,
+      description: desc,
+      cvss_score: cvss || null,
+      severity,
+      priority,
+      in_kev: false,
+      raw: { source: 'ad', audit_type: auditType, category: f.category, finding_id: f.id },
+    };
+  });
+}
+
+function auditSummary(findings: AuditFinding[]) {
+  return {
+    total: findings.length,
+    critical: findings.filter((f) => f.severity === 'CRITICAL').length,
+    high: findings.filter((f) => f.severity === 'HIGH').length,
+    medium: findings.filter((f) => f.severity === 'MEDIUM').length,
+    low: findings.filter((f) => f.severity === 'LOW').length,
+    info: findings.filter((f) => f.severity === 'INFO').length,
+  };
+}
+
+async function stageAuditFindingsToWorkspace(
+  findings: AuditFinding[],
+  auditType: 'Standalone' | 'ActiveDirectory',
+  host: string,
+  domain: string,
+  autoPush = false
+): Promise<void> {
+  const cfg = loadConfig();
+  if (!cfg.token) {
+    console.log(`${YEL}Not authenticated — skipping workspace upload. Run \`zti authenticate\` first.${RESET}`);
+    return;
+  }
+  if (findings.length === 0) {
+    console.log(`${GRN}No findings to stage.${RESET}`);
+    return;
+  }
+
+  if (!autoPush) {
+    const pushAnswer = await ask('Push findings to Vulnerability Assessment in ZTI? (y/N)', 'N');
+    if (!/^y(es)?$/i.test(pushAnswer.trim())) {
+      console.log(`${DIM}Findings not sent to workspace.${RESET}`);
+      return;
+    }
+  }
+
+  const api = new HubApi(cfg);
+  const targetValue = auditType === 'ActiveDirectory' ? `AD:${domain}` : `Host:${host}`;
+  const scanFindings = auditFindingsToScanFindings(findings, host, auditType);
+  const summary = auditSummary(findings);
+
+  try {
+    const job = await api.createScanJob({
+      target_type: 'local',
+      target_value: targetValue,
+      scanner: 'ad',
+      is_mock: false,
+      consent_by: cfg.deviceName,
+    });
+    await api.postScanStatus(job.id, 'completed', summary);
+    const staged = await api.postScanFindings(job.id, scanFindings);
+    console.log(`\n${GRN}✓ Staged ${staged.staged} finding(s) to Vulnerability Assessment (source: AD).${RESET}`);
+    console.log(`${DIM}Refresh ZTI → ZTI Hub Services → Vulnerability Assessment to review and import.${RESET}`);
+    logInfo('ad_audit_staged', { jobId: job.id, staged: staged.staged, auditType });
+  } catch (e: any) {
+    console.error(`\n${RED}✗ Failed to push findings to workspace: ${e.message}${RESET}`);
+    logWarn('ad_audit_stage_failed', { error: e.message, auditType });
+    process.exitCode = 1;
+  }
 }
 
 /** Runs a system command safely and returns stdout. */
@@ -901,7 +996,10 @@ function collectHardwareInfo(host?: string): HardwareInfo | null {
 }
 
 /** Generates JSON report and prints Terminal output */
-export async function generateReports(data: { collected: any; findings: AuditFinding[]; type: 'Standalone' | 'ActiveDirectory'; domain: string }) {
+export async function generateReports(
+  data: { collected: any; findings: AuditFinding[]; type: 'Standalone' | 'ActiveDirectory'; domain: string },
+  options?: { autoPush?: boolean }
+) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const jobId = `audit-${timestamp}`;
 
@@ -937,6 +1035,12 @@ export async function generateReports(data: { collected: any; findings: AuditFin
   } else {
     console.log(`\n${YEL}Report not saved. No JSON file was written.${RESET}\n`);
   }
+
+  const host =
+    data.type === 'ActiveDirectory'
+      ? (data.collected.domainControllers?.[0] || data.collected.hardwareInfo?.local?.computerName || os.hostname())
+      : (data.collected.hostname || os.hostname());
+  await stageAuditFindingsToWorkspace(data.findings, data.type, host, data.domain, options?.autoPush);
 }
 
 /** Prints a clean, colorized terminal security report */
@@ -1025,7 +1129,7 @@ export async function hostAuditCmd() {
 }
 
 /** CLI Command Handler: zti ad-audit */
-export async function adAuditCmd() {
+export async function adAuditCmd(options?: { autoPush?: boolean }) {
   const detected = detectMachineState();
   if (detected.type !== 'ActiveDirectory' && !detected.ldapServer) {
     console.log(`${YEL}⚠ System is standalone (WORKGROUP). Performing AD simulation for local verification...${RESET}`);
@@ -1036,7 +1140,7 @@ export async function adAuditCmd() {
     findings,
     type: 'ActiveDirectory',
     domain: detected.domain
-  });
+  }, options);
 }
 
 /** CLI Command Handler: zti audit */
@@ -1095,7 +1199,6 @@ export async function integrateActiveDirectory(): Promise<void> {
   saveConfig(cfg);
   console.log(`\n${GRN}✓ Active Directory integration credentials saved locally.${RESET}`);
 
-  // Fetch results and print in cmd interface as requested
-  console.log(`\nRunning initial scan to fetch and verify Active Directory results...`);
-  await auditCmd();
+  console.log(`\nRunning initial Active Directory security audit...`);
+  await adAuditCmd({ autoPush: true });
 }

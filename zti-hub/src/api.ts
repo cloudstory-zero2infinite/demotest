@@ -131,9 +131,10 @@ export class HubApi {
   createScanJob(body: {
     target_type: string;
     target_value?: string | null;
-    authorized: boolean;
+    authorized?: boolean;
     consent_by?: string;
-    is_mock: boolean;
+    is_mock?: boolean;
+    scanner?: string;
   }) {
     return this.req<{ id: string }>('/api/vuln-scan/jobs', {
       method: 'POST',

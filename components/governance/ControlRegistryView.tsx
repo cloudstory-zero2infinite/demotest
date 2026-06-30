@@ -3397,6 +3397,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
     const [enqueuingId, setEnqueuingId] = useState<string | null>(null);
     const [resultsModal, setResultsModal] = useState<{ control: ControlRegistry; results: ControlCheckResult[]; loading: boolean } | null>(null);
     const [hubToken, setHubToken] = useState<string | null>(null);
+    const [hubTokenCopied, setHubTokenCopied] = useState(false);
     const [registeringHub, setRegisteringHub] = useState(false);
 
 
@@ -3704,6 +3705,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
         try {
             const r = await SupabaseService.registerHubDevice('zti-hub');
             setHubToken(r.token);
+            setHubTokenCopied(false);
         } catch (e: any) {
             alert(e?.message || 'Failed to register hub device');
         } finally {
@@ -6235,7 +6237,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
             {/* ── ZTI Hub: device token modal ── */}
             {hubToken && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setHubToken(null)}>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => { setHubToken(null); setHubTokenCopied(false); }}>
                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
                         <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700">
                             <h3 className="text-base font-semibold dark:text-white">ZTI Hub device token</h3>
@@ -6244,12 +6246,25 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                             <p className="text-gray-600 dark:text-gray-300">Copy this token and paste it into the CLI when prompted by <span className="font-mono">zti authenticate</span>. It is shown only once.</p>
                             <div className="flex gap-2">
                                 <input readOnly value={hubToken} className="flex-1 px-3 py-1.5 rounded border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 font-mono text-xs dark:text-gray-200" />
-                                <button onClick={() => { navigator.clipboard?.writeText(hubToken); }} className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700">Copy</button>
+                                <button
+                                    onClick={async () => {
+                                        try {
+                                            await navigator.clipboard?.writeText(hubToken);
+                                            setHubTokenCopied(true);
+                                        } catch {
+                                            setHubTokenCopied(false);
+                                            alert('Copy failed. Please select the token and copy manually.');
+                                        }
+                                    }}
+                                    className={`px-3 py-1.5 rounded text-white text-sm ${hubTokenCopied ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+                                >
+                                    {hubTokenCopied ? 'Copied' : 'Copy'}
+                                </button>
                             </div>
                             <p className="text-xs text-amber-600 dark:text-amber-400">Store it securely — it grants the hub read/run access scoped to your organization.</p>
                         </div>
                         <div className="px-5 py-3 border-t border-gray-200 dark:border-gray-700 flex justify-end">
-                            <button onClick={() => setHubToken(null)} className="px-3 py-1.5 rounded bg-gray-200 dark:bg-gray-700 text-sm dark:text-gray-200">Done</button>
+                            <button onClick={() => { setHubToken(null); setHubTokenCopied(false); }} className="px-3 py-1.5 rounded bg-gray-200 dark:bg-gray-700 text-sm dark:text-gray-200">Done</button>
                         </div>
                     </div>
                 </div>

@@ -14,6 +14,42 @@ function isOnline(lastBeaconAt) {
   return Date.now() - new Date(lastBeaconAt).getTime() < ONLINE_WINDOW_MS;
 }
 
+const SOURCE_ORDER = ['AD', 'OpenVAS', 'GCP', 'Prowler'];
+
+async function sourcesForDevices(orgId, devices) {
+  const sourceMap = new Map(devices.map((d) => [d.id, new Set()]));
+  if (!devices.length) return sourceMap;
+
+  for (const d of devices) {
+    if (d.gcp_integrated) sourceMap.get(d.id).add('GCP');
+  }
+
+  const ids = devices.map((d) => d.id);
+  const [{ data: cspmJobs }, { data: vulnJobs }, { data: checkJobs }] = await Promise.all([
+    supabaseAdmin.from('cspm_scan_jobs').select('device_id').eq('org_id', orgId).in('device_id', ids),
+    supabaseAdmin.from('vuln_scan_jobs').select('device_id, scanner').eq('org_id', orgId).in('device_id', ids),
+    supabaseAdmin
+      .from('control_check_jobs')
+      .select('claimed_by')
+      .eq('org_id', orgId)
+      .in('claimed_by', ids)
+      .not('claimed_by', 'is', null),
+  ]);
+
+  for (const j of cspmJobs || []) {
+    if (j.device_id) sourceMap.get(j.device_id)?.add('Prowler');
+  }
+  for (const j of checkJobs || []) {
+    if (j.claimed_by) sourceMap.get(j.claimed_by)?.add('Prowler');
+  }
+  for (const j of vulnJobs || []) {
+    if (!j.device_id) continue;
+    sourceMap.get(j.device_id)?.add(j.scanner === 'ad' ? 'AD' : 'OpenVAS');
+  }
+
+  return sourceMap;
+}
+
 // ════════════════════════════════════════════════════════════
 //  USER-FACING (browser JWT) — requireAuth
 // ════════════════════════════════════════════════════════════
@@ -51,9 +87,18 @@ router.get('/devices', requireAuth, async (req, res) => {
       .from('zti_hub_devices')
       .select('id, device_name, gcp_integrated, gcp_project_id, last_beacon_at, created_at, revoked_at')
       .eq('org_id', req.orgId)
+      .is('revoked_at', null)
       .order('created_at', { ascending: false });
     if (error) throw error;
-    res.json((data || []).map((d) => ({ ...d, online: isOnline(d.last_beacon_at) })));
+    const devices = data || [];
+    const sourceMap = await sourcesForDevices(req.orgId, devices);
+    res.json(
+      devices.map((d) => ({
+        ...d,
+        online: isOnline(d.last_beacon_at),
+        sources: SOURCE_ORDER.filter((s) => sourceMap.get(d.id)?.has(s)),
+      }))
+    );
   } catch (err) {
     console.error('[zti-hub] devices list error:', err);
     res.status(500).json({ message: err.message });
