@@ -49,7 +49,7 @@ def check_sufficiency(policy_family: str, org_memory: str) -> dict:
         return {
             "sufficient": False,
             "missing": required,
-            "reasons": {k: f"info checker failed to evaluate: {str(e)}" for k in required},
+            "reasons": {k: "info checker failed to evaluate" for k in required},
             "prompts": {k: REQUIREMENT_DESCRIPTIONS.get(k, k) for k in required},
         }
 

@@ -260,40 +260,6 @@ router.post('/beacon', requireDevice, async (req, res) => {
   }
 });
 
-// Upload OpenVAS vulnerability findings JSON to Supabase Storage (bucket: openvas).
-router.post('/openvas/report', requireDevice, async (req, res) => {
-  try {
-    const findings = Array.isArray(req.body?.findings) ? req.body.findings : [];
-    const jobId = req.body?.job_id ? String(req.body.job_id).slice(0, 80) : null;
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const suffix = jobId ? `_${jobId}` : `_${timestamp}`;
-    // Save at bucket root so files are visible immediately in the Storage UI.
-    const objectPath = `openvas_report${suffix}.json`;
-
-    const payload = {
-      collected_at: new Date().toISOString(),
-      org_id: req.orgId,
-      device_id: req.deviceId,
-      job_id: jobId,
-      source: 'openvas',
-      total_findings: findings.length,
-      findings,
-    };
-
-    const body = Buffer.from(JSON.stringify(payload, null, 2), 'utf8');
-    const { error } = await supabaseAdmin.storage.from('openvas').upload(objectPath, body, {
-      upsert: true,
-      contentType: 'application/json',
-    });
-    if (error) throw error;
-
-    res.json({ ok: true, path: objectPath, bucket: 'openvas', total: findings.length });
-  } catch (err) {
-    console.error('[zti-hub] openvas report save error:', err);
-    res.status(500).json({ message: err.message });
-  }
-});
-
 // Claim queued jobs: marks them 'running' and returns them with check details.
 router.get('/jobs/next', requireDevice, async (req, res) => {
   try {

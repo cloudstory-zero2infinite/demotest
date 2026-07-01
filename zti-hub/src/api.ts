@@ -39,21 +39,14 @@ export class HubApi {
   }
 
   private async req<T>(path: string, options: RequestInit = {}): Promise<T> {
-    const url = `${this.cfg.apiBaseUrl}${path}`;
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          'X-ZTI-Device-Token': this.cfg.token as string,
-          ...(options.headers || {}),
-        },
-      });
-    } catch (e: any) {
-      const causeCode = e?.cause?.code ? ` (${e.cause.code})` : '';
-      throw new Error(`Network error calling ${url}${causeCode}. Ensure backend is running and API URL is correct.`);
-    }
+    const res = await fetch(`${this.cfg.apiBaseUrl}${path}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-ZTI-Device-Token': this.cfg.token as string,
+        ...(options.headers || {}),
+      },
+    });
     if (!res.ok) {
       let msg = res.statusText;
       try {
@@ -154,15 +147,5 @@ export class HubApi {
       method: 'POST',
       body: JSON.stringify({ findings }),
     });
-  }
-
-  saveOpenvasReport(body: { findings: unknown[]; job_id?: string }) {
-    return this.req<{ ok: boolean; path: string; bucket: string; total: number }>(
-      '/api/zti-hub/openvas/report',
-      {
-        method: 'POST',
-        body: JSON.stringify(body),
-      }
-    );
   }
 }
