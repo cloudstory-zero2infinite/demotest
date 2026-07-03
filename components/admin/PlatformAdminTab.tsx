@@ -46,61 +46,6 @@ const RoleBadge: React.FC<{ role: string }> = ({ role }) => {
     return <span className="text-sm text-gray-600 dark:text-gray-400">{map[role] ?? role}</span>;
 };
 
-// ─── Last Login Badge ───────────────────────────────────────────────────────
-const LastLoginBadge: React.FC<{ lastLogin: string | null }> = ({ lastLogin }) => {
-    if (!lastLogin) {
-        return (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">
-                <span className="w-1.5 h-1.5 rounded-full bg-gray-500 inline-block" />
-                Never logged in
-            </span>
-        );
-    }
-
-    const loginDate = new Date(lastLogin);
-    const now = new Date();
-    const diffMs = now.getTime() - loginDate.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffMinutes = Math.floor(diffMs / (1000 * 60));
-
-    let displayText = '';
-    let isActive = false;
-
-    if (diffMinutes < 60) {
-        displayText = `Online now`;
-        isActive = true;
-    } else if (diffHours < 24) {
-        displayText = `${diffHours}h ago`;
-        isActive = true;
-    } else if (diffDays === 1) {
-        displayText = `Yesterday`;
-        isActive = false;
-    } else if (diffDays <= 7) {
-        displayText = `${diffDays}d ago`;
-        isActive = false;
-    } else {
-        displayText = `${diffDays}d ago`;
-        isActive = false;
-    }
-
-    const bgColor = isActive
-        ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300'
-        : 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300';
-
-    const dotColor = isActive ? 'bg-green-500' : 'bg-blue-500';
-
-    return (
-        <div className="flex flex-col gap-1">
-            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium w-fit ${bgColor}`}>
-                <span className={`w-1.5 h-1.5 rounded-full inline-block ${dotColor}`} />
-                {displayText}
-            </span>
-            <span className="text-xs text-gray-500 dark:text-gray-400">{loginDate.toLocaleString()}</span>
-        </div>
-    );
-};
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean }> = ({ isActive = true, readOnly = false }) => {
@@ -508,7 +453,6 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                                     <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Role</th>
                                     <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Status</th>
                                     <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Added</th>
-                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Last Login</th>
                                     {!readOnly && (
                                         <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Actions</th>
                                     )}
@@ -563,9 +507,6 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
                                                 {member.created_at ? new Date(member.created_at).toLocaleDateString() : '—'}
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <LastLoginBadge lastLogin={member.last_login} />
                                             </td>
                                             {!readOnly && (
                                                 <td className="px-6 py-4 whitespace-nowrap text-right">
