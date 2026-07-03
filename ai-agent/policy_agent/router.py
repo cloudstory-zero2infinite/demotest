@@ -36,7 +36,7 @@ class DraftRequest(BaseModel):
     policy_family: PolicyFamily = "generic"
     user_prompt: str                  # what the user typed in the AI box
     top_k: int = 8
-
+    org_name: str | None = None 
 
 class OrgMemorySubmitRequest(BaseModel):
     org_id: str
@@ -70,6 +70,7 @@ async def draft_policy(req: DraftRequest):
         try:
             # 1. Load org memory and run the info checker.
             org_mem = orgmem.get_org_memory(req.org_id)
+            org_name = req.org_name or orgmem.get_org_name(req.org_id)
             check = check_sufficiency(req.policy_family, org_mem)
 
             if not check["sufficient"]:

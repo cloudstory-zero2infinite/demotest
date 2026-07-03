@@ -25,7 +25,7 @@ export const OrgTemplatesTab: React.FC<OrgTemplatesTabProps> = ({ isActive = tru
         try {
             setTemplates(await SupabaseService.getEmailTemplates());
         } catch {
-            /* surfaced via empty state */
+          
         } finally {
             setLoading(false);
         }

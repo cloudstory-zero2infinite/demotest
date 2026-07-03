@@ -7,7 +7,7 @@ const router = Router();
 // GET /api/org-settings — returns org settings, auto-creates default if none
 router.get('/', requireAuth, async (req, res) => {
   try {
-    // Fetch org_settings row
+    
     const { data, error } = await supabaseAdmin
       .from('org_settings')
       .select('policy_refresh_months, policy_expiry_template_id')

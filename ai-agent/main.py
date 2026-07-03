@@ -28,7 +28,7 @@ app.include_router(policy_router, prefix="/policy")
 from mapper_agent.router import router as mapper_router
 app.include_router(mapper_router, prefix="/mapper")
 
-# Fw-ControlRegistry Agent — recomputes an org's standard control_registry
+
 # rows from the SCF reference tables based on its framework selection.
 from fwcr_agent.router import router as fwcr_router
 app.include_router(fwcr_router, prefix="/fwcr")
@@ -96,7 +96,7 @@ MODULE_SYSTEM_PROMPTS = {
         "Rules:\n"
         "- name: descriptive vulnerability name (e.g. 'SQL Injection in Web App', 'XSS in Login Page')\n"
         "- description: detailed technical description of vulnerability\n"
-        "- derived_from: must be exactly one of: KEV, Scanning, PT, Reported-Ext\n"
+        "- derived_from: must be exactly one of: KEV, Scanning, PT, Reported-Ext, AD\n"
         "- status: must be exactly one of: Planned, Remediated, NA\n"
         "- asset_id: ALWAYS use null (do not include asset_id field at all, even if asset mentioned)\n"
         "- vuln_id: auto-generated UUID, do not include\n"

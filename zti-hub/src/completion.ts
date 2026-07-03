@@ -4,7 +4,7 @@
 //   zti completion zsh  >> ~/.zshrc
 //
 // Dynamic value completion (live SCF ids, scan job-ids) needs a backend round
-// trip and is intentionally out of scope here — this covers the verbs/subverbs.
+// trip and is intentionally out of scope here — this covers the verbs/subverbs
 
 const SUBCOMMANDS = [
   'authenticate',

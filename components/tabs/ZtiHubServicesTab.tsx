@@ -20,7 +20,7 @@ export const ZtiHubServicesTab: React.FC<{ isActive?: boolean }> = ({ isActive =
     setActiveSubTab(id);
     setMountedSubTabs((prev) => new Set(prev).add(id));
   };
-
+//sub tabs for the ZTI Hub Services tab, including Vulnerability Assessment, CSPM, Pentesting, and Code Review
   const subTabs: { id: SubTab; label: string }[] = [
     { id: 'va', label: 'Vulnerability Assessment' },
     { id: 'cspm', label: 'CSPM' },

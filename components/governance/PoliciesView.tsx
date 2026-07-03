@@ -52,7 +52,7 @@ const STATUS_META: Record<string, { label: string; border: string; badge: string
 };
 
 // A policy is overdue once its due date has lapsed. The cron flips approved →
-// 'overdue', but we also treat an approved policy whose date has just passed
+// 'overdue', but we also treat an approved policy whose date has just passed'
 // (before the cron runs) as overdue so the UI is never stale. Only 'approved'
 // policies carry a due date, so 'reviewed'/others can never be overdue.
 const isExpired = (p: PolicyV2) =>

@@ -7,7 +7,7 @@ import { StatusBadge } from '../common/StatusBadge';
 import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
 import { parseCSVLine } from '../../utils/csvParser';
 
-// Helper function to sanitize input
+
 const sanitizeInput = (input: string): string => {
     return input
         .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters

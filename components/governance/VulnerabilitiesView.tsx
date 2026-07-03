@@ -41,7 +41,7 @@ const sanitizeInput = (input: string): string => {
 
     return input
 
-        .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
+        .replace(/[\x00-\x1F\x7F]/g, '') 
 
         .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '') // Remove script tags
 
@@ -87,7 +87,7 @@ const VulnerabilityModal: React.FC<VulnerabilityModalProps> = ({ isOpen, onClose
 
     const autocompleteRef = useRef<HTMLDivElement>(null);
 
-    const vulnerabilitySources: VulnerabilitySource[] = ['KEV', 'Scanning', 'PT', 'Reported-Ext'];
+    const vulnerabilitySources: VulnerabilitySource[] = ['KEV', 'Scanning', 'PT', 'Reported-Ext', 'AD'];
 
     useEffect(() => {
 
@@ -1465,7 +1465,7 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
                                             return (
                                                 <td key={colKey} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                                     {isEditing && selectedIds.has(vuln.id) ? (
-                                                        <select value={editValues[vuln.id]?.derived_from ?? vuln.derived_from} onChange={e => updateField(vuln.id, 'derived_from', e.target.value as any)} className="border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400"><option>KEV</option><option>Scanning</option><option>PT</option><option>Reported-Ext</option></select>
+                                                        <select value={editValues[vuln.id]?.derived_from ?? vuln.derived_from} onChange={e => updateField(vuln.id, 'derived_from', e.target.value as any)} className="border border-blue-300 dark:border-blue-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-400"><option>KEV</option><option>Scanning</option><option>PT</option><option>Reported-Ext</option><option>AD</option></select>
                                                     ) : vuln.derived_from}
                                                 </td>
                                             );

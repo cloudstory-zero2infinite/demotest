@@ -14,7 +14,7 @@ const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY as strin
 
 
 
-// Handle missing environment variables gracefully
+
 
 let supabase: SupabaseClient;
 

@@ -64,7 +64,7 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
             .slice(0, 30);
     }, [frameworks, search]);
 
-    // Selected frameworks that are NOT in the catalog (legacy values stored
+    // Selected frameworks that are NOT in the catalog (legacy values stored)
     // before the SCF picker existed). Surface them so admins can see + remove.
     const orphanSelected = useMemo(() => {
         const names = new Set(frameworks.map((f) => f.name));

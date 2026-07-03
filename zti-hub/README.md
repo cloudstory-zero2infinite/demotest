@@ -49,7 +49,7 @@ long-lived, per-device, revocable credential scoped to your organization — it 
 2. In the app, press ▶ on an SCF control that has associated checks. This queues
    one job per associated check.
 3. Within ~60s the hub claims the jobs, runs them (mock or Prowler), and posts
-   results back. Click **results** on the row to see pass/fail.
+   results back. Click **results** on the row to see pass/fail
 
 On-demand `zti check-control` / `zti check-framework` bypass the queue and run
 immediately, recording results the same way.

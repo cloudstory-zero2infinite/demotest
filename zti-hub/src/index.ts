@@ -66,7 +66,7 @@ async function main() {
       break;
 
     case 'check-framework':
-      // Allow unquoted multi-word framework names.
+      // Allow unquoted multi-word framework names
       await checkFramework([sub, ...rest].filter(Boolean).join(' '));
       break;
 

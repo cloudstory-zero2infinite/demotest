@@ -70,7 +70,7 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
     const [actionLoading, setActionLoading] = useState<number | null>(null);
     const [confirmRemove, setConfirmRemove] = useState<number | null>(null);
 
-    // Contacts
+    // Contact
     const [contacts, setContacts] = useState<OrgContact[]>([]);
     const [contactModal, setContactModal] = useState<{ type: 'add' | 'edit' | 'view' | 'delete' | null; contact?: OrgContact }>({ type: null });
     const [contactForm, setContactForm] = useState({ name: '', email: '', department: '' });
@@ -733,33 +733,39 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                             <thead className="bg-gray-50 dark:bg-gray-900">
                                 <tr>
                                     <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Device</th>
+                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Sources</th>
+                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Last active</th>
                                     <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Status</th>
-                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">GCP</th>
-                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Last beacon</th>
-                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Action</th>
+                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800">
                                 {hubDevices.map(d => {
-                                    const revoked = !!d.revoked_at;
+                                    const isOnline = d.online;
                                     return (
-                                        <tr key={d.id} className={revoked ? 'opacity-50' : ''}>
-                                            <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white font-mono">{d.device_name || '—'}</td>
+                                        <tr key={d.id}>
+                                            <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">zti-hub</td>
+                                            <td className="px-6 py-3 text-sm text-gray-600 dark:text-gray-300">
+                                                {(d.sources?.length ?? 0) > 0 ? (
+                                                    <div className="flex flex-wrap gap-1.5">
+                                                        {d.sources.map((src) => (
+                                                            <span key={src} className="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">{src}</span>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-gray-400">—</span>
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">{d.last_beacon_at ? new Date(d.last_beacon_at).toLocaleString() : '—'}</td>
                                             <td className="px-6 py-3 whitespace-nowrap text-sm">
-                                                {revoked ? (
-                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300">Revoked</span>
-                                                ) : d.online ? (
+                                                {isOnline ? (
                                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"><span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block animate-pulse" />Online</span>
                                                 ) : (
                                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"><span className="w-1.5 h-1.5 rounded-full bg-gray-400 inline-block" />Offline</span>
                                                 )}
                                             </td>
-                                            <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">{d.gcp_integrated ? (d.gcp_project_id || 'integrated') : '—'}</td>
-                                            <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">{d.last_beacon_at ? new Date(d.last_beacon_at).toLocaleString() : 'never'}</td>
                                             <td className="px-6 py-3 whitespace-nowrap text-sm text-right">
-                                                {revoked ? (
-                                                    <span className="text-xs text-gray-400">—</span>
-                                                ) : hubConfirmRevoke === d.id ? (
+                                                {hubConfirmRevoke === d.id ? (
                                                     <span className="inline-flex items-center gap-2">
                                                         <button onClick={() => handleRevokeHubDevice(d.id)} disabled={hubRevoking === d.id} className="text-xs font-medium text-white bg-red-600 px-2 py-1 rounded hover:bg-red-700 disabled:opacity-50">{hubRevoking === d.id ? 'Removing…' : 'Confirm'}</button>
                                                         <button onClick={() => setHubConfirmRevoke(null)} disabled={hubRevoking === d.id} className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">Cancel</button>

@@ -85,7 +85,7 @@ function targetLabel(t: ScanTarget): string {
   return `${t.type.toUpperCase()} ${t.value}`;
 }
 
-// ── Red authorization consent pane ────────────────────────────────────────────
+// ── Red authorization consent pane ───────────────────────
 async function confirmAuthorization(t: ScanTarget): Promise<boolean> {
   const line = '═'.repeat(64);
   console.log('');

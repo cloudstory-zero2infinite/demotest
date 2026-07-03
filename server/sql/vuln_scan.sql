@@ -14,7 +14,7 @@ create table if not exists public.vuln_scan_jobs (
   target_type  text not null check (target_type in ('all','subnet','ip','local')),
   target_value text,                                  -- CIDR / IP / null for all|local
   authorized   boolean not null default false,        -- operator affirmed authorization
-  consent_by   text,                                  -- device name / operator identity
+  consent_by   text,                                  -- device name 
   consent_at   timestamptz,
   status       text not null default 'running'
                check (status in ('running','completed','failed','staged','imported')),
@@ -65,3 +65,12 @@ alter table public.vulnerability_management
 -- bypasses RLS. Enable RLS with no permissive policies so nothing else can read.
 alter table public.vuln_scan_jobs     enable row level security;
 alter table public.vuln_scan_findings enable row level security;
+
+-- AD audit jobs (scanner='ad') import findings with derived_from='AD'. The original
+-- vulnerability_management check only allowed KEV|Scanning|PT|Reported-Ext.
+alter table public.vulnerability_management
+  drop constraint if exists vulnerability_management_derived_from_check;
+
+alter table public.vulnerability_management
+  add constraint vulnerability_management_derived_from_check
+  check (derived_from in ('KEV', 'Scanning', 'PT', 'Reported-Ext', 'AD'));

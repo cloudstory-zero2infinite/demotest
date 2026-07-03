@@ -61,7 +61,9 @@ export const PolicyAIDraftModal: React.FC<PolicyAIDraftModalProps> = ({ isOpen, 
         setStreaming(true);
 
         try {
-            const orgId = await SupabaseService.getUserOrgId();
+            const me = await SupabaseService.getOrgMe();
+            const orgId = me?.orgId;
+            const orgName = me?.orgName;
             if (!orgId) {
                 setError('No organisation found for current user.');
                 setStreaming(false);
@@ -74,6 +76,7 @@ export const PolicyAIDraftModal: React.FC<PolicyAIDraftModalProps> = ({ isOpen, 
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     org_id: orgId,
+                    org_name: orgName,
                     policy_type: policyType,
                     policy_family: policyFamily,
                     user_prompt: userPrompt,
