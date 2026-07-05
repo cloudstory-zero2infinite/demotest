@@ -263,3 +263,22 @@ export interface QaRun {
   error: string | null;
   hasReport: boolean;
 }
+
+// A persisted run row from the `e2e_runs` table (written by the GitHub Action).
+// Powers the "runs over time" chart on the Quality Analytics tab.
+export interface QaRunRecord {
+  id: string;
+  source: string; // 'post-deploy' | 'manual' | 'test'
+  environment: string; // 'pre-prod' | 'prod'
+  app_version: string | null;
+  total: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+  flaky: number;
+  success_pct: number | null;
+  confidence: number | null;
+  status: string | null;
+  finished_at: string | null;
+  created_at: string;
+}

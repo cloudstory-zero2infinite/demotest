@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
+import { supabaseAdmin } from '../supabase.js';
 import {
   listSuites,
   listTests,
@@ -13,6 +14,24 @@ import {
 } from '../lib/qa-runner.js';
 
 const router = Router();
+
+// Historical E2E runs recorded by the GitHub Action (table `e2e_runs`).
+// Read-only — powers the "runs over time" chart in the Quality Analytics tab.
+router.get('/runs', requireAuth, async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 2000, 5000);
+    const { data, error } = await supabaseAdmin
+      .from('e2e_runs')
+      .select('id, source, environment, app_version, total, passed, failed, skipped, flaky, success_pct, confidence, status, finished_at, created_at')
+      .order('finished_at', { ascending: true })
+      .limit(limit);
+    if (error) throw error;
+    res.json({ runs: data || [] });
+  } catch (err) {
+    console.error('[qa] runs error:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
 
 // List available suites + whether a run is currently in progress.
 router.get('/suites', requireAuth, async (_req, res) => {

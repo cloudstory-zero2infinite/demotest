@@ -22,6 +22,7 @@ import {
   QaSuitesResponse,
   QaTestsResponse,
   QaRun,
+  QaRunRecord,
 } from '../types';
 
 // Empty string → same-origin (production). Undefined → fall back to localhost (dev).
@@ -250,6 +251,9 @@ export async function signOut() {
 export const listQaSuites = () => request<QaSuitesResponse>('/api/internal/qa/suites');
 
 export const listQaTests = () => request<QaTestsResponse>('/api/internal/qa/tests');
+
+export const listQaRuns = () =>
+  request<{ runs: QaRunRecord[] }>('/api/internal/qa/runs');
 
 export const startQaRun = (suite: string) =>
   request<QaRun>('/api/internal/qa/run', {
