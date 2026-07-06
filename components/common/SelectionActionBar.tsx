@@ -89,13 +89,21 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({
                     </span>
                     <button
                         onClick={onConfirmDelete}
-                        className="px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded-full text-sm font-medium transition-colors"
+                        disabled={isSaving}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed rounded-full text-sm font-medium transition-colors"
                     >
-                        Confirm
+                        {isSaving ? (
+                            <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                            </svg>
+                        ) : null}
+                        {isSaving ? 'Deleting…' : 'Confirm'}
                     </button>
                     <button
                         onClick={onCancelDelete}
-                        className="px-3 py-1.5 text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-700 rounded-full transition-colors"
+                        disabled={isSaving}
+                        className="px-3 py-1.5 text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-full transition-colors"
                     >
                         Cancel
                     </button>
