@@ -214,7 +214,7 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
 
 
-        // Handle custom field
+        // Handle custom fields
 
         if (name.startsWith('custom_field_')) {
 
@@ -2437,9 +2437,9 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
     return (
         <div>
-            <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
-                <div className="w-full sm:w-1/3 flex flex-col gap-2">
-                    <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+                <div className="flex-1 min-w-0 flex flex-col gap-2 w-full">
+                    <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1.5 pt-0.5">
                         <button
                             onClick={() => {
                                 setFilter('');
@@ -2491,17 +2491,19 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                             );
                         })}
                     </div>
-                    <input
-                        type="text"
-                        placeholder="Filter assets..."
-                        value={filter}
-                        onChange={e => setFilter(e.target.value)}
-                        className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                        aria-label="Filter assets"
-                        data-testid="asset-filter-input"
-                    />
+                    <div className="w-full sm:w-80">
+                        <input
+                            type="text"
+                            placeholder="Filter assets..."
+                            value={filter}
+                            onChange={e => setFilter(e.target.value)}
+                            className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                            aria-label="Filter assets"
+                            data-testid="asset-filter-input"
+                        />
+                    </div>
                 </div>
-                <div className="flex space-x-2">
+                <div className="flex space-x-2 flex-shrink-0">
                     <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
                     <button onClick={() => setShowAIChat(true)} title="AI Generate" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <BotIcon className="h-5 w-5" />
@@ -2509,7 +2511,7 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                     <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <UploadIcon className="h-5 w-5" />
                     </button>
-                    <button onClick={handleExportCSV} title="Export CSV" data-testid="assets-export-csv" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                    <button onClick={handleExportCSV} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <DownloadIcon className="h-5 w-5" />
                     </button>
                     <button onClick={() => setModalState({ type: 'add' })} title="Add Asset" aria-label="Add new asset" data-testid="asset-add-btn" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">

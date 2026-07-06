@@ -1433,6 +1433,10 @@ export const updateCapability = async (id: string, updates: CapabilityUpdate): P
 
 };
 
+export const deleteCapability = async (id: string): Promise<void> => {
+  return apiRequest<void>(`/api/capabilities/${id}`, { method: 'DELETE' });
+};
+
 
 
 export const deleteCapabilitiesBulk = async (ids: string[]): Promise<void> => {
@@ -2060,6 +2064,16 @@ export const updateAssetRelationship = async (id: string, relationship: any): Pr
 
 };
 
+export const deleteAssetRelationship = async (id: string): Promise<void> => {
+  try {
+    return await apiRequest<void>(`/api/assets/relationships/${id}`, {
+      method: 'DELETE',
+    });
+  } catch {
+    return;
+  }
+};
+
 
 
 export const bulkAddAssetRelationships = async (relationships: AssetRelationshipCreate[]): Promise<{ data: any[]; inserted: number; total: number; skipped: number; errors: number; errorDetails?: any[] }> => {
@@ -2166,13 +2180,13 @@ export const deleteAssetRelationshipsBulk = async (ids: string[]): Promise<{ del
 
 
 
-export const getOrgSettings = async (): Promise<{ policy_refresh_months: number; policy_expiry_template_id: string | null; needed_framework: string[] }> =>
+export const getOrgSettings = async (): Promise<{ policy_refresh_months: number; policy_expiry_template_id: string | null; needed_framework: string[]; logo_url?: string | null; signature_url?: string | null; selected_template_id?: string | null }> =>
 
   apiRequest('/api/org-settings');
 
 
 
-export const updateOrgSettings = async (settings: { policy_refresh_months?: number; needed_framework?: string[]; policy_expiry_template_id?: string | null }): Promise<{ policy_refresh_months: number; policy_expiry_template_id: string | null; needed_framework?: string[] }> =>
+export const updateOrgSettings = async (settings: { policy_refresh_months?: number; needed_framework?: string[]; policy_expiry_template_id?: string | null; selected_template_id?: string | null }): Promise<{ policy_refresh_months: number; policy_expiry_template_id: string | null; needed_framework: string[]; logo_url?: string | null; signature_url?: string | null; selected_template_id?: string | null }> =>
 
   apiRequest('/api/org-settings', { method: 'PUT', body: JSON.stringify(settings) });
 
@@ -2190,6 +2204,176 @@ export const updateEmailTemplate = async (id: string, t: { name?: string; subjec
 
 export const deleteEmailTemplate = async (id: string): Promise<void> =>
   apiRequest(`/api/email-templates/${id}`, { method: 'DELETE' });
+
+// ── Policy Templates ───────────────────────────────────────────────────────
+export const getPolicyTemplates = async (): Promise<any[]> =>
+  apiRequest('/api/policy-templates');
+
+export const createPolicyTemplate = async (formData: FormData): Promise<any> => {
+  let token = cachedToken;
+  if (!token) {
+    const { data } = await supabase.auth.getSession();
+    token = data.session?.access_token || null;
+    cachedToken = token;
+  }
+  const response = await fetch(`${API_BASE_URL}/api/policy-templates`, {
+    method: 'POST',
+    body: formData,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    }
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: response.statusText }));
+    throw new Error(err.message || 'Failed to upload template');
+  }
+  return response.json();
+};
+
+export const updatePolicyTemplate = async (id: string, t: { name?: string; description?: string; header_text?: string; footer_text?: string; placeholders?: any; content_html?: string }): Promise<any> =>
+  apiRequest(`/api/policy-templates/${id}`, { method: 'PUT', body: JSON.stringify(t) });
+
+export const deletePolicyTemplate = async (id: string): Promise<void> =>
+  apiRequest(`/api/policy-templates/${id}`, { method: 'DELETE' });
+
+export const uploadTemplateAsset = async (arg: { file?: File; base64?: string; filename?: string }): Promise<{ publicUrl: string }> => {
+  let token = cachedToken;
+  if (!token) {
+    const { data } = await supabase.auth.getSession();
+    token = data.session?.access_token || null;
+    cachedToken = token;
+  }
+  
+  let body: any;
+  let contentType: string | undefined = undefined;
+  
+  if (arg.file) {
+    const formData = new FormData();
+    formData.append('file', arg.file);
+    body = formData;
+  } else if (arg.base64) {
+    body = JSON.stringify({ base64: arg.base64, filename: arg.filename });
+    contentType = 'application/json';
+  } else {
+    throw new Error('Must provide either file or base64 data');
+  }
+
+  const response = await fetch(`${API_BASE_URL}/api/policy-templates/upload-asset`, {
+    method: 'POST',
+    body,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(contentType ? { 'Content-Type': contentType } : {}),
+    }
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: response.statusText }));
+    throw new Error(err.message || 'Failed to upload template asset');
+  }
+  return response.json();
+};
+
+// ── Logo and Signature Upload ──────────────────────────────────────────────
+export const uploadLogo = async (file: File): Promise<{ logo_url: string }> => {
+  let token = cachedToken;
+  if (!token) {
+    const { data } = await supabase.auth.getSession();
+    token = data.session?.access_token || null;
+    cachedToken = token;
+  }
+  const formData = new FormData();
+  formData.append('logo', file);
+  const response = await fetch(`${API_BASE_URL}/api/org-settings/logo`, {
+    method: 'POST',
+    body: formData,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    }
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: response.statusText }));
+    throw new Error(err.message || 'Failed to upload logo');
+  }
+  return response.json();
+};
+
+export const uploadSignature = async (file: File): Promise<{ signature_url: string }> => {
+  let token = cachedToken;
+  if (!token) {
+    const { data } = await supabase.auth.getSession();
+    token = data.session?.access_token || null;
+    cachedToken = token;
+  }
+  const formData = new FormData();
+  formData.append('signature', file);
+  const response = await fetch(`${API_BASE_URL}/api/org-settings/signature`, {
+    method: 'POST',
+    body: formData,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    }
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: response.statusText }));
+    throw new Error(err.message || 'Failed to upload signature');
+  }
+  return response.json();
+};
+
+export const downloadPolicyDocument = async (policyId: string, templateId?: string, format: 'pdf' | 'docx' = 'pdf') => {
+  let token = cachedToken;
+  if (!token) {
+    const { data } = await supabase.auth.getSession();
+    token = data.session?.access_token || null;
+    cachedToken = token;
+  }
+  
+  const templateParam = templateId ? `&templateId=${templateId}` : '';
+  const response = await fetch(`${API_BASE_URL}/api/policies/${policyId}/download?format=${format}${templateParam}`, {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    }
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: response.statusText }));
+    throw new Error(err.message || `Download failed with status ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${policyId}.${format}`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+export const getPolicyDocumentPreview = async (policyId: string, templateId?: string): Promise<string> => {
+  let token = cachedToken;
+  if (!token) {
+    const { data } = await supabase.auth.getSession();
+    token = data.session?.access_token || null;
+    cachedToken = token;
+  }
+  
+  const templateParam = templateId ? `&templateId=${templateId}` : '';
+  const response = await fetch(`${API_BASE_URL}/api/policies/${policyId}/download?format=pdf&preview=true${templateParam}`, {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    }
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: response.statusText }));
+    throw new Error(err.message || `Preview failed with status ${response.status}`);
+  }
+
+  return response.text();
+};
 
 
 
