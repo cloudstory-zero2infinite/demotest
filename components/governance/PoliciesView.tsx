@@ -27,6 +27,7 @@ const PROSE_STYLE = `
 .policy-prose th{background:#f3f4f6;font-weight:600}
 .policy-prose code{background:#f3f4f6;padding:.1rem .3rem;border-radius:.2rem;font-size:.85em}
 .policy-prose pre{background:#1e293b;color:#e2e8f0;padding:1rem;border-radius:.4rem;overflow:auto;margin:.5rem 0}
+.policy-prose pre code{background:transparent;padding:0;border-radius:0;color:inherit;font-size:inherit}
 .policy-prose blockquote{border-left:4px solid #3b82f6;padding:.5rem 1rem;background:#eff6ff;margin:.5rem 0}
 .policy-prose hr{border:none;border-top:1px solid #e5e7eb;margin:1rem 0}
 .policy-prose strong{font-weight:700}
@@ -52,7 +53,7 @@ const STATUS_META: Record<string, { label: string; border: string; badge: string
 };
 
 // A policy is overdue once its due date has lapsed. The cron flips approved →
-// 'overdue', but we also treat an approved policy whose date has just passed'
+// 'overdue', but we also treat an approved policy whose date has just passed
 // (before the cron runs) as overdue so the UI is never stale. Only 'approved'
 // policies carry a due date, so 'reviewed'/others can never be overdue.
 const isExpired = (p: PolicyV2) =>
@@ -160,6 +161,184 @@ const HistoryModal: React.FC<{ policy: PolicyV2; onClose: () => void }> = ({ pol
     );
 };
 
+// ─── DownloadModal ─────────────────────────────────────────────────────────────
+interface DownloadModalProps {
+    policy: PolicyV2;
+    onClose: () => void;
+    userRole?: string | null;
+}
+const DownloadModal: React.FC<DownloadModalProps> = ({ policy, onClose, userRole }) => {
+    const [templates, setTemplates] = useState<any[]>([]);
+    const [selectedTemplateId, setSelectedTemplateId] = useState('');
+    const [format, setFormat] = useState<'pdf' | 'docx'>('pdf');
+    const [loading, setLoading] = useState(true);
+    const [downloading, setDownloading] = useState(false);
+    const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+    const [previewLoading, setPreviewLoading] = useState(false);
+    const [isOpen, setIsOpen] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    const isAdmin = ['admin', 'tenant_admin', 'cxo'].includes(userRole || '');
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    useEffect(() => {
+        Promise.all([
+            SupabaseService.getPolicyTemplates(),
+            SupabaseService.getOrgSettings()
+        ]).then(([temps, settings]) => {
+            setTemplates(temps || []);
+            setSelectedTemplateId(settings?.selected_template_id || '');
+        }).catch(() => {}).finally(() => setLoading(false));
+    }, []);
+
+    const handleDownload = async () => {
+        setDownloading(true);
+        try {
+            await SupabaseService.downloadPolicyDocument(policy.policy_id, selectedTemplateId || undefined, format);
+            onClose();
+        } catch (err: any) {
+            alert('Failed to generate document: ' + err.message);
+        } finally {
+            setDownloading(false);
+        }
+    };
+
+    const handlePreview = async (templateId: string) => {
+        setPreviewLoading(true);
+        try {
+            const html = await SupabaseService.getPolicyDocumentPreview(policy.policy_id, templateId || undefined);
+            setPreviewHtml(html);
+        } catch (err: any) {
+            alert('Failed to load preview: ' + err.message);
+        } finally {
+            setPreviewLoading(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700">
+                    <h2 className="text-base font-semibold text-gray-900 dark:text-white">Download Policy</h2>
+                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">&times;</button>
+                </div>
+                <div className="p-6 space-y-4">
+                    {loading ? (
+                        <div className="flex items-center justify-center py-6">
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" />
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 font-semibold">
+                                    Select Format
+                                </label>
+                                <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 p-1 bg-gray-50/50 dark:bg-gray-900/20 w-full">
+                                    <button
+                                        type="button"
+                                        onClick={() => setFormat('pdf')}
+                                        className={`flex-1 py-1.5 px-4 rounded-md text-sm font-medium transition-all ${
+                                            format === 'pdf'
+                                                ? 'bg-blue-600 text-white shadow-sm'
+                                                : 'text-gray-650 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                                        }`}
+                                    >
+                                        PDF (Recommended)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFormat('docx')}
+                                        className={`flex-1 py-1.5 px-4 rounded-md text-sm font-medium transition-all ${
+                                            format === 'docx'
+                                                ? 'bg-blue-600 text-white shadow-sm'
+                                                : 'text-gray-650 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                                        }`}
+                                    >
+                                        DOCX Word Document
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end gap-3 pt-4 border-t dark:border-gray-700">
+                                <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-800">
+                                    Cancel
+                                </button>
+
+                                <button
+                                    onClick={handleDownload}
+                                    disabled={downloading}
+                                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2 shadow-sm"
+                                >
+                                    {downloading ? (
+                                        <>
+                                            <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white" />
+                                            Generating...
+                                        </>
+                                    ) : (
+                                        'Download'
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Document Preview Modal */}
+            {previewHtml && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 animate-fade-in" onClick={() => setPreviewHtml(null)}>
+                    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-800 flex-shrink-0">
+                            <div>
+                                <h3 className="text-base font-semibold text-gray-900 dark:text-white">Document Layout Preview</h3>
+                                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Preview of generated layout with injected tenant and policy variables.</p>
+                            </div>
+                            <button onClick={() => setPreviewHtml(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-250 text-xl leading-none">&times;</button>
+                        </div>
+                        <div className="flex-1 overflow-hidden bg-gray-100 dark:bg-slate-950 p-6 flex justify-center">
+                            <iframe 
+                                srcDoc={previewHtml}
+                                title="Document Preview"
+                                className="bg-white border border-gray-200 dark:border-slate-800 shadow-xl max-w-[900px] w-full h-full"
+                                style={{ border: 'none' }}
+                            />
+                        </div>
+                        <div className="px-6 py-3.5 border-t dark:border-gray-800 flex justify-end flex-shrink-0">
+                            <button 
+                                onClick={() => setPreviewHtml(null)} 
+                                className="px-4 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 font-semibold shadow-sm transition-colors"
+                            >
+                                Close Preview
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Loading Indicator Overlay */}
+            {previewLoading && (
+                <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/30 backdrop-blur-[1px]">
+                    <div className="bg-white dark:bg-gray-850 rounded-xl p-5 shadow-2xl flex items-center gap-3 border dark:border-gray-800">
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600" />
+                        <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Generating document preview...</span>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 // ─── UserSelectionModal ─────────────────────────────────────────────────────────
 interface UserSelectionModalProps {
     title?: string;
@@ -258,12 +437,47 @@ const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUse
     const [showRejectInput, setShowRejectInput] = useState(false);
     const [saving, setSaving] = useState(false);
     const html = useMemo(() => renderMarkdown(policy.markdown || ''), [policy.markdown]);
+    const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+    const [loadingPreview, setLoadingPreview] = useState(false);
 
     useEffect(() => {
         if (policy.policy_status === 'in_approval' || policy.policy_status === 'to_review') {
             SupabaseService.getPolicyApproval(policy.policy_id).then(setPendingApproval);
         }
     }, [policy.policy_id, policy.policy_status]);
+
+    useEffect(() => {
+        let isMounted = true;
+        setLoadingPreview(true);
+        SupabaseService.getOrgSettings()
+            .then(async (settings) => {
+                if (settings && settings.selected_template_id) {
+                    try {
+                        const htmlPreview = await SupabaseService.getPolicyDocumentPreview(
+                            policy.policy_id,
+                            settings.selected_template_id
+                        );
+                        if (isMounted) {
+                            setPreviewHtml(htmlPreview);
+                        }
+                    } catch (err) {
+                        console.error("Failed to load templated preview", err);
+                    }
+                }
+            })
+            .catch((err) => {
+                console.error("Failed to load org settings", err);
+            })
+            .finally(() => {
+                if (isMounted) {
+                    setLoadingPreview(false);
+                }
+            });
+
+        return () => {
+            isMounted = false;
+        };
+    }, [policy.policy_id]);
 
     const isApprover = pendingApproval && (
         (pendingApproval.approver_id && pendingApproval.approver_id === currentUserId) ||
@@ -297,7 +511,7 @@ const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUse
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700 flex-shrink-0">
                     <div>
                         <div className="flex items-center gap-2 flex-wrap">
@@ -327,8 +541,26 @@ const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUse
                     </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-8 py-6">
-                    <div className="policy-prose text-gray-800 dark:text-gray-200" dangerouslySetInnerHTML={{ __html: html }} />
+                <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+                    {loadingPreview ? (
+                        <div className="flex-1 flex flex-col items-center justify-center gap-3 py-12 bg-gray-50 dark:bg-gray-900/10">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+                            <span className="text-sm font-semibold text-gray-500 dark:text-gray-400">Loading templated view...</span>
+                        </div>
+                    ) : previewHtml ? (
+                        <div className="flex-1 bg-gray-105 dark:bg-slate-950 p-6 flex justify-center overflow-hidden">
+                            <iframe 
+                                srcDoc={previewHtml}
+                                title="Document Preview"
+                                className="bg-white border border-gray-200 dark:border-slate-800 shadow-xl max-w-[900px] w-full h-full"
+                                style={{ border: 'none' }}
+                            />
+                        </div>
+                    ) : (
+                        <div className="flex-1 overflow-y-auto px-8 py-6">
+                            <div className="policy-prose text-gray-800 dark:text-gray-200" dangerouslySetInnerHTML={{ __html: html }} />
+                        </div>
+                    )}
                 </div>
 
                 {isApprover && (
@@ -951,6 +1183,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
     const [isDownloading, setIsDownloading] = useState(false);
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
     const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+    const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
 
     // Modal targets
     const [editorTarget, setEditorTarget] = useState<{ policy?: PolicyV2; initialMarkdown?: string } | null>(null);
@@ -958,6 +1191,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
     const [mapperOpen, setMapperOpen] = useState(false);
     const [viewTarget, setViewTarget] = useState<PolicyV2 | null>(null);
     const [historyTarget, setHistoryTarget] = useState<PolicyV2 | null>(null);
+    const [downloadTarget, setDownloadTarget] = useState<PolicyV2 | null>(null);
 
     // Inject prose styles once
     useEffect(() => {
@@ -972,7 +1206,11 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
     // Get current user
     useEffect(() => {
         SupabaseService.getOrgMe().then(me => {
-            if (me) { setCurrentUserId(me.userId); setCurrentUserEmail(me.email); }
+            if (me) { 
+                setCurrentUserId(me.userId); 
+                setCurrentUserEmail(me.email); 
+                setCurrentUserRole(me.role);
+            }
         });
     }, []);
 
@@ -1315,13 +1553,20 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
                     onEdit={() => { setViewTarget(null); setEditorTarget({ policy: viewTarget }); }}
                     onDelete={() => { setViewTarget(null); handleDelete(viewTarget); }}
                     onHistory={() => { setViewTarget(null); setHistoryTarget(viewTarget); }}
-                    onDownload={() => handleDownloadSingle(viewTarget)}
+                    onDownload={() => setDownloadTarget(viewTarget)}
                 />
             )}
             {historyTarget && (
                 <HistoryModal
                     policy={historyTarget}
                     onClose={() => setHistoryTarget(null)}
+                />
+            )}
+            {downloadTarget && (
+                <DownloadModal
+                    policy={downloadTarget}
+                    onClose={() => setDownloadTarget(null)}
+                    userRole={currentUserRole}
                 />
             )}
         </div>

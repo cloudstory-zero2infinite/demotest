@@ -29,7 +29,7 @@ export function convertHtmlToMarkdown(html) {
   if (!html) return '';
   let md = html;
 
-  // Remove whitespace/newlines between tags to avoid unwanted gap
+  // Remove whitespace/newlines between tags to avoid unwanted gaps
   md = md.replace(/>\s+</g, '><');
 
   // Convert headings
@@ -285,7 +285,7 @@ router.put('/:id', requireAuth, async (req, res) => {
           .single();
 
         if (insertErr) throw insertErr;
-         logActivity(req, {
+        logActivity(req, {
           action: 'policy_template_created',
           entity_id: newTemp.id,
           entity_name: newTemp.name,
@@ -365,7 +365,7 @@ router.post('/upload-asset', requireAuth, upload.single('file'), async (req, res
       .from('Policy-logo')
       .getPublicUrl(fileName);
 
-      logActivity(req, {
+    logActivity(req, {
       action: 'policy_template_asset_uploaded',
       entity_name: originalname,
       event_data: {
@@ -390,7 +390,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
     // 1. Fetch template to get file path
     const { data: template, error: fetchErr } = await supabaseAdmin
       .from('policy_templates')
-        .select('name, file_path')
+      .select('name, file_path')
       .eq('id', req.params.id)
       .eq('org_id', req.orgId)
       .single();

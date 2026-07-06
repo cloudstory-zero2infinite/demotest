@@ -145,7 +145,7 @@ export const PolicyAIDraftModal: React.FC<PolicyAIDraftModalProps> = ({ isOpen, 
                 alert('No organisation/user context.');
                 return;
             }
-            // 1. Submit pending entry
+            // 1. Submit pending
             const submitResp = await fetch(`${AI_AGENT_URL}/policy/org-memory`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

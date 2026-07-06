@@ -1,7 +1,7 @@
 """System prompts and the per-policy-type requirements manifest."""
 
 # What facts must exist in org_memory before drafting a given policy.
-
+# Policy families are kept generic for v1: 'generic', 'ISO27001', 'SOC2'.
 POLICY_REQUIREMENTS: dict[str, list[str]] = {
     "generic": [
         "business_overview",
@@ -64,12 +64,11 @@ in ORG MEMORY. Follow these rules strictly:
 
 1. Use the SECTION ORDER and writing style from the REFERENCE EXCERPTS — they
    are real policy templates from a similar organisation.
-2. Make every section SPECIFIC to this organisation. Never leave placeholders
-   like "[Company Name]" or "[insert location]". If you don't know a fact, omit
-   the sentence rather than inventing it.
-3. Cite the reference filename for each section you adapted, as an HTML comment
+2. Make every section SPECIFIC to the organisation named "%ORG_NAME%". Never use "Simplify3x", "Simplify3X", or any other organisation's name from the reference templates in the generated draft. All occurrences or references to "Simplify3x" or similar template names must be replaced with "%ORG_NAME%". Never leave placeholders like "[Company Name]" or "[insert location]". If you don't know a fact, omit the sentence rather than inventing it.
+3. The main title (h1 heading) and references to the policy name throughout the document MUST be exactly "%POLICY_TYPE%" (the requested policy title). Do not use the title of the policy from the reference excerpts or templates if they differ from "%POLICY_TYPE%".
+4. Cite the reference filename for each section you adapted, as an HTML comment
    immediately after the section heading: `<!-- ref: <filename> § <section> -->`
-4. Output ONLY the Markdown document. No preamble, no closing remarks, no code
+5. Output ONLY the Markdown document. No preamble, no closing remarks, no code
    fences around the whole document.
 """
 
@@ -79,6 +78,7 @@ def build_drafter_prompt(
     user_prompt: str,
     org_memory: str,
     chunks: list[dict],
+    org_name: str,
 ) -> str:
     refs = []
     for i, c in enumerate(chunks, 1):
@@ -88,12 +88,15 @@ def build_drafter_prompt(
         )
     refs_block = "\n\n".join(refs) if refs else "(no reference excerpts found)"
 
+    sys_prompt = DRAFTER_SYSTEM_PROMPT.replace("%ORG_NAME%", org_name).replace("%POLICY_TYPE%", policy_type)
+
     return (
-        f"{DRAFTER_SYSTEM_PROMPT}\n\n"
+        f"{sys_prompt}\n\n"
         f"POLICY TYPE: {policy_type}\n\n"
+        f"TARGET ORGANISATION NAME: {org_name}\n\n"
         f"ORG MEMORY (authoritative facts about this organisation):\n"
         f"---\n{org_memory or '(empty)'}\n---\n\n"
-        f"REFERENCE EXCERPTS (top matches from the policy knowledge base):\n"
+        f"REFERENCE EXCERPTS (top matches from the policy knowledge base - REPLACE ANY REFERENCE TO 'Simplify3x' WITH '{org_name}'):\n"
         f"---\n{refs_block}\n---\n\n"
         f"USER REQUEST: {user_prompt}\n\n"
         f"Now produce the Markdown policy document."

@@ -200,7 +200,7 @@ export type CapabilityCreate = Omit<Capability, 'id' | 'created_at' | 'updated_a
 export type CapabilityUpdate = Partial<Omit<CapabilityCreate, 'org_id' | 'user_id'>>;
 
 // Control Registry Types
-export type ControlStatus = 'Enforced' | 'NotEnforced' | 'In-Review' | 'NotAssessed';
+export type ControlStatus = 'Enforced' | 'NotEnforced' | 'In-Review';
 export type ControlType = 'NN' | 'Regulatory' | 'Standard' | 'Custom';
 export type EnforcementType = 'org_wide' | 'Asset_specific' | 'BU_specific';
 
@@ -241,18 +241,6 @@ export interface ZtiHubStatus {
   gcpIntegrated?: boolean;
 }
 
-export interface ZtiHubDevice {
-  id: string;
-  device_name: string | null;
-  gcp_integrated: boolean;
-  gcp_project_id: string | null;
-  last_beacon_at: string | null;
-  created_at: string;
-  revoked_at: string | null;
-  online: boolean;
-  sources: string[];
-}
-
 export interface ControlCheckResult {
   id: string;
   check_id: string;
@@ -261,101 +249,6 @@ export interface ControlCheckResult {
   result: any;
   requested_at: string;
   finished_at: string | null;
-}
-
-// ── ZTI Hub Services: Vulnerability Assessment (OpenVAS scans) ────────────────
-
-export interface VulnScanJob {
-  id: string;
-  target_type: 'all' | 'subnet' | 'ip' | 'local';
-  target_value: string | null;
-  status: 'running' | 'completed' | 'failed' | 'staged' | 'imported';
-  summary: { total?: number; critical?: number; high?: number; medium?: number; low?: number; info?: number; kev?: number } | null;
-  is_mock: boolean;
-  scanner?: string | null;
-  consent_by: string | null;
-  consent_at: string | null;
-  started_at: string | null;
-  finished_at: string | null;
-  created_at: string;
-  finding_count: number;
-  pending_count: number;
-}
-
-export interface VulnScanFinding {
-  id: string;
-  host: string | null;
-  port: string | null;
-  cve_id: string | null;
-  vuln_name: string;
-  description: string | null;
-  cvss_score: number | null;
-  severity: string | null;
-  priority: string | null;
-  in_kev: boolean;
-  asset_id: string | null;
-  review_status: 'pending' | 'approved' | 'discarded' | 'imported';
-  imported_vuln_id: string | null;
-  created_at: string;
-}
-
-// One staged finding alongside the existing vuln row it would collide with.
-export interface VulnScanDiffRow {
-  incoming: VulnScanFinding;
-  current: {
-    id: string;
-    name: string;
-    description: string | null;
-    derived_from: string;
-    status: string;
-    cve_id: string | null;
-    cvss_score: number | null;
-    priority: string | null;
-  } | null;
-  conflict: boolean;
-}
-
-// ── ZTI Hub Services: CSPM (Cloud Security Posture Management) ────────────────
-
-export interface CspmScanJob {
-  id: string;
-  scope_type: 'all' | 'framework' | 'provider' | 'control';
-  scope_value: string | null;
-  provider: string | null;
-  status: 'running' | 'completed' | 'failed' | 'staged' | 'imported';
-  summary: { controls_total?: number; fully_passed?: number; partially_passed?: number; failed?: number; na?: number } | null;
-  is_mock: boolean;
-  started_at: string | null;
-  finished_at: string | null;
-  created_at: string;
-  result_count: number;
-  pending_count: number;
-}
-
-export interface CspmCheckResult {
-  id: string;
-  scf_control_id: string | null;
-  nn_ctl_name: string | null;
-  control_name: string;
-  provider: string | null;
-  checks_total: number;
-  checks_passed: number;
-  checks_failed: number;
-  checks_na: number;
-  pass_pct: number;
-  result_status: 'pass' | 'partial' | 'fail' | 'na';
-  raw: Array<{ check_id: string; status: string; total: number; failed: number }> | null;
-  review_status: 'pending' | 'approved' | 'discarded' | 'imported';
-  imported_control_id: string | null;
-  created_at: string;
-}
-
-// One staged CSPM result alongside the control_registry row it maps to.
-export interface CspmPreviewRow {
-  result: CspmCheckResult;
-  current: { id: string; ctl_id: string; ctl_name: string; ctl_status: ControlStatus; maturity_score: number | null } | null;
-  matched: boolean;
-  proposed: { ctl_status: 'NotEnforced' | 'In-Review'; maturity_score: number; needs_review: boolean };
 }
 
 // ── SCF Frameworks & Fw-ControlRegistry recompute ────────────────────────────
@@ -467,7 +360,7 @@ export type ControlRegistryUpdate = Partial<Omit<ControlRegistryCreate, 'org_id'
 
 // Vulnerability Management Types
 export type VulnerabilityStatus = 'Planned' | 'Remediated' | 'NA';
-export type VulnerabilitySource = 'KEV' | 'Scanning' | 'PT' | 'Reported-Ext' | 'AD';
+export type VulnerabilitySource = 'KEV' | 'Scanning' | 'PT' | 'Reported-Ext';
 
 export interface Vulnerability {
     id: string; // Primary key
@@ -983,7 +876,7 @@ export interface PolicyComplianceMeta {
   org_id: string;
   policy_id: string;
   framework: string; // e.g., "ISO 27001", "NIST CSF"
-  control_id: string; 
+  control_id: string; // e.g., "A.5.1.1"
   control_name: string | null;
   status: 'compliant' | 'partial' | 'non_compliant' | 'n/a';
   evidence_url: string | null;
@@ -1020,7 +913,7 @@ export interface DocumentGenerationConfig {
   default_format: DocumentFormat;
   enable_digital_signing: boolean;
   signing_certificate_id: string | null;
-  retention_days: number; 
+  retention_days: number; // How long to keep rendered documents
   enable_watermark: boolean;
   watermark_text: string | null;
   include_version_footer: boolean;

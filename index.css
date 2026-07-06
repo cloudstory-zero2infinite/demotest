@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 @layer utilities {
-  
+  /* Hide scrollbar for Chrome, Safari, Opera and Firefox/IE/Edge */
   .scrollbar-none::-webkit-scrollbar {
     display: none;
   }
@@ -28,4 +28,3 @@
     background: rgba(156, 163, 175, 0.6);
   }
 }
-
