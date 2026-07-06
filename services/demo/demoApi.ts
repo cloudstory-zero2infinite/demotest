@@ -108,6 +108,19 @@ export const handleDemoRequest = async <T>(path: string, options: RequestInit = 
     persist();
     return { data: created, duplicates: 0, added: created.length } as T;
   }
+  if (path === '/api/program/bulk' && method === 'DELETE') {
+    const ids = (body as any).ids as (string | number)[];
+    // Update parent_id of any tasks that have parent in the list to null
+    store.programTasks.forEach(t => {
+      if (t.parent_id && ids.includes(t.parent_id)) {
+        t.parent_id = null;
+      }
+    });
+    // Remove the tasks
+    store.programTasks = store.programTasks.filter(t => !ids.includes(t.id));
+    persist();
+    return { deleted: ids.length, total: ids.length, errors: 0 } as T;
+  }
   {
     const m = matchPath('/api/program/:id', path);
     if (m) {

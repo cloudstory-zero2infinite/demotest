@@ -508,6 +508,14 @@ export const deleteTask = async (id: string): Promise<void> => {
     return apiRequest<void>(`/api/program/${id}`, { method: 'DELETE' });
 };
 
+export const deleteTasksBulk = async (ids: string[]): Promise<{ deleted: number; total: number; errors: number }> => {
+    return apiRequest<{ deleted: number; total: number; errors: number }>('/api/program/bulk', {
+        method: 'DELETE',
+        body: JSON.stringify({ ids }),
+    });
+};
+
+
 // Attach (or, with null, detach) an existing task under a parent. Two-level only.
 export const setTaskParent = async (childId: string, parentId: string | null): Promise<ProgramTask> => {
     return apiRequest<ProgramTask>(`/api/program/${childId}/parent`, {
