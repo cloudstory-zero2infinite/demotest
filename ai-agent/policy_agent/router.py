@@ -36,6 +36,7 @@ class DraftRequest(BaseModel):
     policy_family: PolicyFamily = "generic"
     user_prompt: str                  # what the user typed in the AI box
     top_k: int = 8
+    org_name: str | None = None
 
 
 class OrgMemorySubmitRequest(BaseModel):
@@ -68,8 +69,9 @@ async def draft_policy(req: DraftRequest):
 
     def event_stream():
         try:
-            # 1. Load org memory and run the info checker.
+            # 1. Load org memory, name and run the info checker.
             org_mem = orgmem.get_org_memory(req.org_id)
+            org_name = req.org_name or orgmem.get_org_name(req.org_id)
             check = check_sufficiency(req.policy_family, org_mem)
 
             if not check["sufficient"]:
@@ -99,6 +101,7 @@ async def draft_policy(req: DraftRequest):
                 user_prompt=req.user_prompt,
                 org_memory=org_mem,
                 chunks=chunks,
+                org_name=org_name,
             )
             for piece in stream_markdown(prompt):
                 yield _sse({"type": "chunk", "text": piece})

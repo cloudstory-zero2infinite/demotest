@@ -766,8 +766,8 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
     const [importProgress, setImportProgress] = useState<BulkProgress>({ total: 0, completed: 0, failed: 0, status: 'idle' });
 
     const {
-        selectedIds, isEditing, editValues, isConfirmingDelete, isSaving,
-        setIsConfirmingDelete, setIsSaving,
+        selectedIds, isEditing, editValues, isConfirmingDelete, isSaving, bulkProgress,
+        setIsConfirmingDelete, setIsSaving, startBulkOperation, incrementBulkProgress, finishBulkOperation, resetBulkProgress,
         toggle, toggleAll, clearAll, startEdit, updateField, cancelEdit,
     } = useTableSelection<ProgramTask>();
 
@@ -1130,17 +1130,34 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
     };
 
     const handleBulkDelete = async () => {
+        setIsConfirmingDelete(false);
+        startBulkOperation(selectedIds.size);
+
         try {
-            setIsSaving(true);
-            for (const id of selectedIds) {
-                await SupabaseService.deleteTask(id as string);
+            const idsToDelete = Array.from(selectedIds) as string[];
+            
+            // Use bulk deletion for efficiency with 1000+ records
+            await SupabaseService.deleteTasksBulk(idsToDelete);
+
+            // Mark all as successful since bulk operation either succeeds or fails entirely
+            for (let i = 0; i < selectedIds.size; i++) {
+                incrementBulkProgress(true);
             }
-            clearAll();
+
+            finishBulkOperation(false);
+
+            // Refresh the task list, but do NOT call clearAll() yet —
+            // that would reset bulkProgress to 'idle' and hide the progress
+            // modal before the user can see the result. The user closes it
+            // via the X button on the BulkProgressModal (which calls clearAll).
             fetchTasks();
-        } catch {
+        } catch (err) {
+            console.error('Bulk delete failed:', err);
+            for (let i = 0; i < selectedIds.size; i++) {
+                incrementBulkProgress(false);
+            }
+            finishBulkOperation(true);
             setError('Failed to delete selected tasks.');
-        } finally {
-            setIsSaving(false);
         }
     };
 
@@ -1423,18 +1440,27 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                 itemName="task"
             />
 
-            <SelectionActionBar
-                selectedCount={selectedIds.size}
-                isEditing={isEditing}
-                isConfirmingDelete={isConfirmingDelete}
-                isSaving={isSaving}
-                onEdit={() => startEdit(filteredAndSortedTasks.filter(i => selectedIds.has(i.id)), i => i.id)}
-                onSaveAll={handleSaveAll}
-                onCancelEdit={cancelEdit}
-                onDelete={() => setIsConfirmingDelete(true)}
-                onConfirmDelete={handleBulkDelete}
-                onCancelDelete={() => setIsConfirmingDelete(false)}
-                onClear={clearAll}
+            {bulkProgress.status === 'idle' && (
+                <SelectionActionBar
+                    selectedCount={selectedIds.size}
+                    isEditing={isEditing}
+                    isConfirmingDelete={isConfirmingDelete}
+                    isSaving={isSaving}
+                    onEdit={() => startEdit(filteredAndSortedTasks.filter(i => selectedIds.has(i.id)), i => i.id)}
+                    onSaveAll={handleSaveAll}
+                    onCancelEdit={cancelEdit}
+                    onDelete={() => setIsConfirmingDelete(true)}
+                    onConfirmDelete={handleBulkDelete}
+                    onCancelDelete={() => setIsConfirmingDelete(false)}
+                    onClear={clearAll}
+                />
+            )}
+
+            <BulkProgressModal
+                isOpen={bulkProgress.status !== 'idle'}
+                title="Deleting Tasks"
+                progress={bulkProgress}
+                onClose={clearAll}
             />
 
             <BulkProgressModal

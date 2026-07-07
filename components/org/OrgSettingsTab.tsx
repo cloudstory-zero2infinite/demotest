@@ -19,6 +19,12 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
     const [policyRefreshMonths, setPolicyRefreshMonths] = useState(3);
     const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([]);
     const [policyExpiryTemplateId, setPolicyExpiryTemplateId] = useState<string>('');
+    const [logoUrl, setLogoUrl] = useState<string>('');
+    const [signatureUrl, setSignatureUrl] = useState<string>('');
+    const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+    const [policyTemplates, setPolicyTemplates] = useState<any[]>([]);
+    const [uploadingLogo, setUploadingLogo] = useState(false);
+    const [uploadingSignature, setUploadingSignature] = useState(false);
     const [frameworks, setFrameworks] = useState<ScfFramework[]>([]);
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [savedSelected, setSavedSelected] = useState<Set<string>>(new Set());
@@ -35,15 +41,20 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
             SupabaseService.getOrgSettings(),
             SupabaseService.getScfFrameworks(),
             SupabaseService.getEmailTemplates(),
+            SupabaseService.getPolicyTemplates(),
         ])
-            .then(([settings, fws, templates]) => {
+            .then(([settings, fws, templates, policyTemps]) => {
                 setPolicyRefreshMonths(settings.policy_refresh_months);
                 setPolicyExpiryTemplateId(settings.policy_expiry_template_id || '');
+                setLogoUrl((settings as any).logo_url || '');
+                setSignatureUrl((settings as any).signature_url || '');
+                setSelectedTemplateId((settings as any).selected_template_id || '');
                 const saved = new Set(settings.needed_framework || []);
                 setSelected(saved);
                 setSavedSelected(new Set(saved));
                 setFrameworks(fws || []);
                 setEmailTemplates(templates || []);
+                setPolicyTemplates(policyTemps || []);
             })
             .catch(() => {})
             .finally(() => setLoading(false));
@@ -91,14 +102,16 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
         setSaving(true);
         setSaveMsg(null);
         try {
-            const prevSelected = new Set(savedSelected);
+            const prevSelected = new Set<string>(savedSelected);
             const res = await SupabaseService.updateOrgSettings({
                 policy_refresh_months: policyRefreshMonths,
                 needed_framework: [...selected],
                 policy_expiry_template_id: policyExpiryTemplateId || null,
+                selected_template_id: selectedTemplateId || null,
             });
             setPolicyRefreshMonths(res.policy_refresh_months);
             setPolicyExpiryTemplateId(res.policy_expiry_template_id || '');
+            setSelectedTemplateId((res as any).selected_template_id || '');
             const newSaved = new Set(res.needed_framework || []);
             setSavedSelected(newSaved);
             setSelected(new Set(newSaved));
@@ -177,6 +190,38 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
         }
     };
 
+    const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setUploadingLogo(true);
+        try {
+            const res = await SupabaseService.uploadLogo(file);
+            setLogoUrl(res.logo_url);
+            setSaveMsg('Logo uploaded successfully.');
+            setTimeout(() => setSaveMsg(null), 3000);
+        } catch (err: any) {
+            alert(err.message || 'Failed to upload logo.');
+        } finally {
+            setUploadingLogo(false);
+        }
+    };
+
+    const handleSignatureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setUploadingSignature(true);
+        try {
+            const res = await SupabaseService.uploadSignature(file);
+            setSignatureUrl(res.signature_url);
+            setSaveMsg('Signature uploaded successfully.');
+            setTimeout(() => setSaveMsg(null), 3000);
+        } catch (err: any) {
+            alert(err.message || 'Failed to upload signature.');
+        } finally {
+            setUploadingSignature(false);
+        }
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center py-12">
@@ -236,6 +281,8 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                     Organisation → Templates. Leave as "Built-in default" to use the standard wording.
                 </p>
             </div>
+
+            {/* Branding Assets (Logo and Signature) & Templates section removed from UI */}
 
             {/* Frameworks & Regulations */}
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 mb-6">

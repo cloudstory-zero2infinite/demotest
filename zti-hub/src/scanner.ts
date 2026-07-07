@@ -7,7 +7,7 @@ export type TargetType = 'all' | 'subnet' | 'ip' | 'local';
 
 export interface ScanTarget {
   type: TargetType;
-  value?: string; // CIDR for subnet, address for ip; unused for all|local
+  value?: string; // CIDR for subnet, address for ip; unused for all|local.
 }
 
 export interface ScanFinding {

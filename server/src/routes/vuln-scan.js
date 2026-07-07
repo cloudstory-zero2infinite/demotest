@@ -11,14 +11,41 @@ const router = Router();
 // ════════════════════════════════════════════════════════════
 
 // Create a scan job. The CLI calls this right after the operator confirms the
-// red authorization consent, then launches OpenVAS detached.
+
+// Audit jobs use target_type='local' (DB constraint) and scanner='ad' to distinguish from OpenVAS.
+const ALLOWED_TARGET_TYPES = ['all', 'subnet', 'ip', 'local'];
+const AUDIT_TARGET_ALIASES = ['ad', 'host'];
+
+function derivedFromForJob(job) {
+  if (job?.scanner === 'ad') return 'AD';
+  return 'Scanning';
+}
+
+function normalizeScanJobInput(body) {
+  const { target_type, target_value, authorized, consent_by, is_mock, scanner } = body || {};
+  const isAuditAlias = AUDIT_TARGET_ALIASES.includes(target_type);
+  const isAuditJob = scanner === 'ad' || isAuditAlias;
+  const dbTargetType = isAuditAlias ? 'local' : target_type;
+  const resolvedScanner = scanner || (isAuditJob ? 'ad' : 'openvas');
+  return {
+    dbTargetType,
+    target_value: target_value || null,
+    authorized: isAuditJob ? true : !!authorized,
+    consent_by,
+    is_mock: isAuditJob ? false : is_mock !== false,
+    scanner: resolvedScanner,
+    isAuditJob,
+  };
+}
+
 router.post('/jobs', requireDevice, async (req, res) => {
   try {
-    const { target_type, target_value, authorized, consent_by, is_mock } = req.body || {};
-    if (!['all', 'subnet', 'ip', 'local'].includes(target_type)) {
-      return res.status(400).json({ message: 'target_type must be all|subnet|ip|local' });
+    const { target_type } = req.body || {};
+    const normalized = normalizeScanJobInput(req.body);
+    if (!ALLOWED_TARGET_TYPES.includes(normalized.dbTargetType) && !AUDIT_TARGET_ALIASES.includes(target_type)) {
+      return res.status(400).json({ message: `target_type must be ${[...ALLOWED_TARGET_TYPES, ...AUDIT_TARGET_ALIASES].join('|')}` });
     }
-    if (!authorized) {
+    if (!normalized.isAuditJob && !normalized.authorized) {
       return res.status(400).json({ message: 'Scan authorization consent is required' });
     }
     const { data, error } = await supabaseAdmin
@@ -26,13 +53,14 @@ router.post('/jobs', requireDevice, async (req, res) => {
       .insert({
         org_id: req.orgId,
         device_id: req.deviceId,
-        target_type,
-        target_value: target_value || null,
-        authorized: true,
-        consent_by: consent_by || req.device?.device_name || 'cli',
+        target_type: normalized.dbTargetType,
+        target_value: normalized.target_value,
+        authorized: normalized.authorized,
+        consent_by: normalized.consent_by || req.device?.device_name || 'cli',
         consent_at: new Date().toISOString(),
         status: 'running',
-        is_mock: is_mock !== false,
+        is_mock: normalized.is_mock,
+        scanner: normalized.scanner,
       })
       .select('id')
       .single();
@@ -131,7 +159,7 @@ router.get('/jobs', requireAuth, async (req, res) => {
     if (!req.orgId) return res.json([]);
     const { data: jobs, error } = await supabaseAdmin
       .from('vuln_scan_jobs')
-      .select('id, target_type, target_value, status, summary, is_mock, consent_by, consent_at, started_at, finished_at, created_at')
+      .select('id, target_type, target_value, status, summary, is_mock, scanner, consent_by, consent_at, started_at, finished_at, created_at')
       .eq('org_id', req.orgId)
       .order('created_at', { ascending: false });
     if (error) throw error;
@@ -232,7 +260,7 @@ router.get('/jobs/:id/diff', requireAuth, async (req, res) => {
 
 // Commit analyst-approved findings into vulnerability_management. Body:
 // { approve: [findingId...], discard: [findingId...] }. Conflicting rows (matched
-// on cve_id) are updated in place; new ones are inserted (derived_from='Scanning').
+// on cve_id) are updated in place; new ones are inserted (derived_from from job scanner).
 router.post('/jobs/:id/import', requireAuth, async (req, res) => {
   try {
     if (!req.orgId) return res.status(400).json({ message: 'No organization for this user' });
@@ -249,6 +277,15 @@ router.post('/jobs/:id/import', requireAuth, async (req, res) => {
 
     let imported = 0;
     if (approve.length) {
+      const { data: job, error: jobErr } = await supabaseAdmin
+        .from('vuln_scan_jobs')
+        .select('scanner')
+        .eq('id', req.params.id)
+        .eq('org_id', req.orgId)
+        .maybeSingle();
+      if (jobErr) throw jobErr;
+      const derivedFrom = derivedFromForJob(job);
+
       const { data: findings, error } = await supabaseAdmin
         .from('vuln_scan_findings')
         .select('*')
@@ -282,7 +319,7 @@ router.post('/jobs/:id/import', requireAuth, async (req, res) => {
         const payload = {
           name: f.vuln_name,
           description: f.description,
-          derived_from: 'Scanning',
+          derived_from: derivedFrom,
           cve_id: f.cve_id,
           cvss_score: f.cvss_score,
           priority: f.priority,

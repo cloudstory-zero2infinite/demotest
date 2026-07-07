@@ -42,12 +42,14 @@ def check_sufficiency(policy_family: str, org_memory: str) -> dict:
     try:
         resp = _model().generate_content(prompt)
         data = json.loads(_strip_fences(resp.text))
-    except Exception:
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         # Fail-open is dangerous here — fail-closed so we never draft on bad context.
         return {
             "sufficient": False,
             "missing": required,
-            "reasons": {k: "info checker failed to evaluate" for k in required},
+            "reasons": {k: f"info checker failed to evaluate: {str(e)}" for k in required},
             "prompts": {k: REQUIREMENT_DESCRIPTIONS.get(k, k) for k in required},
         }
 

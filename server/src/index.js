@@ -212,7 +212,7 @@ import { controlRegistryRouter } from "./routes/control-registry.js";
 
 import { orgSettingsRouter } from "./routes/org-settings.js";
 import { emailTemplatesRouter } from "./routes/email-templates.js";
-
+import { policyTemplatesRouter } from "./routes/policy-templates.js";
 import { orgContactsRouter } from "./routes/org-contacts.js";
 
 import assetCustomFieldsRouter from "./routes/asset-custom-fields.js";
@@ -231,7 +231,6 @@ import { riskRouter } from "./routes/risk.js";
 import { ztiHubRouter } from "./routes/zti-hub.js";
 import { vulnScanRouter } from "./routes/vuln-scan.js";
 import { cspmScanRouter } from "./routes/cspm-scan.js";
-
 
 
 
@@ -318,7 +317,7 @@ app.use("/api/control-registry", controlRegistryRouter);
 
 app.use("/api/org-settings", orgSettingsRouter);
 app.use("/api/email-templates", emailTemplatesRouter);
-
+app.use("/api/policy-templates", policyTemplatesRouter);
 app.use("/api/org-contacts", orgContactsRouter);
 
 app.use("/api/mapper", mapperRouter);
@@ -373,7 +372,7 @@ app.get("*", (req, res) => {
 
 
 
-// Check for expired policies + send expiry reminders every 6 hours.
+
 // Reminder sends are idempotent (reminder_*_sent_at flags), so the 6h cadence
 // is safe — each of the 14d/7d/1d reminders goes out at most once per cycle.
 cron.schedule('0 */6 * * *', () => {

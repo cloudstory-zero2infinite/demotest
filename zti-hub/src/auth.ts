@@ -38,7 +38,7 @@ export async function authenticate(): Promise<void> {
   }
   cfg.token = token;
 
-  // Verify by beaconing once.
+  // Verify by beaconing once
   try {
     const api = new HubApi(cfg);
     const r = await api.beacon();

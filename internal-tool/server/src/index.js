@@ -46,7 +46,7 @@ app.use('/api/internal/control-checks', controlChecksRouter);
 app.use('/api/internal/platform-analytics', platformAnalyticsRouter);
 app.use('/api/internal/qa', qaRouter);
 
-// Serve the built frontend (production). In dev the Vite server handles this.
+// Serve the built frontend (production). In dev the Vite server handles this
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distPath = path.resolve(__dirname, '../../dist');

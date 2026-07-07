@@ -7,7 +7,7 @@ const router = Router();
 const CONSULTANT_MEMBER_LIMIT = 3; // 1 tenant_admin + 2 users
 const DEFAULT_FRAMEWORKS = ['CISv8.1'];
 
-// Check if org is a Consultant org and has reached its member limit
+// Check if org is a Consultant org and has reached its member limit.
 async function checkConsultantLimit(orgId) {
   const { data: org } = await supabaseAdmin
     .from('organizations')

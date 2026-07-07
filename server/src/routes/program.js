@@ -411,6 +411,68 @@ router.put('/:id/parent', requireAuth, async (req, res) => {
   }
 });
 
+// DELETE bulk tasks
+router.delete('/bulk', requireAuth, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ message: 'Invalid IDs provided' });
+    }
+
+    console.log(`=== BULK PROGRAM TASK DELETE ===`);
+    console.log(`Deleting ${ids.length} tasks`);
+
+    // Fetch records for activity logging before deleting
+    const { data: records, error: fetchError } = await supabaseAdmin
+      .from('program')
+      .select('id, program_name, task_code')
+      .in('id', ids)
+      .eq('org_id', req.orgId);
+
+    if (fetchError) {
+      console.error('Error fetching tasks for activity logging:', fetchError);
+    }
+
+    // Set parent_id of any task that points to a task in the list to null,
+    // to avoid foreign key violations.
+    await supabaseAdmin
+      .from('program')
+      .update({ parent_id: null })
+      .in('parent_id', ids)
+      .eq('org_id', req.orgId);
+
+    const { error } = await supabaseAdmin
+      .from('program')
+      .delete()
+      .in('id', ids)
+      .eq('org_id', req.orgId);
+
+    if (error) throw error;
+
+    if (records && records.length > 0) {
+      for (const record of records) {
+        await logProgramActivity(req, record.id, {
+          action: 'program_deleted',
+          event_data: {
+            program_name: record.program_name
+          }
+        });
+        await logAllActivityServer(req, {
+          action: 'Deleted Task',
+          entity_id: record.id,
+          entity_name: record.task_code || record.program_name,
+          event_data: { task_code: record.task_code, program_name: record.program_name },
+        });
+      }
+    }
+
+    res.status(200).json({ deleted: ids.length, total: ids.length, errors: 0 });
+  } catch (err) {
+    console.error('Bulk delete tasks error:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
 // DELETE task
 router.delete('/:id', requireAuth, async (req, res) => {
   try {

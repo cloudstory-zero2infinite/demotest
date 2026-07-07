@@ -17,6 +17,16 @@ def get_org_memory(org_id: str) -> str:
         return (row["content_md"] if row else "") or ""
 
 
+def get_org_name(org_id: str) -> str:
+    with db_cursor() as cur:
+        cur.execute(
+            "SELECT name FROM public.organizations WHERE id = %s",
+            (org_id,),
+        )
+        row = cur.fetchone()
+        return row["name"] if row else "the organisation"
+
+
 def submit_pending(org_id: str, proposed_by: str, diff_md: str, rationale: str | None) -> str:
     with db_cursor() as cur:
         cur.execute(

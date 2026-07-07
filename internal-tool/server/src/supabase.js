@@ -20,9 +20,14 @@ if (!supabaseUrl || !supabaseServiceKey) {
   );
 }
 
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: { persistSession: false, autoRefreshToken: false },
-  global: {
-    headers: { 'x-connection-timeout': '30000' },
-  },
-});
+export const supabaseAdmin = (supabaseUrl && supabaseServiceKey)
+  ? createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: {
+        headers: { 'x-connection-timeout': '30000' },
+      },
+    })
+  : createClient('https://placeholder.supabase.co', 'placeholder-key', {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+

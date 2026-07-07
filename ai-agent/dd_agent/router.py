@@ -28,7 +28,7 @@ from . import context as ctx
 router = APIRouter()
 
 # Number of questions sent to the model per generate_content call. Keeps each
-# JSON response small enough to avoid truncation on large questionnaires.
+# JSON response small enough to avoid truncation on large questionnaires
 QUESTION_BATCH = 20
 # The four canonical answer fields we fill for every question.
 ANSWER_FIELDS = ["answer", "comments", "evidence", "rationale"]

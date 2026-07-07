@@ -200,7 +200,7 @@ export type CapabilityCreate = Omit<Capability, 'id' | 'created_at' | 'updated_a
 export type CapabilityUpdate = Partial<Omit<CapabilityCreate, 'org_id' | 'user_id'>>;
 
 // Control Registry Types
-export type ControlStatus = 'Enforced' | 'NotEnforced' | 'In-Review' | 'NotAssessed';
+export type ControlStatus = 'Enforced' | 'NotEnforced' | 'In-Review';
 export type ControlType = 'NN' | 'Regulatory' | 'Standard' | 'Custom';
 export type EnforcementType = 'org_wide' | 'Asset_specific' | 'BU_specific';
 
@@ -241,17 +241,6 @@ export interface ZtiHubStatus {
   gcpIntegrated?: boolean;
 }
 
-export interface ZtiHubDevice {
-  id: string;
-  device_name: string | null;
-  gcp_integrated: boolean;
-  gcp_project_id: string | null;
-  last_beacon_at: string | null;
-  created_at: string;
-  revoked_at: string | null;
-  online: boolean;
-}
-
 export interface ControlCheckResult {
   id: string;
   check_id: string;
@@ -260,100 +249,6 @@ export interface ControlCheckResult {
   result: any;
   requested_at: string;
   finished_at: string | null;
-}
-
-// ── ZTI Hub Services: Vulnerability Assessment (OpenVAS scans) ────────────────
-
-export interface VulnScanJob {
-  id: string;
-  target_type: 'all' | 'subnet' | 'ip' | 'local';
-  target_value: string | null;
-  status: 'running' | 'completed' | 'failed' | 'staged' | 'imported';
-  summary: { total?: number; critical?: number; high?: number; medium?: number; low?: number; info?: number; kev?: number } | null;
-  is_mock: boolean;
-  consent_by: string | null;
-  consent_at: string | null;
-  started_at: string | null;
-  finished_at: string | null;
-  created_at: string;
-  finding_count: number;
-  pending_count: number;
-}
-
-export interface VulnScanFinding {
-  id: string;
-  host: string | null;
-  port: string | null;
-  cve_id: string | null;
-  vuln_name: string;
-  description: string | null;
-  cvss_score: number | null;
-  severity: string | null;
-  priority: string | null;
-  in_kev: boolean;
-  asset_id: string | null;
-  review_status: 'pending' | 'approved' | 'discarded' | 'imported';
-  imported_vuln_id: string | null;
-  created_at: string;
-}
-
-// One staged finding alongside the existing vuln row it would collide with.
-export interface VulnScanDiffRow {
-  incoming: VulnScanFinding;
-  current: {
-    id: string;
-    name: string;
-    description: string | null;
-    derived_from: string;
-    status: string;
-    cve_id: string | null;
-    cvss_score: number | null;
-    priority: string | null;
-  } | null;
-  conflict: boolean;
-}
-
-// ── ZTI Hub Services: CSPM (Cloud Security Posture Management) ────────────────
-
-export interface CspmScanJob {
-  id: string;
-  scope_type: 'all' | 'framework' | 'provider' | 'control';
-  scope_value: string | null;
-  provider: string | null;
-  status: 'running' | 'completed' | 'failed' | 'staged' | 'imported';
-  summary: { controls_total?: number; fully_passed?: number; partially_passed?: number; failed?: number; na?: number } | null;
-  is_mock: boolean;
-  started_at: string | null;
-  finished_at: string | null;
-  created_at: string;
-  result_count: number;
-  pending_count: number;
-}
-
-export interface CspmCheckResult {
-  id: string;
-  scf_control_id: string | null;
-  nn_ctl_name: string | null;
-  control_name: string;
-  provider: string | null;
-  checks_total: number;
-  checks_passed: number;
-  checks_failed: number;
-  checks_na: number;
-  pass_pct: number;
-  result_status: 'pass' | 'partial' | 'fail' | 'na';
-  raw: Array<{ check_id: string; status: string; total: number; failed: number }> | null;
-  review_status: 'pending' | 'approved' | 'discarded' | 'imported';
-  imported_control_id: string | null;
-  created_at: string;
-}
-
-// One staged CSPM result alongside the control_registry row it maps to.
-export interface CspmPreviewRow {
-  result: CspmCheckResult;
-  current: { id: string; ctl_id: string; ctl_name: string; ctl_status: ControlStatus; maturity_score: number | null } | null;
-  matched: boolean;
-  proposed: { ctl_status: 'NotEnforced' | 'In-Review'; maturity_score: number; needs_review: boolean };
 }
 
 // ── SCF Frameworks & Fw-ControlRegistry recompute ────────────────────────────
@@ -836,3 +731,196 @@ export interface OrgOnboarding {
 
 export type OrgOnboardingCreate = Omit<OrgOnboarding, 'id' | 'created_at' | 'updated_at'>;
 export type OrgOnboardingUpdate = Partial<OrgOnboardingCreate>;
+
+// ─── Policy Document Generation System ───────────────────────────────────
+// Enterprise-grade document generation with templates, versioning, and audit
+
+export type DocumentFormat = 'pdf' | 'docx';
+export type DocumentRenderStatus = 'pending' | 'rendering' | 'completed' | 'failed';
+
+export interface BrandingTemplate {
+  id: string;
+  org_id: string;
+  name: string;
+  description: string | null;
+  // Template variables as JSON (e.g., { "companyName": "Acme Inc", "logoUrl": "..." })
+  variables: Record<string, any>;
+  // HTML/CSS for header, footer, styling
+  header_html: string | null;
+  footer_html: string | null;
+  stylesheet: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type BrandingTemplateCreate = Omit<BrandingTemplate, 'id' | 'created_at' | 'updated_at'>;
+export type BrandingTemplateUpdate = Partial<BrandingTemplateCreate>;
+
+// Stores rendered documents (PDF/DOCX blobs) per policy version + format
+export interface RenderedDocument {
+  id: string;
+  org_id: string;
+  policy_id: string;
+  policy_version: number;
+  format: DocumentFormat;
+  status: DocumentRenderStatus;
+  file_name: string;
+  file_size_bytes: number;
+  file_hash: string; // SHA-256 hex for tamper detection
+  storage_path: string; // Supabase storage path
+  error_message: string | null;
+  rendered_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type RenderedDocumentCreate = Omit<RenderedDocument, 'id' | 'created_at' | 'updated_at'>;
+
+// Policy document version history with content snapshot
+export interface PolicyDocumentVersion {
+  id: string;
+  org_id: string;
+  policy_id: string;
+  version: number;
+  markdown_content: string; // Full markdown snapshot
+  title: string;
+  description: string | null;
+  branding_template_id: string | null;
+  injected_data: Record<string, any> | null; // Snapshot of data merged into markdown
+  change_log: string | null; // What changed in this version
+  created_by: string;
+  created_at: string;
+}
+
+export interface PolicyDocumentContent {
+  policy_id: string;
+  org_id: string;
+  policy_v2_id: string; // FK to policy_documents.id (merged with PolicyV2)
+  current_version: number;
+  title: string;
+  description: string | null;
+  markdown: string;
+  branding_template_id: string | null;
+  data_injection_rules: DataInjectionRule[] | null; // How to merge tenant/policy data
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type PolicyDocumentContentCreate = Omit<PolicyDocumentContent, 'policy_id' | 'org_id' | 'created_at' | 'updated_at' | 'current_version'>;
+export type PolicyDocumentContentUpdate = Partial<PolicyDocumentContentCreate>;
+
+// Rules for dynamic data injection (strict isolation via sandboxing)
+export interface DataInjectionRule {
+  field_name: string; // e.g., "company_name", "org_id", "policy_version"
+  source_table: string; // e.g., "organizations", "policy_documents"
+  source_column: string; // e.g., "name", "version"
+  sanitize: boolean; // HTML-escape by default
+  allow_html: boolean; // Only if explicitly trusted
+}
+
+// Signature data for tamper-proof documents
+export interface DocumentSignature {
+  id: string;
+  org_id: string;
+  document_id: string; // FK to rendered_documents.id
+  signer_id: string;
+  signer_email: string;
+  signature_method: 'digital' | 'timestamp'; // digital = PKI, timestamp = server timestamp
+  signature_data: string; // Base64-encoded signature or timestamp token
+  signed_at: string;
+  certificate_id: string | null; // For PKI signatures
+  created_at: string;
+}
+
+export type DocumentSignatureCreate = Omit<DocumentSignature, 'id' | 'created_at'>;
+
+// Audit trail for every document generation, access, sign, export event
+export interface DocumentAuditLog {
+  id: string;
+  org_id: string;
+  document_id: string;
+  actor_id: string;
+  actor_email: string;
+  action: 'generated' | 'rendered' | 'downloaded' | 'signed' | 'viewed' | 'deleted' | 'injected_data' | 'injection_failed';
+  details: Record<string, any> | null; // action-specific metadata
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
+export type DocumentAuditLogCreate = Omit<DocumentAuditLog, 'id' | 'created_at'>;
+
+// Policy document generation request (initiates the workflow)
+export interface DocumentGenerationRequest {
+  id: string;
+  org_id: string;
+  policy_id: string;
+  policy_version: number;
+  branding_template_id: string | null;
+  formats: DocumentFormat[]; // ['pdf', 'docx']
+  requested_by: string;
+  priority: 'low' | 'normal' | 'high';
+  status: 'queued' | 'processing' | 'completed' | 'partial_failure' | 'failed';
+  error_message: string | null;
+  generated_documents: string[]; // FK array to rendered_documents.id
+  created_at: string;
+  updated_at: string;
+}
+
+export type DocumentGenerationRequestCreate = Omit<DocumentGenerationRequest, 'id' | 'status' | 'error_message' | 'generated_documents' | 'created_at' | 'updated_at'>;
+
+// Policy compliance metadata (certification, compliance framework alignment)
+export interface PolicyComplianceMeta {
+  id: string;
+  org_id: string;
+  policy_id: string;
+  framework: string; // e.g., "ISO 27001", "NIST CSF"
+  control_id: string; // e.g., "A.5.1.1"
+  control_name: string | null;
+  status: 'compliant' | 'partial' | 'non_compliant' | 'n/a';
+  evidence_url: string | null;
+  last_verified_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type PolicyComplianceMetaCreate = Omit<PolicyComplianceMeta, 'id' | 'created_at' | 'updated_at'>;
+
+// Template variables snapshot (tenant-specific data at doc generation time)
+export interface TenantDataSnapshot {
+  id: string;
+  org_id: string;
+  snapshot_date: string;
+  company_name: string;
+  company_website: string | null;
+  logo_url: string | null;
+  policy_owner: string | null;
+  policy_approvers: string[]; // Email addresses
+  policy_reviewers: string[]; // Email addresses
+  department: string | null;
+  department_head: string | null;
+  custom_fields: Record<string, any>;
+  created_at: string;
+}
+
+export type TenantDataSnapshotCreate = Omit<TenantDataSnapshot, 'id' | 'created_at'>;
+
+// Configuration for document generation (org-level settings)
+export interface DocumentGenerationConfig {
+  org_id: string;
+  default_branding_template_id: string | null;
+  default_format: DocumentFormat;
+  enable_digital_signing: boolean;
+  signing_certificate_id: string | null;
+  retention_days: number; // How long to keep rendered documents
+  enable_watermark: boolean;
+  watermark_text: string | null;
+  include_version_footer: boolean;
+  include_audit_trail: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type DocumentGenerationConfigCreate = Omit<DocumentGenerationConfig, 'created_at' | 'updated_at'>;
+export type DocumentGenerationConfigUpdate = Partial<DocumentGenerationConfigCreate>;
