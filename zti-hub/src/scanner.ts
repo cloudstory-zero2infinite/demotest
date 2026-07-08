@@ -23,6 +23,16 @@ export interface ScanFinding {
   raw?: unknown;
 }
 
+// OpenVAS collector payload shape (kept local to avoid cross-module coupling).
+interface RawCollectorVuln {
+  host: string;
+  port?: string;
+  cve?: string;
+  name: string;
+  description?: string;
+  severity: string | number;
+}
+
 // ── Mock scanner ──────────────────────────────────────────────────────────────
 // Deterministic synthetic findings so the demo loop and the GUI work before a
 // real Greenbone stack is provisioned. Output is keyed off the target so re-runs
@@ -139,4 +149,24 @@ export function summarize(findings: ScanFinding[]) {
     info: by('Info'),
     kev: findings.filter((f) => f.in_kev).length,
   };
+}
+
+// Converts raw vulnerability rows (OpenVAS/local collectors) into staged findings.
+export function rawVulnsToScanFindings(rawVulns: RawCollectorVuln[]): ScanFinding[] {
+  return rawVulns.map((v) => {
+    const cvss = typeof v.severity === 'number' ? v.severity : parseFloat(String(v.severity)) || 0;
+    const { severity, priority } = prioritize(cvss, false);
+    return {
+      host: v.host || 'Unknown Host',
+      port: v.port || 'general',
+      cve_id: v.cve || 'N/A',
+      vuln_name: v.name || 'Vulnerability',
+      description: v.description || '',
+      cvss_score: cvss || null,
+      severity,
+      priority,
+      in_kev: false,
+      raw: v,
+    };
+  });
 }

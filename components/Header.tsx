@@ -39,9 +39,14 @@ export const Header: React.FC<HeaderProps> = ({
     userRole, setUserRole, isDarkMode, toggleDarkMode,
     onSignOut, userName, userEmail, userPhotoUrl, orgName, isAbcNews, openFeedback, onNavigate, onDeleteAccount
 }) => {
-    // ─── ZTI Hub connectivity (global pill; same /status the Control Registry
-    // polls to gate its ▶ run buttons) ───
+    // ─── ZTI Hub connectivity + device token (org-wide CLI auth) ───
     const [hubStatus, setHubStatus] = useState<ZtiHubStatus>({ active: false });
+    const [showHubMenu, setShowHubMenu] = useState(false);
+    const [hubToken, setHubToken] = useState<string | null>(null);
+    const [hubTokenCopied, setHubTokenCopied] = useState(false);
+    const [registeringHub, setRegisteringHub] = useState(false);
+    const hubRef = useRef<HTMLDivElement>(null);
+
     useEffect(() => {
         let cancelled = false;
         const tick = () => SupabaseService.getZtiHubStatus()
@@ -51,6 +56,32 @@ export const Header: React.FC<HeaderProps> = ({
         const iv = setInterval(tick, 25000);
         return () => { cancelled = true; clearInterval(iv); };
     }, []);
+
+    const handleGenerateHubToken = useCallback(async () => {
+        setShowHubMenu(false);
+        setShowProfileMenu(false);
+        setRegisteringHub(true);
+        try {
+            const r = await SupabaseService.registerHubDevice('zti-hub');
+            setHubToken(r.token);
+            setHubTokenCopied(false);
+        } catch (e: any) {
+            alert(e?.message || 'Failed to register hub device');
+        } finally {
+            setRegisteringHub(false);
+        }
+    }, []);
+
+    // Deep-link from `zti authenticate` (?hubConnect=1)
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const params = new URLSearchParams(window.location.search);
+        if (!params.has('hubConnect')) return;
+        params.delete('hubConnect');
+        const qs = params.toString();
+        window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
+        handleGenerateHubToken();
+    }, [handleGenerateHubToken]);
 
     // ─── Notifications ───
     const [notifications, setNotifications] = useState<UnifiedNotification[]>([]);
@@ -152,6 +183,7 @@ export const Header: React.FC<HeaderProps> = ({
     useEffect(() => {
         const handler = (e: MouseEvent) => {
             if (notifRef.current && !notifRef.current.contains(e.target as Node)) setShowNotifDropdown(false);
+            if (hubRef.current && !hubRef.current.contains(e.target as Node)) setShowHubMenu(false);
             if (profileRef.current && !profileRef.current.contains(e.target as Node)) setShowProfileMenu(false);
         };
         document.addEventListener('mousedown', handler);
@@ -267,13 +299,45 @@ export const Header: React.FC<HeaderProps> = ({
                     </div>
 
                     <div className="flex items-center space-x-2 sm:space-x-3">
-                        {/* ZTI Hub connectivity — green when a hub is beaconing for this org. */}
-                        <div
-                            title={hubStatus.active ? `ZTI Hub online${hubStatus.deviceName ? ` (${hubStatus.deviceName})` : ''}` : 'ZTI Hub offline — run `zti start` on a registered device'}
-                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${hubStatus.active ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'}`}
-                        >
-                            <span className={`inline-block w-2 h-2 rounded-full ${hubStatus.active ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`} />
-                            Hub {hubStatus.active ? 'online' : 'offline'}
+                        {/* ZTI Hub — status pill + CLI token generation */}
+                        <div className="relative" ref={hubRef}>
+                            <button
+                                type="button"
+                                onClick={() => setShowHubMenu(prev => !prev)}
+                                title={hubStatus.active ? `ZTI Hub online${hubStatus.deviceName ? ` (${hubStatus.deviceName})` : ''}` : 'ZTI Hub offline — click to connect a device'}
+                                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors hover:ring-1 hover:ring-emerald-400/50 ${hubStatus.active ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'}`}
+                            >
+                                <span className={`inline-block w-2 h-2 rounded-full ${hubStatus.active ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`} />
+                                Hub {hubStatus.active ? 'online' : 'offline'}
+                                <svg className="h-3 w-3 opacity-60" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.94a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" /></svg>
+                            </button>
+
+                            {showHubMenu && (
+                                <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-50 overflow-hidden">
+                                    <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+                                        <p className="text-sm font-semibold text-gray-900 dark:text-white">ZTI Hub</p>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                            {hubStatus.active
+                                                ? `Connected${hubStatus.deviceName ? ` — ${hubStatus.deviceName}` : ''}`
+                                                : 'No device is beaconing. Register one with the CLI.'}
+                                        </p>
+                                    </div>
+                                    <div className="p-3 space-y-2">
+                                        <button
+                                            type="button"
+                                            onClick={handleGenerateHubToken}
+                                            disabled={registeringHub}
+                                            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-gray-700/50 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:text-emerald-700 dark:hover:text-emerald-300 rounded-md transition-colors disabled:opacity-50"
+                                        >
+                                            <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                            {registeringHub ? 'Generating…' : 'Generate device token'}
+                                        </button>
+                                        <p className="text-[10px] text-gray-400 dark:text-gray-500 px-1">
+                                            For <span className="font-mono">zti authenticate</span> on your machine. Token is shown once.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Demo mode toggle — only for the ABC News tenant */}
@@ -422,6 +486,14 @@ export const Header: React.FC<HeaderProps> = ({
                                             Feedback
                                         </button>
                                         <button
+                                            onClick={handleGenerateHubToken}
+                                            disabled={registeringHub}
+                                            className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-3 disabled:opacity-50"
+                                        >
+                                            <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                            {registeringHub ? 'Generating token…' : 'ZTI Hub CLI token'}
+                                        </button>
+                                        <button
                                             disabled
                                             className="w-full text-left px-4 py-2.5 text-sm text-gray-400 dark:text-gray-500 cursor-not-allowed flex items-center gap-3"
                                             title="Coming soon"
@@ -533,6 +605,50 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
             </div>
         )}
+        {hubToken && (
+            <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 p-4" onClick={() => { setHubToken(null); setHubTokenCopied(false); }}>
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
+                    <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700">
+                        <h3 className="text-base font-semibold dark:text-white">ZTI Hub device token</h3>
+                    </div>
+                    <div className="p-5 space-y-3 text-sm">
+                        <p className="text-gray-600 dark:text-gray-300">
+                            Copy this token and paste it into the CLI when prompted by <span className="font-mono">zti authenticate</span>. It is shown only once.
+                        </p>
+                        <div className="flex gap-2">
+                            <input
+                                readOnly
+                                value={hubToken}
+                                className="flex-1 px-3 py-1.5 rounded border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 font-mono text-xs dark:text-gray-200"
+                            />
+                            <button
+                                onClick={async () => {
+                                    try {
+                                        await navigator.clipboard?.writeText(hubToken);
+                                        setHubTokenCopied(true);
+                                    } catch {
+                                        setHubTokenCopied(false);
+                                        alert('Copy failed. Please select the token and copy manually.');
+                                    }
+                                }}
+                                className={`px-3 py-1.5 rounded text-white text-sm ${hubTokenCopied ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+                            >
+                                {hubTokenCopied ? 'Copied' : 'Copy'}
+                            </button>
+                        </div>
+                        <p className="text-xs text-amber-600 dark:text-amber-400">
+                            Store it securely - it grants the hub read/run access scoped to your organization.
+                        </p>
+                    </div>
+                    <div className="px-5 py-3 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+                        <button onClick={() => { setHubToken(null); setHubTokenCopied(false); }} className="px-3 py-1.5 rounded bg-gray-200 dark:bg-gray-700 text-sm dark:text-gray-200">
+                            Done
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
         {/* ─── Change Password Modal ─── */}
         {showChangePassword && (
             <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/50 p-4" onClick={() => setShowChangePassword(false)}>

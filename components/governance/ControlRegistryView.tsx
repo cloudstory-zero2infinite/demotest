@@ -3396,9 +3396,6 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
     const [checkNnNames, setCheckNnNames] = useState<Set<string>>(new Set());
     const [enqueuingId, setEnqueuingId] = useState<string | null>(null);
     const [resultsModal, setResultsModal] = useState<{ control: ControlRegistry; results: ControlCheckResult[]; loading: boolean } | null>(null);
-    const [hubToken, setHubToken] = useState<string | null>(null);
-    const [hubTokenCopied, setHubTokenCopied] = useState(false);
-    const [registeringHub, setRegisteringHub] = useState(false);
 
 
 
@@ -3699,19 +3696,6 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
             setResultsModal({ control: ctl, results: [], loading: false });
         }
     }, [checkTargetFor]);
-
-    const handleConnectHub = useCallback(async () => {
-        setRegisteringHub(true);
-        try {
-            const r = await SupabaseService.registerHubDevice('zti-hub');
-            setHubToken(r.token);
-            setHubTokenCopied(false);
-        } catch (e: any) {
-            alert(e?.message || 'Failed to register hub device');
-        } finally {
-            setRegisteringHub(false);
-        }
-    }, []);
 
 
 
@@ -4638,12 +4622,7 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                    {/* Hub connectivity pill moved to the global header (next to the
-                        demo toggle). The hubStatus poll above still gates the ▶ buttons. */}
-
-                    <button onClick={handleConnectHub} disabled={registeringHub} title="Generate a ZTI Hub device token" className="p-2 text-gray-400 hover:text-emerald-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50">
-                        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5v14" /></svg>
-                    </button>
+                    {/* Hub connectivity + token generation live in the global header. */}
 
                     <button onClick={() => setShowAIChat(true)} title="AI Assistant" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
 
@@ -6235,40 +6214,6 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
                 </div>
             )}
 
-            {/* ── ZTI Hub: device token modal ── */}
-            {hubToken && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => { setHubToken(null); setHubTokenCopied(false); }}>
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
-                        <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700">
-                            <h3 className="text-base font-semibold dark:text-white">ZTI Hub device token</h3>
-                        </div>
-                        <div className="p-5 space-y-3 text-sm">
-                            <p className="text-gray-600 dark:text-gray-300">Copy this token and paste it into the CLI when prompted by <span className="font-mono">zti authenticate</span>. It is shown only once.</p>
-                            <div className="flex gap-2">
-                                <input readOnly value={hubToken} className="flex-1 px-3 py-1.5 rounded border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 font-mono text-xs dark:text-gray-200" />
-                                <button
-                                    onClick={async () => {
-                                        try {
-                                            await navigator.clipboard?.writeText(hubToken);
-                                            setHubTokenCopied(true);
-                                        } catch {
-                                            setHubTokenCopied(false);
-                                            alert('Copy failed. Please select the token and copy manually.');
-                                        }
-                                    }}
-                                    className={`px-3 py-1.5 rounded text-white text-sm ${hubTokenCopied ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700'}`}
-                                >
-                                    {hubTokenCopied ? 'Copied' : 'Copy'}
-                                </button>
-                            </div>
-                            <p className="text-xs text-amber-600 dark:text-amber-400">Store it securely — it grants the hub read/run access scoped to your organization.</p>
-                        </div>
-                        <div className="px-5 py-3 border-t border-gray-200 dark:border-gray-700 flex justify-end">
-                            <button onClick={() => { setHubToken(null); setHubTokenCopied(false); }} className="px-3 py-1.5 rounded bg-gray-200 dark:bg-gray-700 text-sm dark:text-gray-200">Done</button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
 
 

@@ -37,7 +37,8 @@ zti status                       # config + beacon health
 ### How authentication works
 
 `zti authenticate` opens the app and asks you to generate a **device token**
-(Governance → Control Registry → the Hub connect ＋ button). The token is a
+(click **Hub online/offline** in the header → **Generate device token**, or
+Profile → **ZTI Hub CLI token**). The token is a
 long-lived, per-device, revocable credential scoped to your organization — it is
 **not** your browser session. The CLI stores it (hashed server-side) in
 `~/.zti/config.json` (mode 0600) and sends it as `X-ZTI-Device-Token`.

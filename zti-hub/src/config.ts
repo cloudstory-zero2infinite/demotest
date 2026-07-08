@@ -8,6 +8,12 @@ export interface ZtiConfig {
   token: string | null;
   deviceName: string;
   mock: boolean;
+  ad?: {
+    domain?: string;
+    server?: string;
+    username?: string;
+    password?: string;
+  };
   gcp?: {
     projectId?: string;
     credentialsPath?: string;
@@ -20,6 +26,12 @@ export interface ZtiConfig {
     user?: string;
     password?: string;
     socketPath?: string;  // unix socket alternative to host/port
+  };
+  wazuh?: {
+    managerUrl?: string;
+    username?: string;
+    password?: string;
+    verifyTls?: boolean;
   };
 }
 
