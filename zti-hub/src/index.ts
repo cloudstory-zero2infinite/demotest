@@ -6,6 +6,7 @@ import { checkControl, checkFramework, status, setMode, cliLogs, setupProwler, d
 import { vulnScan, scanWorker } from './vulnscan.js';
 import { cspm } from './cspm.js';
 import { completion } from './completion.js';
+import { integrateWazuh, ingestWazuh } from './wazuh.js';
 
 const HELP = `
 zti — ZTI Hub CLI
@@ -13,7 +14,11 @@ zti — ZTI Hub CLI
 Usage:
   zti authenticate                 Register this machine and store a device token
   zti integrate gcp                Configure read-only GCP access for checks
+  zti integrate ad                 Configure AD/LDAP integration for AD audits
+  zti integrate openvas            Configure OpenVAS/GVM integration for vuln ingestion
+  zti integrate wazuh              Configure Wazuh integration settings
   zti integrate prowler            Install the managed Prowler scan engine (no pip/Docker needed)
+  zti ingest <openvas|wazuh>       Fetch and display vulnerability scan results
   zti doctor                       Show scan-engine + integration health
   zti start                        Run the hub: beacon + process queued checks (every 60s)
   zti check-control <SCF#>         Run checks associated with one SCF control on demand
@@ -48,8 +53,27 @@ async function main() {
 
     case 'integrate':
       if (sub === 'gcp') await integrateGcp();
+      else if (sub === 'ad') {
+        const { integrateActiveDirectory } = await import('./activedirectory.js');
+        await integrateActiveDirectory();
+      } else if (sub === 'openvas') {
+        const { integrateOpenvas } = await import('./openvas.js');
+        await integrateOpenvas();
+      } else if (sub === 'wazuh') await integrateWazuh();
       else if (sub === 'prowler') await setupProwler();
-      else console.error('Usage: zti integrate gcp | prowler');
+      else console.error('Usage: zti integrate gcp | ad | openvas | wazuh | prowler');
+      break;
+
+    case 'ingest':
+      if (sub === 'openvas') {
+        const { ingestOpenvas } = await import('./openvas.js');
+        await ingestOpenvas();
+      } else if (sub === 'wazuh') {
+        await ingestWazuh();
+      } else {
+        console.error('Usage: zti ingest openvas | wazuh');
+        process.exitCode = 1;
+      }
       break;
 
     case 'doctor':
