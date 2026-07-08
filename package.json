@@ -17,7 +17,7 @@
   },
   
   "dependencies": {
-    "@supabase/supabase-js": "^2.101.0",
+    "@supabase/supabase-js": "^2.110.1",
     "@types/d3-force": "^3.0.10",
     "@xyflow/react": "^12.10.2",
     "d3-force": "^3.0.0",
