@@ -9,3 +9,11 @@ README.md
 .DS_Store
 coverage
 .vscode
+# Nested copies (repo-root build context now includes internal-tool/, e2e/, etc.)
+**/node_modules
+**/dist
+**/.env
+**/.env.local
+e2e/screenshots
+test-results
+playwright-report
