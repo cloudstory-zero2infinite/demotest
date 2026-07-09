@@ -1,0 +1,28 @@
+{
+  "name": "zti-hub",
+  "version": "0.1.0",
+  "description": "ZTI Hub — tenant-side CLI that authenticates to Zero-to-Infinite, integrates a cloud provider (GCP first), beacons online, and runs Prowler-based control checks on demand or from the queue.",
+  "type": "module",
+  "bin": {
+    "zti": "dist/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "node --experimental-strip-types src/index.ts"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "ldapjs": "^3.0.7"
+  }
+}
