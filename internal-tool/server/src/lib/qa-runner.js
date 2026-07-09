@@ -21,10 +21,27 @@ export const E2E_ROOT =
 const SPECS_DIR = path.join(E2E_ROOT, 'e2e', 'specs');
 const AUTH_FILE = path.join(E2E_ROOT, 'e2e', 'fixtures', 'user.json');
 
-// Always run against pre-prod (per product decision). Override via PREPROD_BASE_URL.
+// Target URLs per environment. Override via PREPROD_BASE_URL / PROD_BASE_URL.
+// Same E2E_EMAIL/E2E_PASSWORD authenticate against both (shared Supabase project).
 export const PREPROD_BASE_URL =
   process.env.PREPROD_BASE_URL ||
   'https://pre-prod-987276481381.asia-south1.run.app';
+export const PROD_BASE_URL = process.env.PROD_BASE_URL || ''; // set once the prod URL is known
+
+export const ENVIRONMENTS = ['pre-prod', 'prod'];
+
+// Resolve the base URL for an environment; throws if prod is picked but unset.
+export function baseUrlForEnv(environment) {
+  if (environment === 'prod') {
+    if (!PROD_BASE_URL) {
+      const err = new Error('PROD_BASE_URL is not configured on the server.');
+      err.code = 'NO_PROD_URL';
+      throw err;
+    }
+    return PROD_BASE_URL;
+  }
+  return PREPROD_BASE_URL;
+}
 
 // Where per-run artifacts (html report + results.json) are written.
 const RUNS_DIR = path.join(os.tmpdir(), 'qa-runs');
@@ -120,6 +137,7 @@ export function publicRun(run) {
   return {
     runId: run.runId,
     suite: run.suite,
+    environment: run.environment,
     status: run.status, // running | passed | failed | error
     baseUrl: run.baseUrl,
     version: run.version,
@@ -206,12 +224,19 @@ export function isBusy() {
  * @param {string} suiteId  a suite folder name, or "all" for the full suite.
  * @returns {RunRecord}
  */
-export async function startRun(suiteId) {
+export async function startRun(suiteId, environment = 'pre-prod') {
   if (activeRunId) {
     const err = new Error('A run is already in progress.');
     err.code = 'BUSY';
     throw err;
   }
+
+  if (!ENVIRONMENTS.includes(environment)) {
+    const err = new Error(`Unknown environment: ${environment}`);
+    err.code = 'BAD_ENV';
+    throw err;
+  }
+  const baseUrl = baseUrlForEnv(environment); // throws NO_PROD_URL if prod unset
 
   // Validate the suite id against the real folder list to avoid arg injection.
   let specArg = null; // null => whole testDir (run all)
@@ -249,8 +274,9 @@ export async function startRun(suiteId) {
   const run = {
     runId,
     suite: suiteId || 'all',
+    environment,
     status: 'running',
-    baseUrl: PREPROD_BASE_URL,
+    baseUrl,
     version: null,
     startedAt: new Date().toISOString(),
     finishedAt: null,
@@ -279,7 +305,7 @@ export async function startRun(suiteId) {
     cwd: E2E_ROOT,
     env: {
       ...process.env,
-      BASE_URL: PREPROD_BASE_URL,
+      BASE_URL: baseUrl,
       LOGIN_MODE: 'email',
       E2E_EMAIL: email,
       E2E_PASSWORD: password,
@@ -310,7 +336,7 @@ export async function startRun(suiteId) {
       await organizeScreenshots(run);
       run.reportReady = fs.existsSync(path.join(reportDir, 'index.html'));
       // Probe the deployed app version using the session the run just created.
-      run.version = await captureVersion().catch(() => null);
+      run.version = await captureVersion(run.baseUrl).catch(() => null);
       finishRun(run, { crashed: false, message: stderrTail });
     } catch (e) {
       finishRun(run, { crashed: true, message: e.message || stderrTail });
@@ -509,13 +535,13 @@ function stripAnsi(s) {
  * version from the app header (components/Header.tsx renders it in a span
  * with title="Build <version>").
  */
-async function captureVersion() {
+async function captureVersion(baseUrl = PREPROD_BASE_URL) {
   if (!fs.existsSync(AUTH_FILE)) return null;
   const browser = await chromium.launch({ headless: true });
   try {
     const context = await browser.newContext({ storageState: AUTH_FILE });
     const page = await context.newPage();
-    await page.goto(PREPROD_BASE_URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     const badge = page.locator('span[title^="Build "]').first();
     await badge.waitFor({ state: 'visible', timeout: 20000 });
     const text = (await badge.textContent())?.trim();

@@ -45,7 +45,7 @@ const fmtWhen = (iso: string | null) => {
   return `${wd}, ${d.toISOString().slice(0, 10)} ${h}:${m} ${ampm} UTC`;
 };
 
-export const E2eRunsChart: React.FC = () => {
+export const E2eRunsChart: React.FC<{ environment?: string }> = ({ environment }) => {
   const { push } = useToast();
   const [runs, setRuns] = useState<QaRunRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -60,13 +60,13 @@ export const E2eRunsChart: React.FC = () => {
 
   const filtered = useMemo(() => {
     const p = PERIODS.find((x) => x.id === period)!;
-    if (p.days === Infinity) return runs;
-    const cutoff = Date.now() - p.days * 24 * 60 * 60 * 1000;
+    const cutoff = p.days === Infinity ? -Infinity : Date.now() - p.days * 24 * 60 * 60 * 1000;
     return runs.filter((r) => {
+      if (environment && (r.environment || '') !== environment) return false;
       const t = new Date(r.finished_at || r.created_at).getTime();
       return !isNaN(t) && t >= cutoff;
     });
-  }, [runs, period]);
+  }, [runs, period, environment]);
 
   const environments = useMemo(
     () => Array.from(new Set(filtered.map((r) => r.environment || 'unknown'))).sort(),
@@ -89,18 +89,23 @@ export const E2eRunsChart: React.FC = () => {
     return rows.map((row) => ({ ...row, label: row.date.slice(5) })); // MM-DD
   }, [filtered, environments]);
 
+  // KPIs respect the selected environment (but not the chart's period window).
+  const envRuns = useMemo(
+    () => (environment ? runs.filter((r) => (r.environment || '') === environment) : runs),
+    [runs, environment]
+  );
   const total = filtered.length;
   const last7 = useMemo(() => {
     const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    return runs.filter((r) => new Date(r.finished_at || r.created_at).getTime() >= cutoff).length;
-  }, [runs]);
+    return envRuns.filter((r) => new Date(r.finished_at || r.created_at).getTime() >= cutoff).length;
+  }, [envRuns]);
   const lastRunAt = useMemo(() => {
-    if (!runs.length) return null;
-    return runs.reduce((m, r) => {
+    if (!envRuns.length) return null;
+    return envRuns.reduce((m, r) => {
       const t = r.finished_at || r.created_at;
       return !m || t > m ? t : m;
     }, '' as string);
-  }, [runs]);
+  }, [envRuns]);
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 p-4 mb-6">

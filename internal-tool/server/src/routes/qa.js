@@ -11,6 +11,8 @@ import {
   isBusy,
   streamReportZip,
   PREPROD_BASE_URL,
+  PROD_BASE_URL,
+  ENVIRONMENTS,
 } from '../lib/qa-runner.js';
 
 const router = Router();
@@ -33,11 +35,18 @@ router.get('/runs', requireAuth, async (req, res) => {
   }
 });
 
-// List available suites + whether a run is currently in progress.
+// List available suites + selectable environments + whether a run is running.
 router.get('/suites', requireAuth, async (_req, res) => {
   try {
     const suites = await listSuites();
-    res.json({ baseUrl: PREPROD_BASE_URL, busy: isBusy(), suites });
+    // Only advertise environments that are actually configured (prod needs a URL).
+    const environments = ENVIRONMENTS.filter(
+      (e) => e !== 'prod' || !!PROD_BASE_URL
+    ).map((id) => ({
+      id,
+      url: id === 'prod' ? PROD_BASE_URL : PREPROD_BASE_URL,
+    }));
+    res.json({ baseUrl: PREPROD_BASE_URL, environments, busy: isBusy(), suites });
   } catch (err) {
     console.error('[qa] suites error:', err);
     res.status(500).json({ message: err.message });
@@ -56,14 +65,15 @@ router.get('/tests', requireAuth, async (req, res) => {
   }
 });
 
-// Kick off a run. body: { suite: "<id>" | "all" }. Returns immediately.
+// Kick off a run. body: { suite: "<id>"|"all", environment: "pre-prod"|"prod" }.
 router.post('/run', requireAuth, async (req, res) => {
   try {
     const suite = (req.body && req.body.suite) || 'all';
-    const run = await startRun(suite);
+    const environment = (req.body && req.body.environment) || 'pre-prod';
+    const run = await startRun(suite, environment);
     res.status(202).json(publicRun(run));
   } catch (err) {
-    const map = { BUSY: 409, BAD_SUITE: 400, NO_CREDS: 503 };
+    const map = { BUSY: 409, BAD_SUITE: 400, BAD_ENV: 400, NO_PROD_URL: 503, NO_CREDS: 503 };
     const status = map[err.code] || 500;
     if (status === 500) console.error('[qa] run error:', err);
     res.status(status).json({ message: err.message });

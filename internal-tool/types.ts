@@ -202,8 +202,16 @@ export interface QaSuite {
   specFiles: number;
 }
 
+export type QaEnvironment = 'pre-prod' | 'prod';
+
+export interface QaEnvOption {
+  id: QaEnvironment;
+  url: string;
+}
+
 export interface QaSuitesResponse {
   baseUrl: string;
+  environments: QaEnvOption[];
   busy: boolean;
   suites: QaSuite[];
 }
@@ -251,6 +259,7 @@ export interface QaSummary {
 export interface QaRun {
   runId: string;
   suite: string;
+  environment: QaEnvironment;
   status: QaRunStatus;
   baseUrl: string;
   version: string | null;
