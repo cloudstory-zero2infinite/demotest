@@ -812,13 +812,12 @@ export const getPolicies = async (): Promise<PolicyV2[]> => {
 
 
 
-export const addPolicy = async (markdown: string, policy_status: string = 'draft'): Promise<PolicyV2> => {
-
+export const addPolicy = async (markdown: string, policy_status: string = 'draft', doc_lang?: any): Promise<PolicyV2> => {
   return apiRequest<PolicyV2>('/api/policies', {
 
     method: 'POST',
 
-    body: JSON.stringify({ markdown, policy_status }),
+    body: JSON.stringify({ markdown, policy_status, doc_lang }),
 
   });
 
@@ -826,7 +825,7 @@ export const addPolicy = async (markdown: string, policy_status: string = 'draft
 
 
 
-export const updatePolicy = async (id: string, updates: { markdown?: string; policy_status?: string }): Promise<PolicyV2> => {
+export const updatePolicy = async (id: string, updates: { markdown?: string; doc_lang?: any; policy_status?: string }): Promise<PolicyV2> => {
 
   return apiRequest<PolicyV2>(`/api/policies/${id}`, {
 
@@ -2350,6 +2349,35 @@ export const downloadPolicyDocument = async (policyId: string, templateId?: stri
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+};
+
+
+export const parsePolicyDocumentFile = async (file: File): Promise<string> => {
+  let token = cachedToken;
+  if (!token) {
+    const { data } = await supabase.auth.getSession();
+    token = data.session?.access_token || null;
+    cachedToken = token;
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(`${API_BASE_URL}/api/policies/parse-file`, {
+    method: 'POST',
+    body: formData,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    }
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: response.statusText }));
+    throw new Error(err.message || `File parsing failed with status ${response.status}`);
+  }
+
+  const resJson = await response.json();
+  return resJson.text || '';
 };
 
 export const getPolicyDocumentPreview = async (policyId: string, templateId?: string): Promise<string> => {

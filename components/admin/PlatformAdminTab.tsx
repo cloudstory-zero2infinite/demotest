@@ -42,13 +42,15 @@ const RoleBadge: React.FC<{ role: string }> = ({ role }) => {
         admin: 'Admin',
         user: 'User',
         cxo: 'CXO',
+        'read-only': 'Read-Only',
     };
     return <span className="text-sm text-gray-600 dark:text-gray-400">{map[role] ?? role}</span>;
 };
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean }> = ({ isActive = true, readOnly = false }) => {
+export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean; userRole?: UserRole | null }> = ({ isActive = true, readOnly = false, userRole }) => {
+    const isReadOnly = userRole === 'read-only';
     const [orgName, setOrgName] = useState<string | null>(null);
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
     const [members, setMembers] = useState<any[]>([]);
@@ -445,7 +447,8 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                                                 type="checkbox"
                                                 checked={allMemberIds.length > 0 && selectedIds.size === allMemberIds.length}
                                                 onChange={() => toggleAll(allMemberIds)}
-                                                className="rounded border-gray-300 dark:border-gray-600"
+                                                disabled={isReadOnly}
+                                                className="rounded border-gray-300 dark:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
                                             />
                                         </th>
                                     )}
@@ -458,7 +461,7 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                                     )}
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800">
+                             <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800">
                                 {members.map(member => {
                                     const isSelf = member.user_id === currentUserId;
                                     const isTenantAdmin = member.role === 'tenant_admin' || member.role === 'cxo';
@@ -466,7 +469,7 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                                     const isLoading = actionLoading === member.id;
                                     const isConfirming = confirmRemove === member.id;
                                     const isSelected = selectedIds.has(member.id);
-
+ 
                                     return (
                                         <tr key={member.id} className={`${isPendingApproval ? 'bg-amber-50/40 dark:bg-amber-900/10' : ''} ${isSelected ? 'bg-blue-50 dark:bg-blue-900/10' : ''}`}>
                                             {!readOnly && (
@@ -475,7 +478,8 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                                                         type="checkbox"
                                                         checked={isSelected}
                                                         onChange={() => toggle(member.id)}
-                                                        className="rounded border-gray-300 dark:border-gray-600"
+                                                        disabled={isReadOnly}
+                                                        className="rounded border-gray-300 dark:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
                                                     />
                                                 </td>
                                             )}
@@ -491,12 +495,13 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                                                     <select
                                                         value={member.role}
                                                         onChange={(e) => handleUpdateRole(member.id, e.target.value)}
-                                                        disabled={isLoading}
-                                                        className="text-xs rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                                                        disabled={isLoading || isReadOnly}
+                                                        className="text-xs rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                                                     >
                                                         <option value="user">User</option>
                                                         <option value="admin">Admin</option>
                                                         <option value="cxo">CXO</option>
+                                                        <option value="read-only">Read-Only</option>
                                                     </select>
                                                 ) : (
                                                     <RoleBadge role={member.role} />
@@ -515,8 +520,8 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                                                         {isPendingApproval && (
                                                             <button
                                                                 onClick={() => handleApprove(member.id)}
-                                                                disabled={isLoading}
-                                                                className="px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded-md transition-colors"
+                                                                disabled={isLoading || isReadOnly}
+                                                                className="px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-md transition-colors"
                                                             >
                                                                 {isLoading ? '…' : 'Approve'}
                                                             </button>
@@ -530,14 +535,15 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                                                                         <span className="text-xs text-gray-500 dark:text-gray-400 mr-1">Sure?</span>
                                                                         <button
                                                                             onClick={() => handleRemove(member.id, isPendingApproval)}
-                                                                            disabled={isLoading}
-                                                                            className="px-2 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded transition-colors"
+                                                                            disabled={isLoading || isReadOnly}
+                                                                            className="px-2 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed rounded transition-colors"
                                                                         >
                                                                             {isLoading ? '…' : 'Yes, remove'}
                                                                         </button>
                                                                         <button
                                                                             onClick={() => setConfirmRemove(null)}
-                                                                            className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                                                            disabled={isReadOnly}
+                                                                            className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
                                                                         >
                                                                             Cancel
                                                                         </button>
@@ -545,7 +551,8 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                                                                 ) : (
                                                                     <button
                                                                         onClick={() => setConfirmRemove(member.id)}
-                                                                        className="px-3 py-1.5 text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 border border-red-200 dark:border-red-800 rounded-md transition-colors"
+                                                                        disabled={isReadOnly}
+                                                                        className="px-3 py-1.5 text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 border border-red-200 dark:border-red-800 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                                                     >
                                                                         {isPendingApproval ? 'Reject' : 'Remove'}
                                                                     </button>
@@ -585,11 +592,12 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                 isSaving={isSaving}
                 showEdit={false}
                 showDelete={selectedRemovableCount > 0}
+                disabled={isReadOnly}
                 extraActions={selectedPendingCount > 0 ? (
                     <button
                         onClick={handleBulkApprove}
-                        disabled={isSaving}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-60 rounded-full text-sm font-medium transition-colors"
+                        disabled={isSaving || isReadOnly}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed rounded-full text-sm font-medium transition-colors"
                     >
                         Approve {selectedPendingCount}
                     </button>
@@ -627,7 +635,8 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                         <button
                             type="button"
                             onClick={() => setEmailDescriptionPairs(prev => [...prev, { email: '', description: '', role: 'user' }])}
-                            className="text-xs px-2 py-1 text-blue-600 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-400"
+                            disabled={isReadOnly}
+                            className="text-xs px-2 py-1 text-blue-600 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             + Add row
                         </button>
@@ -643,7 +652,8 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                                         value={pair.email}
                                         onChange={e => handlePairChange(index, 'email', e.target.value)}
                                         placeholder="user@example.com"
-                                        className="block w-full rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                                        disabled={isReadOnly}
+                                        className="block w-full rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                                     />
                                 </div>
                                 <div>
@@ -653,7 +663,8 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                                         value={pair.description}
                                         onChange={e => handlePairChange(index, 'description', e.target.value)}
                                         placeholder="e.g. Security Lead"
-                                        className="block w-full rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                                        disabled={isReadOnly}
+                                        className="block w-full rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                                     />
                                 </div>
                                 <div>
@@ -661,11 +672,13 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                                     <select
                                         value={pair.role}
                                         onChange={e => handlePairChange(index, 'role', e.target.value)}
-                                        className="block w-full rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white focus:ring-blue-500 focus:border-blue-500"
+                                        disabled={isReadOnly}
+                                        className="block w-full rounded-md border-gray-300 shadow-sm text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         <option value="user">User</option>
                                         <option value="admin">Admin</option>
                                         <option value="cxo">CXO</option>
+                                        <option value="read-only">Read-Only</option>
                                     </select>
                                 </div>
                                 <div className="flex items-end">
@@ -673,7 +686,8 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                                         <button
                                             type="button"
                                             onClick={() => setEmailDescriptionPairs(prev => prev.filter((_, i) => i !== index))}
-                                            className="w-full px-3 py-2 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded hover:bg-red-100 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400"
+                                            disabled={isReadOnly}
+                                            className="w-full px-3 py-2 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded hover:bg-red-100 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed"
                                         >
                                             Remove row
                                         </button>
@@ -687,14 +701,15 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                         <button
                             type="button"
                             onClick={() => { setEmailDescriptionPairs([{ email: '', description: '', role: 'user' }]); setSuccessMessage(''); setErrorMessage(''); }}
-                            className="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600"
+                            disabled={isReadOnly}
+                            className="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             Clear
                         </button>
                         <button
                             type="submit"
-                            disabled={addLoading}
-                            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                            disabled={addLoading || isReadOnly}
+                            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             {addLoading ? 'Sending Invitations…' : 'Invite Members'}
                         </button>
@@ -801,16 +816,16 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                     {!readOnly && (
                         <div className="flex space-x-2">
                             <input type="file" accept=".csv" ref={contactFileRef} onChange={handleImportContactsCSV} className="hidden" />
-                            <button onClick={() => setShowContactAI(true)} title="AI Assistant" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                            <button onClick={() => setShowContactAI(true)} disabled={isReadOnly} title="AI Assistant" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed">
                                 <BotIcon className="h-5 w-5" />
                             </button>
-                            <button onClick={() => contactFileRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                            <button onClick={() => contactFileRef.current?.click()} disabled={isReadOnly} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed">
                                 <UploadIcon className="h-5 w-5" />
                             </button>
                             <button onClick={handleExportContacts} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                                 <DownloadIcon className="h-5 w-5" />
                             </button>
-                            <button onClick={() => openContactModal('add')} title="Add Contact" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                            <button onClick={() => openContactModal('add')} disabled={isReadOnly} title="Add Contact" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed">
                                 <PlusIcon className="h-5 w-5" />
                             </button>
                         </div>
@@ -851,10 +866,10 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                     title={contactModal.type === 'add' ? 'Add Contact' : contactModal.type === 'edit' ? 'Edit Contact' : 'View Contact'}
                     headerActions={contactModal.type === 'view' && !readOnly && (
                         <>
-                            <button onClick={() => { closeContactModal(); openContactModal('edit', contactModal.contact); }} title="Edit" className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                            <button onClick={() => { closeContactModal(); openContactModal('edit', contactModal.contact); }} disabled={isReadOnly} title="Edit" className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                                 <PencilIcon className="h-4 w-4" />
                             </button>
-                            <button onClick={() => { closeContactModal(); openContactModal('delete', contactModal.contact); }} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                            <button onClick={() => { closeContactModal(); openContactModal('delete', contactModal.contact); }} disabled={isReadOnly} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                                 <TrashIcon className="h-4 w-4" />
                             </button>
                         </>

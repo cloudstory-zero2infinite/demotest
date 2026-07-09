@@ -458,6 +458,7 @@ export interface PolicyV2 {
   policy_id: string;
   name: string;
   markdown: string | null;
+  doc_lang?: any;
   policy_ref: string | null;
   policy_status: PolicyWorkflowStatus;
   refresh_date: string | null;
@@ -708,7 +709,7 @@ export interface PolicyHistoryEntry {
 }
 
 // --- User Role and Multi-Tenancy Types ---
-export type UserRole = 'user' | 'admin' | 'tenant_admin' | 'cxo';
+export type UserRole = 'user' | 'admin' | 'tenant_admin' | 'cxo' | 'read-only';
 
 export interface Organization {
     id: string;

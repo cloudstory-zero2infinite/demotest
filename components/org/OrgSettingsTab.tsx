@@ -2,9 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import * as SupabaseService from '../../services/supabase';
 import { ScfFramework, FwcrPreview, FwcrApplyResult, NnPreview, EmailTemplate } from '../../types';
 
+import { UserRole } from '../../types';
+
 interface OrgSettingsTabProps {
     isActive?: boolean;
     readOnly?: boolean;
+    userRole?: UserRole | null;
 }
 
 type RecomputeUiState =
@@ -15,7 +18,8 @@ type RecomputeUiState =
     | { kind: 'done'; result: FwcrApplyResult; nnAdded: number }
     | { kind: 'error'; message: string };
 
-export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true, readOnly = false }) => {
+export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true, readOnly = false, userRole }) => {
+    const isReadOnly = userRole === 'read-only';
     const [policyRefreshMonths, setPolicyRefreshMonths] = useState(3);
     const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([]);
     const [policyExpiryTemplateId, setPolicyExpiryTemplateId] = useState<string>('');
@@ -89,7 +93,7 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
     }, [selected, savedSelected]);
 
     const toggle = (name: string) => {
-        if (readOnly) return;
+        if (readOnly || isReadOnly) return;
         setSelected((prev) => {
             const next = new Set(prev);
             if (next.has(name)) next.delete(name);
@@ -249,8 +253,8 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                             max={120}
                             value={policyRefreshMonths}
                             onChange={(e) => setPolicyRefreshMonths(Math.max(1, parseInt(e.target.value) || 1))}
-                            disabled={readOnly}
-                            className={`w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+                            disabled={readOnly || isReadOnly}
+                            className={`w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 ${(readOnly || isReadOnly) ? 'opacity-60 cursor-not-allowed' : ''}`}
                         />
                         <span className="text-sm text-gray-500 dark:text-gray-400">months</span>
                     </div>
@@ -267,8 +271,8 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                         id="policy-expiry-template"
                         value={policyExpiryTemplateId}
                         onChange={(e) => setPolicyExpiryTemplateId(e.target.value)}
-                        disabled={readOnly}
-                        className={`min-w-[16rem] px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        disabled={readOnly || isReadOnly}
+                        className={`min-w-[16rem] px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 ${(readOnly || isReadOnly) ? 'opacity-60 cursor-not-allowed' : ''}`}
                     >
                         <option value="">Built-in default</option>
                         {emailTemplates.map((t) => (
@@ -314,7 +318,7 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                                 <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Common</div>
                                 <div className="flex flex-wrap gap-2">
                                     {commonFrameworks.map((f) => (
-                                        <FwChip key={f.name} fw={f} selected={selected.has(f.name)} onToggle={toggle} readOnly={readOnly} />
+                                        <FwChip key={f.name} fw={f} selected={selected.has(f.name)} onToggle={toggle} readOnly={readOnly || isReadOnly} />
                                     ))}
                                 </div>
                             </div>
@@ -327,7 +331,7 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                                 placeholder="Search 250+ frameworks (e.g. NIST 800-171, HIPAA, DORA)…"
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
-                                disabled={readOnly}
+                                disabled={readOnly || isReadOnly}
                                 className="block w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                             />
                             {search.trim() && (
@@ -339,7 +343,7 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                                             <button
                                                 key={f.name}
                                                 onClick={() => toggle(f.name)}
-                                                disabled={readOnly}
+                                                disabled={readOnly || isReadOnly}
                                                 className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/60 ${selected.has(f.name) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
                                             >
                                                 <span>{f.display_name}</span>
@@ -374,7 +378,8 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                                             {!readOnly && (
                                                 <button
                                                     onClick={() => toggle(name)}
-                                                    className="ml-1 w-5 h-5 rounded-full hover:bg-white/20 inline-flex items-center justify-center"
+                                                    disabled={isReadOnly}
+                                                    className="ml-1 w-5 h-5 rounded-full hover:bg-white/20 inline-flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                                                     title="Remove"
                                                 >
                                                     ×
@@ -398,7 +403,7 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
             </div>
 
             {/* Save + Recompute */}
-            {readOnly ? (
+            {readOnly && !isReadOnly ? (
                 <p className="text-xs text-gray-400 dark:text-gray-500">
                     You have view-only access to settings. Contact your admin to make changes.
                 </p>
@@ -406,8 +411,8 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                 <div className="flex flex-wrap items-center gap-3">
                     <button
                         onClick={handleSaveSettings}
-                        disabled={saving}
-                        className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300 transition-colors"
+                        disabled={saving || isReadOnly}
+                        className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                         {saving ? 'Saving…' : 'Save Settings'}
                     </button>
@@ -416,8 +421,8 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                         standards — even when the framework selection hasn't changed. */}
                     <button
                         onClick={handleRecompute}
-                        disabled={saving || recomputeState.kind === 'previewing' || recomputeState.kind === 'applying'}
-                        className="px-4 py-1.5 text-sm font-medium text-white bg-emerald-600 rounded-md hover:bg-emerald-700 disabled:bg-gray-300 transition-colors"
+                        disabled={saving || recomputeState.kind === 'previewing' || recomputeState.kind === 'applying' || isReadOnly}
+                        className="px-4 py-1.5 text-sm font-medium text-white bg-emerald-600 rounded-md hover:bg-emerald-700 disabled:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         title="Saves selection, re-seeds the NN baseline, and rebuilds framework-standard controls (shows a diff to confirm first)"
                     >
                         Recompute Control Registry and Save

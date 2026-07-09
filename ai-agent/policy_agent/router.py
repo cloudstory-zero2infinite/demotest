@@ -23,7 +23,7 @@ from . import org_memory as orgmem
 from .info_checker import check_sufficiency
 from .retriever import retrieve
 from .generator import stream_markdown
-from .prompts import build_drafter_prompt
+from .prompts import build_drafter_prompt, build_doclang_drafter_prompt, build_doclang_edit_prompt
 
 router = APIRouter()
 
@@ -36,6 +36,15 @@ class DraftRequest(BaseModel):
     policy_family: PolicyFamily = "generic"
     user_prompt: str                  # what the user typed in the AI box
     top_k: int = 8
+    document_id: str = "IT-POL-TEMP-001"
+    org_name: str | None = None
+
+
+class EditSectionRequest(BaseModel):
+    org_id: str
+    current_doclang: str
+    target_node: str
+    instruction: str
     org_name: str | None = None
 
 
@@ -118,6 +127,97 @@ async def draft_policy(req: DraftRequest):
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",  # disable proxy buffering for true streaming
+        },
+    )
+
+@router.post("/draft-doclang")
+async def draft_policy_doclang(req: DraftRequest):
+    """Stream a structured DocLang JSON policy draft via Server-Sent Events."""
+
+    def event_stream():
+        try:
+            # 1. Load org memory, name and run the info checker.
+            org_mem = orgmem.get_org_memory(req.org_id)
+            org_name = orgmem.get_org_name(req.org_id)
+            check = check_sufficiency(req.policy_family, org_mem)
+
+            if not check["sufficient"]:
+                yield _sse({
+                    "type": "need_info",
+                    "missing": check["missing"],
+                    "prompts": check["prompts"],
+                    "reasons": check["reasons"],
+                })
+                return
+
+            # 2. Retrieve top-k template chunks.
+            chunks = retrieve(
+                query=f"{req.policy_type}\n{req.user_prompt}",
+                policy_family=req.policy_family if req.policy_family != "generic" else None,
+                k=req.top_k,
+            )
+            citations = [
+                {"ref": i + 1, "file": c["source_file"], "section": c.get("section")}
+                for i, c in enumerate(chunks)
+            ]
+            yield _sse({"type": "start", "citations": citations})
+
+            # 3. Stream the LLM draft prompt in DocLang JSON.
+            prompt = build_doclang_drafter_prompt(
+                policy_type=req.policy_type,
+                user_prompt=req.user_prompt,
+                org_memory=org_mem,
+                chunks=chunks,
+                org_name=org_name,
+                document_id=req.document_id,
+            )
+            for piece in stream_markdown(prompt):
+                yield _sse({"type": "chunk", "text": piece})
+
+            yield _sse({"type": "done"})
+        except HTTPException as e:
+            yield _sse({"type": "error", "message": e.detail})
+        except Exception as e:
+            yield _sse({"type": "error", "message": str(e)})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/edit-section")
+async def edit_section(req: EditSectionRequest):
+    """Stream an updated/regenerated section of DocLang JSON via Server-Sent Events."""
+
+    def event_stream():
+        try:
+            org_mem = orgmem.get_org_memory(req.org_id)
+            prompt = build_doclang_edit_prompt(
+                current_doclang_json=req.current_doclang,
+                target_node=req.target_node,
+                instruction=req.instruction,
+                org_memory=org_mem,
+            )
+            for piece in stream_markdown(prompt):
+                yield _sse({"type": "chunk", "text": piece})
+
+            yield _sse({"type": "done"})
+        except HTTPException as e:
+            yield _sse({"type": "error", "message": e.detail})
+        except Exception as e:
+            yield _sse({"type": "error", "message": str(e)})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
         },
     )
 

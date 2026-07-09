@@ -11,5 +11,5 @@ interface ProgramTabProps {
 // only" toggle (default ON, per-session) instead of the old escalated-only
 // LeadershipView, so they can switch to the full task list when they want.
 export const ProgramTab: React.FC<ProgramTabProps> = ({ userRole, isActive = true }) => {
-    return <ProgramTrackerView isActive={isActive} isCxo={userRole === 'cxo'} />;
+    return <ProgramTrackerView isActive={isActive} isCxo={userRole === 'cxo'} userRole={userRole} />;
 };

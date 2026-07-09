@@ -61,6 +61,11 @@ const App: React.FC = () => {
 
   const [platformAdminRole, setPlatformAdminRole] = useState<UserRole | null>(null);
 
+  const handleSetUserRole = (role: UserRole) => {
+    setUserRole(role);
+    setPlatformAdminRole(role);
+  };
+
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== "undefined" && localStorage.getItem("theme")) {
       return localStorage.getItem("theme") === "dark";
@@ -216,6 +221,7 @@ const App: React.FC = () => {
           const me = await SupabaseService.getOrgMe();
 
           setPlatformAdminRole(me?.role ?? null);
+          setUserRole(me?.role ?? 'user');
 
           setIsOnboarded(me?.isOnboarded ?? false);
 
@@ -325,6 +331,7 @@ const App: React.FC = () => {
                 const me = await SupabaseService.getOrgMe();
 
                 setPlatformAdminRole(me?.role ?? null);
+                setUserRole(me?.role ?? 'user');
 
                 setIsOnboarded(me?.isOnboarded ?? false);
 
@@ -376,6 +383,7 @@ const App: React.FC = () => {
         setIsNameModalOpen(!sessionStorage.getItem("grcUserName"));
 
         setPlatformAdminRole(null);
+        setUserRole('user');
       }
     };
 
@@ -392,6 +400,7 @@ const App: React.FC = () => {
     const me = await SupabaseService.getOrgMe();
 
     setPlatformAdminRole(me?.role ?? null);
+    setUserRole(me?.role ?? 'user');
 
     setIsOnboarded(me?.isOnboarded ?? false);
 
@@ -526,7 +535,7 @@ const App: React.FC = () => {
     }
   };
 
-  const isAdmin = platformAdminRole === 'tenant_admin' || platformAdminRole === 'admin' || platformAdminRole === 'cxo';
+  const isAdmin = platformAdminRole === 'tenant_admin' || platformAdminRole === 'admin' || platformAdminRole === 'cxo' || platformAdminRole === 'read-only';
 
   const renderContent = () => {
     if (!authChecked || isNameModalOpen) {
@@ -590,43 +599,43 @@ const App: React.FC = () => {
         </div>
 
         <div className={activeTab === "governance" ? "" : "hidden"}>
-          <GovernanceTab isActive={activeTab === "governance"} externalSubTab={governanceSubTab} externalOpenItemId={governanceOpenItemId} onExternalSubTabConsumed={() => { setGovernanceSubTab(null); setGovernanceOpenItemId(null); }} />
+          <GovernanceTab userRole={platformAdminRole} isActive={activeTab === "governance"} externalSubTab={governanceSubTab} externalOpenItemId={governanceOpenItemId} onExternalSubTabConsumed={() => { setGovernanceSubTab(null); setGovernanceOpenItemId(null); }} />
         </div>
 
         <div className={activeTab === "assets" ? "" : "hidden"}>
-          <GovernanceTab isActive={activeTab === "assets"} externalSubTab="assets" externalOpenItemId={null} />
+          <GovernanceTab userRole={platformAdminRole} isActive={activeTab === "assets"} externalSubTab="assets" externalOpenItemId={null} />
         </div>
 
         <div className={activeTab === "policies" ? "" : "hidden"}>
-          <GovernanceTab isActive={activeTab === "policies"} externalSubTab="policies" externalOpenItemId={null} />
+          <GovernanceTab userRole={platformAdminRole} isActive={activeTab === "policies"} externalSubTab="policies" externalOpenItemId={null} />
         </div>
 
         <div className={activeTab === "vulnerability" ? "" : "hidden"}>
-          <GovernanceTab isActive={activeTab === "vulnerability"} externalSubTab="vulnerability" externalOpenItemId={null} />
+          <GovernanceTab userRole={platformAdminRole} isActive={activeTab === "vulnerability"} externalSubTab="vulnerability" externalOpenItemId={null} />
         </div>
 
         <div className={activeTab === "relationships" ? "" : "hidden"}>
-          <GovernanceTab isActive={activeTab === "relationships"} externalSubTab="relationships" externalOpenItemId={null} />
+          <GovernanceTab userRole={platformAdminRole} isActive={activeTab === "relationships"} externalSubTab="relationships" externalOpenItemId={null} />
         </div>
 
         <div className={activeTab === "capabilities" ? "" : "hidden"}>
-          <GovernanceTab isActive={activeTab === "capabilities"} externalSubTab="capabilities" externalOpenItemId={null} />
+          <GovernanceTab userRole={platformAdminRole} isActive={activeTab === "capabilities"} externalSubTab="capabilities" externalOpenItemId={null} />
         </div>
 
         <div className={activeTab === "control_registry" ? "" : "hidden"}>
-          <GovernanceTab isActive={activeTab === "control_registry"} externalSubTab="control_registry" externalOpenItemId={null} />
+          <GovernanceTab userRole={platformAdminRole} isActive={activeTab === "control_registry"} externalSubTab="control_registry" externalOpenItemId={null} />
         </div>
 
         <div className={activeTab === "compliance" ? "" : "hidden"}>
-          <ComplianceTab isActive={activeTab === "compliance"} />
+          <ComplianceTab userRole={platformAdminRole} isActive={activeTab === "compliance"} />
         </div>
 
         <div className={activeTab === "risk" ? "" : "hidden"}>
-          <RiskTab isActive={activeTab === "risk"} />
+          <RiskTab userRole={platformAdminRole} isActive={activeTab === "risk"} />
         </div>
 
         <div className={activeTab === "zti_hub_services" ? "" : "hidden"}>
-          <ZtiHubServicesTab isActive={activeTab === "zti_hub_services"} />
+          <ZtiHubServicesTab userRole={platformAdminRole} isActive={activeTab === "zti_hub_services"} />
         </div>
 
         <div className={activeTab === "logs" ? "" : "hidden"}>

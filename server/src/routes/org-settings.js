@@ -88,6 +88,17 @@ router.put('/', requireAuth, async (req, res) => {
     const settingsPayload = { org_id: req.orgId, updated_at: new Date().toISOString() };
     if (policy_refresh_months !== undefined) settingsPayload.policy_refresh_months = policy_refresh_months;
     if (policy_expiry_template_id !== undefined) settingsPayload.policy_expiry_template_id = policy_expiry_template_id || null;
+   
+    let oldTemplateId = undefined;
+    if (selected_template_id !== undefined) {
+      const { data: oldSettings } = await supabaseAdmin
+        .from('org_settings')
+        .select('selected_template_id')
+        .eq('org_id', req.orgId)
+        .maybeSingle();
+      oldTemplateId = oldSettings?.selected_template_id || null;
+    }
+
     if (selected_template_id !== undefined) {
       if (selected_template_id === 'standard') {
         const { data: existing } = await supabaseAdmin
@@ -126,6 +137,34 @@ router.put('/', requireAuth, async (req, res) => {
       .single();
 
     if (error) throw error;
+
+    if (selected_template_id !== undefined && data.selected_template_id !== oldTemplateId) {
+      let templateName = 'Standard Template';
+      if (data.selected_template_id) {
+        const { data: temp } = await supabaseAdmin
+          .from('policy_templates')
+          .select('name')
+          .eq('id', data.selected_template_id)
+          .maybeSingle();
+        if (temp) templateName = temp.name;
+      } else {
+        templateName = 'None';
+      }
+
+      logActivity(req, {
+        action: 'default_policy_template_changed',
+        module: 'Policy Template',
+        entity_id: data.selected_template_id,
+        entity_name: templateName,
+        severity: 'info',
+        event_data: {
+          actor_name: req.user?.email || req.userId,
+          template_name: templateName,
+          old_template_id: oldTemplateId,
+          new_template_id: data.selected_template_id
+        }
+      });
+    }
 
     // Update needed_framework on organizations table
     let savedFrameworks = [];

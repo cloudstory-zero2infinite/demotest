@@ -4,9 +4,12 @@ import { EmailTemplate } from '../../types';
 import { marked } from 'marked';
 marked.setOptions({ gfm: true, breaks: true });
 
+import { UserRole } from '../../types';
+
 interface OrgTemplatesTabProps {
     isActive?: boolean;
     readOnly?: boolean;
+    userRole?: UserRole | null;
 }
 
 type EmailModalState =
@@ -52,7 +55,8 @@ const STANDARD_PLACEHOLDERS = [
     { code: '{{integrity_hash}}', desc: 'Integrity Validation Hash' },
 ];
 
-export const OrgTemplatesTab: React.FC<OrgTemplatesTabProps> = ({ isActive = true, readOnly = false }) => {
+export const OrgTemplatesTab: React.FC<OrgTemplatesTabProps> = ({ isActive = true, readOnly = false, userRole }) => {
+    const isReadOnly = userRole === 'read-only';
     const [templates, setTemplates] = useState<EmailTemplate[]>([]);
     const [policyTemplates, setPolicyTemplates] = useState<any[]>([]);
     const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
@@ -124,7 +128,8 @@ export const OrgTemplatesTab: React.FC<OrgTemplatesTabProps> = ({ isActive = tru
                                 {!readOnly && (
                                     <button
                                         onClick={() => setEmailModal({ kind: 'create' })}
-                                        className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
+                                        disabled={isReadOnly}
+                                        className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         + New Template
                                     </button>
@@ -157,8 +162,9 @@ export const OrgTemplatesTab: React.FC<OrgTemplatesTabProps> = ({ isActive = tru
                                                 <div className="flex items-center gap-1 flex-shrink-0">
                                                     <button
                                                         onClick={() => setEmailModal({ kind: 'edit', template: t })}
+                                                        disabled={isReadOnly}
                                                         title="Edit"
-                                                        className="p-1.5 text-blue-650 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors"
+                                                        className="p-1.5 text-blue-650 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                                     >
                                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -166,8 +172,9 @@ export const OrgTemplatesTab: React.FC<OrgTemplatesTabProps> = ({ isActive = tru
                                                     </button>
                                                     <button
                                                         onClick={() => setEmailModal({ kind: 'delete', template: t })}
+                                                        disabled={isReadOnly}
                                                         title="Delete"
-                                                        className="p-1.5 text-red-650 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
+                                                        className="p-1.5 text-red-650 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                                     >
                                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -210,7 +217,8 @@ export const OrgTemplatesTab: React.FC<OrgTemplatesTabProps> = ({ isActive = tru
                                 {!readOnly && (
                                     <button
                                         onClick={() => setPolicyModal({ kind: 'create' })}
-                                        className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
+                                        disabled={isReadOnly}
+                                        className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         + Create Template
                                     </button>
@@ -249,7 +257,7 @@ export const OrgTemplatesTab: React.FC<OrgTemplatesTabProps> = ({ isActive = tru
                                             </div>
                                             {!readOnly && (
                                                 <div className="flex items-center gap-1 flex-shrink-0">
-                                                                                    {t.id === selectedTemplateId ? (
+                                                    {t.id === selectedTemplateId ? (
                                                         <button
                                                             onClick={async () => {
                                                                 try {
@@ -259,7 +267,8 @@ export const OrgTemplatesTab: React.FC<OrgTemplatesTabProps> = ({ isActive = tru
                                                                     console.error("Failed to remove default template", err);
                                                                 }
                                                             }}
-                                                            className="px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md"
+                                                            disabled={isReadOnly}
+                                                            className="px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
                                                         >
                                                             Remove Default
                                                         </button>
@@ -273,34 +282,37 @@ export const OrgTemplatesTab: React.FC<OrgTemplatesTabProps> = ({ isActive = tru
                                                                     console.error("Failed to set default template", err);
                                                                 }
                                                             }}
+                                                            disabled={isReadOnly}
                                                             title="Set as Default"
-                                                            className="p-1.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-md transition-colors"
+                                                            className="p-1.5 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                                         >
                                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                                             </svg>
                                                         </button>
                                                     )}
-                                                            <button
-                                                                onClick={() => setPolicyModal({ kind: 'edit', template: t })}
-                                                                title="Edit"
-                                                                className="p-1.5 text-blue-650 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors"
-                                                            >
-                                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                                                                </svg>
-                                                            </button>
-                                                            {!t.is_standard && (
-                                                                <button
-                                                                    onClick={() => setPolicyModal({ kind: 'delete', template: t })}
-                                                                    title="Delete"
-                                                                    className="p-1.5 text-red-650 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
-                                                                >
-                                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                                    </svg>
-                                                                </button>
-                                                            )}
+                                                    <button
+                                                        onClick={() => setPolicyModal({ kind: 'edit', template: t })}
+                                                        disabled={isReadOnly}
+                                                        title="Edit"
+                                                        className="p-1.5 text-blue-650 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    >
+                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                                        </svg>
+                                                    </button>
+                                                    {!t.is_standard && (
+                                                        <button
+                                                            onClick={() => setPolicyModal({ kind: 'delete', template: t })}
+                                                            disabled={isReadOnly}
+                                                            title="Delete"
+                                                            className="p-1.5 text-red-650 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                        >
+                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                            </svg>
+                                                        </button>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
