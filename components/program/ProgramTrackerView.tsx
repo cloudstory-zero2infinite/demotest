@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, ChangeEvent, useCallback, useMemo } from 'react';
 import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ProgramStatus, ActivityLog, AllActivityLog, OrgContact, formatOrgContact } from '../../types';
 import * as SupabaseService from '../../services/supabase';
-import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, HistoryIcon, MessageCircleIcon } from '../Icons';
+import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, HistoryIcon, MessageCircleIcon, BotIcon } from '../Icons';
 import { Modal } from '../common/Modal';
+import { AIChatModal } from '../common/AIChatModal';
 import { StatusBadge } from '../common/StatusBadge';
 import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
 import { useTableSelection } from '../../hooks/useTableSelection';
@@ -784,6 +785,15 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
     const [currentUserId, setCurrentUserId] = useState<string>();
     const [isImporting, setIsImporting] = useState(false);
     const [importProgress, setImportProgress] = useState<BulkProgress>({ total: 0, completed: 0, failed: 0, status: 'idle' });
+    const [showAIChat, setShowAIChat] = useState(false);
+    // Collapsed parent task ids — children are hidden while their parent id is in this set.
+    const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+    const toggleCollapsed = (id: string) => setCollapsed(prev => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return next;
+    });
 
     const {
         selectedIds, isEditing, editValues, isConfirmingDelete, isSaving, bulkProgress,
@@ -835,6 +845,30 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
         } catch (err) {
             setError('Failed to save task.');
         }
+    };
+
+    // Reuses the shared AI helper modal (module="program"). The agent returns loosely-typed
+    // records; we coerce each into a ProgramTaskCreate and bulk-insert. task_code / parent_id
+    // are omitted (server-generated); status is re-derived from progress by the backend.
+    const handleAIChatConfirm = async (records: Record<string, unknown>[]) => {
+        const toCreate: ProgramTaskCreate[] = records.map(r => {
+            const progress = Math.max(0, Math.min(100, Number(r.progress_percent) || 0));
+            const allowed: ProgramStatus[] = ['Planned', 'InProgress', 'Completed', 'Blocked', 'Escalated'];
+            const status = allowed.includes(r.status as ProgramStatus) ? (r.status as ProgramStatus) : 'Planned';
+            return {
+                program_name: String(r.program_name || '').trim(),
+                description: String(r.description || ''),
+                month: String(r.month || ''),
+                due_date: r.due_date ? String(r.due_date) : null,
+                assignee: r.assignee ? String(r.assignee) : null,
+                status,
+                progress_percent: progress,
+                comments: r.comments ? String(r.comments) : null,
+            };
+        }).filter(t => t.program_name);
+        if (toCreate.length === 0) throw new Error('No valid tasks to add.');
+        await SupabaseService.bulkAddTasks(toCreate);
+        fetchTasks();
     };
 
     const handleDeleteTask = async () => {
@@ -1082,7 +1116,11 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
             const visibleKids = q ? kids.filter(matches) : kids;
             if (q && !parentMatches && visibleKids.length === 0) continue;
             rows.push({ task: p, depth: 0, childCount: kids.length });
-            for (const k of sortItems(visibleKids)) rows.push({ task: k, depth: 1, childCount: 0 });
+            // While filtering, always show matching children so nothing is hidden behind a collapse.
+            const isCollapsed = !q && collapsed.has(p.id);
+            if (!isCollapsed) {
+                for (const k of sortItems(visibleKids)) rows.push({ task: k, depth: 1, childCount: 0 });
+            }
         }
         // Defensive: children whose parent isn't a current top-level row show standalone.
         for (const t of tasks) {
@@ -1091,7 +1129,7 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
             }
         }
         return rows;
-    }, [tasks, filter, sortConfig, isCxo, escalatedOnly]);
+    }, [tasks, filter, sortConfig, isCxo, escalatedOnly, collapsed]);
 
     const filteredAndSortedTasks = useMemo(() => displayRows.map(r => r.task), [displayRows]);
 
@@ -1220,6 +1258,14 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                     <div className="flex items-center space-x-2">
                         <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
                         <button
+                            onClick={() => setShowAIChat(true)}
+                            disabled={isReadOnly}
+                            title="AI Generate"
+                            className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <BotIcon className="h-5 w-5" />
+                        </button>
+                        <button
                             onClick={() => fileInputRef.current?.click()}
                             disabled={isReadOnly}
                             title="Import CSV"
@@ -1295,6 +1341,23 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                                             <input type="text" value={editValues[task.id]?.program_name ?? task.program_name} onChange={e => updateField(task.id, 'program_name', e.target.value)} className={editInputCls} />
                                         ) : (
                                             <div className="flex items-center gap-3 group" style={depth > 0 ? { paddingLeft: '1.5rem' } : undefined}>
+                                                {depth === 0 && (
+                                                    childCount > 0 ? (
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); toggleCollapsed(task.id); }}
+                                                            className="p-0.5 -ml-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded transition-colors"
+                                                            title={collapsed.has(task.id) ? 'Expand sub-tasks' : 'Collapse sub-tasks'}
+                                                            aria-expanded={!collapsed.has(task.id)}
+                                                            aria-label={collapsed.has(task.id) ? 'Expand sub-tasks' : 'Collapse sub-tasks'}
+                                                        >
+                                                            <svg className={`h-4 w-4 transition-transform ${collapsed.has(task.id) ? '' : 'rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                                            </svg>
+                                                        </button>
+                                                    ) : (
+                                                        <span className="inline-block w-4 -ml-1" aria-hidden="true" />
+                                                    )
+                                                )}
                                                 {depth > 0 && <span className="text-gray-300 dark:text-gray-600 select-none -ml-1">↳</span>}
                                                 <div className="flex flex-col">
                                                     <span className="flex items-center gap-2">
@@ -1500,6 +1563,13 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                 title="Importing Tasks"
                 progress={importProgress}
                 onClose={() => setIsImporting(false)}
+            />
+
+            <AIChatModal
+                isOpen={showAIChat}
+                onClose={() => setShowAIChat(false)}
+                module="program"
+                onConfirm={handleAIChatConfirm}
             />
         </div>
     );
