@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 
 
 
-import { Asset, AssetCreate, AssetUpdate, AssetCriticality, AssetGovernedStatus, AssetExposure, AssetCategory, AssetSource } from '../../types';
+import { Asset, AssetCreate, AssetUpdate, AssetCriticality, AssetGovernedStatus, AssetExposure, AssetCategory, AssetSource, UserRole } from '../../types';
 
 import { CustomField } from '../../services/supabase';
 
@@ -57,30 +57,13 @@ import { SelectionActionBar } from '../common/SelectionActionBar';
 
 
 interface AssetModalProps {
-
-
-
     isOpen: boolean;
-
-
-
     onClose: () => void;
-
-
-
     onSave: (asset: AssetCreate | AssetUpdate) => void;
-
-
-
     assetToEdit: Asset | null;
-
-
-
     mode: 'add' | 'edit' | 'view';
-
-
-
     onEdit?: () => void;
+    isReadOnly?: boolean;
 
 
 
@@ -127,15 +110,14 @@ const MANDATORY_LABEL = <span className="text-red-500 ml-0.5">*</span>;
 
 
 
-const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetToEdit, mode, onEdit, onDelete, customFields = [], onShowColumnManagement, selectedAssetType, customAssetTypes = [], assets = [], orgName = '' }) => {
+const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetToEdit, mode, onEdit, onDelete, customFields = [], onShowColumnManagement, selectedAssetType, customAssetTypes = [], assets = [], orgName = '', isReadOnly = false }) => {
 
     const [formData, setFormData] = useState<Partial<AssetCreate>>({});
     const [isSaving, setIsSaving] = useState(false);
     const [formAssetTypeId, setFormAssetTypeId] = useState<string | null>(null);
 
-
-
     const isViewMode = mode === 'view';
+    const isFieldsDisabled = isViewMode || isReadOnly;
 
 
 
@@ -214,7 +196,7 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
 
 
-        // Handle custom field
+        // Handle custom fields
 
         if (name.startsWith('custom_field_')) {
 
@@ -446,23 +428,24 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
         <Modal isOpen={isOpen} onClose={onClose} title={title}
 
             headerActions={isViewMode && (
-
                 <>
-
-                    <button onClick={() => { onEdit?.(); }} title="Edit" className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
-
+                    <button
+                        onClick={() => { onEdit?.(); }}
+                        disabled={isReadOnly}
+                        title="Edit"
+                        className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <PencilIcon className="h-4 w-4" />
-
                     </button>
-
-                    <button onClick={() => { onDelete?.(); }} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
-
+                    <button
+                        onClick={() => { onDelete?.(); }}
+                        disabled={isReadOnly}
+                        title="Delete"
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <TrashIcon className="h-4 w-4" />
-
                     </button>
-
                 </>
-
             )}
 
         >
@@ -508,14 +491,14 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
                     {isFieldAllowed('name') && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asset Name {MANDATORY_LABEL}</label>
-                            <input type="text" name="name" value={formData.name || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                            <input type="text" name="name" value={formData.name || ''} onChange={handleChange} readOnly={isFieldsDisabled} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                         </div>
                     )}
 
                     {isFieldAllowed('criticality') && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Classification {MANDATORY_LABEL}</label>
-                            <select name="criticality" value={formData.criticality} onChange={handleChange} disabled={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                            <select name="criticality" value={formData.criticality} onChange={handleChange} disabled={isFieldsDisabled} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                                 <option>Low</option><option>Medium</option><option>High</option>
                             </select>
                         </div>
@@ -526,7 +509,7 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
                     {isFieldAllowed('category') && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Type {MANDATORY_LABEL}</label>
-                            <select name="category" value={formData.category} onChange={handleChange} disabled={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                            <select name="category" value={formData.category} onChange={handleChange} disabled={isFieldsDisabled} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                                 <option value="Physical/Hardware">Physical/Hardware</option>
                                 <option value="Software">Software</option>
                                 <option value="Services/Infra">Services/Infra</option>
@@ -538,35 +521,35 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
                     {isFieldAllowed('asset_owner') && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Owner {MANDATORY_LABEL}</label>
-                            <input type="text" name="asset_owner" value={formData.asset_owner || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                            <input type="text" name="asset_owner" value={formData.asset_owner || ''} onChange={handleChange} readOnly={isFieldsDisabled} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                         </div>
                     )}
 
                     {isFieldAllowed('business_unit') && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Business Unit {MANDATORY_LABEL}</label>
-                            <input type="text" name="business_unit" value={formData.business_unit || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                            <input type="text" name="business_unit" value={formData.business_unit || ''} onChange={handleChange} readOnly={isFieldsDisabled} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                         </div>
                     )}
 
                     {isFieldAllowed('ip_address') && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">IP Address {MANDATORY_LABEL}</label>
-                            <input type="text" name="ip_address" value={formData.ip_address || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="e.g., 192.168.1.1" />
+                            <input type="text" name="ip_address" value={formData.ip_address || ''} onChange={handleChange} readOnly={isFieldsDisabled} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="e.g., 192.168.1.1" />
                         </div>
                     )}
 
                     {isFieldAllowed('mac_id') && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">UID / Mac ID {MANDATORY_LABEL}</label>
-                            <input type="text" name="mac_id" value={formData.mac_id || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="e.g., 00:1A:2B:3C:4D:5E" />
+                            <input type="text" name="mac_id" value={formData.mac_id || ''} onChange={handleChange} readOnly={isFieldsDisabled} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="e.g., 00:1A:2B:3C:4D:5E" />
                         </div>
                     )}
 
                     {isFieldAllowed('details') && (
                         <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Asset Description {MANDATORY_LABEL}</label>
-                            <textarea name="details" value={formData.details || ''} onChange={handleChange} readOnly={isViewMode} rows={3} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
+                            <textarea name="details" value={formData.details || ''} onChange={handleChange} readOnly={isFieldsDisabled} rows={3} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
                         </div>
                     )}
 
@@ -576,14 +559,14 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
                     {isFieldAllowed('physical_location') && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Physical Location</label>
-                            <input type="text" name="physical_location" value={formData.physical_location || ''} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="e.g., Server Room A, Building 2" />
+                            <input type="text" name="physical_location" value={formData.physical_location || ''} onChange={handleChange} readOnly={isFieldsDisabled} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="e.g., Server Room A, Building 2" />
                         </div>
                     )}
 
                     {isFieldAllowed('exposure') && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Exposure</label>
-                            <select name="exposure" value={formData.exposure} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                            <select name="exposure" value={formData.exposure} onChange={handleChange} disabled={isFieldsDisabled} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                                 <option>Internal</option><option>External</option><option>DMZ</option>
                             </select>
                         </div>
@@ -605,7 +588,7 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
                     {isFieldAllowed('vulnerability_count') && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Vulnerability Count</label>
-                            <input type="number" name="vulnerability_count" value={formData.vulnerability_count || 0} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                            <input type="number" name="vulnerability_count" value={formData.vulnerability_count || 0} onChange={handleChange} readOnly={isFieldsDisabled} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                         </div>
                     )}
 
@@ -686,7 +669,7 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
                                                 }
                                             }));
                                         }}
-                                        readonly={isViewMode}
+                                        readonly={isFieldsDisabled}
                                     />
                                 ) : (
                                     <div className="text-center py-8 text-gray-500 dark:text-gray-400">
@@ -694,7 +677,8 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
                                         <button
                                             type="button"
                                             onClick={() => onShowColumnManagement?.()}
-                                            className="text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 underline"
+                                            disabled={isReadOnly}
+                                            className="text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 underline disabled:opacity-50 disabled:cursor-not-allowed"
                                         >
                                             Add your first custom column
                                         </button>
@@ -724,7 +708,7 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
 
 
 
-                        <button type="submit" disabled={isSaving} className="flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed min-w-[5rem]">
+                        <button type="submit" disabled={isSaving || isReadOnly} className="flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed min-w-[5rem] disabled:opacity-50">
 
                             {isSaving ? (
 
@@ -806,9 +790,8 @@ const displaySource = (source: string | null | undefined): string => {
 
 
 
-export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
-
-
+export const AssetsView: React.FC<{ isActive?: boolean, userRole?: UserRole | null }> = ({ isActive = true, userRole }) => {
+    const isReadOnly = userRole === 'read-only';
 
     const [assets, setAssets] = useState<Asset[]>([]);
 
@@ -2437,9 +2420,9 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
 
     return (
         <div>
-            <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4">
-                <div className="w-full sm:w-1/3 flex flex-col gap-2">
-                    <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+                <div className="flex-1 min-w-0 flex flex-col gap-2 w-full">
+                    <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1.5 pt-0.5">
                         <button
                             onClick={() => {
                                 setFilter('');
@@ -2491,28 +2474,47 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                             );
                         })}
                     </div>
-                    <input
-                        type="text"
-                        placeholder="Filter assets..."
-                        value={filter}
-                        onChange={e => setFilter(e.target.value)}
-                        className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                        aria-label="Filter assets"
-                        data-testid="asset-filter-input"
-                    />
+                    <div className="w-full sm:w-80">
+                        <input
+                            type="text"
+                            placeholder="Filter assets..."
+                            value={filter}
+                            onChange={e => setFilter(e.target.value)}
+                            className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                            aria-label="Filter assets"
+                            data-testid="asset-filter-input"
+                        />
+                    </div>
                 </div>
-                <div className="flex space-x-2">
+                <div className="flex space-x-2 flex-shrink-0">
                     <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
-                    <button onClick={() => setShowAIChat(true)} title="AI Generate" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                    <button
+                        onClick={() => setShowAIChat(true)}
+                        disabled={isReadOnly}
+                        title="AI Generate"
+                        className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <BotIcon className="h-5 w-5" />
                     </button>
-                    <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isReadOnly}
+                        title="Import CSV"
+                        className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <UploadIcon className="h-5 w-5" />
                     </button>
-                    <button onClick={handleExportCSV} title="Export CSV" data-testid="assets-export-csv" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                    <button onClick={handleExportCSV} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                         <DownloadIcon className="h-5 w-5" />
                     </button>
-                    <button onClick={() => setModalState({ type: 'add' })} title="Add Asset" aria-label="Add new asset" data-testid="asset-add-btn" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                    <button
+                        onClick={() => setModalState({ type: 'add' })}
+                        disabled={isReadOnly}
+                        title="Add Asset"
+                        aria-label="Add new asset"
+                        data-testid="asset-add-btn"
+                        className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <PlusIcon className="h-5 w-5" />
                     </button>
                 </div>
@@ -2553,7 +2555,12 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
                                             className="rounded border-gray-300 dark:border-gray-600 cursor-pointer"
                                             title={`Select All ${filteredAndSortedAssets.length} Assets (All Pages)`}
                                         />
-                                        <button onClick={() => setShowColumnManagement(true)} title="Manage Columns" className="p-1 text-gray-400 hover:text-purple-500 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors">
+                                        <button
+                                            onClick={() => setShowColumnManagement(true)}
+                                            disabled={isReadOnly}
+                                            title="Manage Columns"
+                                            className="p-1 text-gray-400 hover:text-purple-500 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
                                             <PlusIcon className="h-4 w-4" />
                                         </button>
                                     </div>
@@ -2831,43 +2838,20 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
             </div>
 
             <AssetModal
-
-
-
                 isOpen={modalState.type === 'add' || modalState.type === 'edit' || modalState.type === 'view'}
-
-
-
                 onClose={closeModal}
-
-
-
                 onSave={handleSaveAsset}
-
-
-
                 assetToEdit={modalState.asset || null}
-
-
-
                 mode={modalState.type as 'add' | 'edit' | 'view'}
-
-
-
                 onEdit={() => modalState.asset && setModalState({ type: 'edit', asset: modalState.asset })}
-
-
-
                 onDelete={() => modalState.asset && setModalState({ type: 'delete', asset: modalState.asset })}
-
-
-
                 customFields={customFields}
                 onShowColumnManagement={() => setShowColumnManagement(true)}
                 selectedAssetType={selectedAssetType}
                 customAssetTypes={customAssetTypes}
                 assets={assets}
                 orgName={orgName}
+                isReadOnly={isReadOnly}
             />
 
 
@@ -3169,33 +3153,20 @@ export const AssetsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }
             />
 
             {bulkProgress.status === 'idle' && (
-
                 <SelectionActionBar
-
                     selectedCount={selectedIds.size}
-
                     isEditing={isEditing}
-
                     isConfirmingDelete={isConfirmingDelete}
-
                     isSaving={isSaving}
-
                     onEdit={() => startEdit(filteredAndSortedAssets.filter(i => selectedIds.has(i.id)), i => i.id)}
-
                     onSaveAll={handleSaveAll}
-
                     onCancelEdit={cancelEdit}
-
                     onDelete={() => setIsConfirmingDelete(true)}
-
                     onConfirmDelete={handleBulkDelete}
-
                     onCancelDelete={() => setIsConfirmingDelete(false)}
-
                     onClear={clearAll}
-
+                    disabled={isReadOnly}
                 />
-
             )}
 
 

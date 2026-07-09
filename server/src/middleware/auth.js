@@ -64,6 +64,20 @@ export const requireAuth = async (req, res, next) => {
 
 
 
+    if (req.userRole === 'read-only' && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+
+      const allowedPaths = ['/api/policies/parse-file'];
+
+      if (!allowedPaths.some(path => req.path.startsWith(path))) {
+
+        return res.status(403).json({ error: 'Forbidden: Read-Only users cannot perform write operations.' });
+
+      }
+
+    }
+
+
+
     next();
 
   } catch (err) {

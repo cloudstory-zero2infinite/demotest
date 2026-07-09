@@ -9,6 +9,8 @@ import * as SupabaseService from '../../services/supabase';
 import { EyeIcon, PencilIcon, PlusIcon, UploadIcon, DownloadIcon, BotIcon, HistoryIcon, TrashIcon, PhotoIcon, MapperIcon } from '../Icons';
 import { PolicyAIDraftModal } from './PolicyAIDraftModal';
 import { MapperRunModal } from './MapperRunModal';
+import { PolicyEditor, parseDocumentText } from './PolicyEditor';
+import { DocLangPreview } from './DocLangPreview';
 
 // ─── Markdown config ─────────────────────────────────────────────────────────
 marked.setOptions({ gfm: true, breaks: true });
@@ -27,6 +29,7 @@ const PROSE_STYLE = `
 .policy-prose th{background:#f3f4f6;font-weight:600}
 .policy-prose code{background:#f3f4f6;padding:.1rem .3rem;border-radius:.2rem;font-size:.85em}
 .policy-prose pre{background:#1e293b;color:#e2e8f0;padding:1rem;border-radius:.4rem;overflow:auto;margin:.5rem 0}
+.policy-prose pre code{background:transparent;padding:0;border-radius:0;color:inherit;font-size:inherit}
 .policy-prose blockquote{border-left:4px solid #3b82f6;padding:.5rem 1rem;background:#eff6ff;margin:.5rem 0}
 .policy-prose hr{border:none;border-top:1px solid #e5e7eb;margin:1rem 0}
 .policy-prose strong{font-weight:700}
@@ -52,7 +55,7 @@ const STATUS_META: Record<string, { label: string; border: string; badge: string
 };
 
 // A policy is overdue once its due date has lapsed. The cron flips approved →
-// 'overdue', but we also treat an approved policy whose date has just passed'
+// 'overdue', but we also treat an approved policy whose date has just passed
 // (before the cron runs) as overdue so the UI is never stale. Only 'approved'
 // policies carry a due date, so 'reviewed'/others can never be overdue.
 const isExpired = (p: PolicyV2) =>
@@ -160,6 +163,184 @@ const HistoryModal: React.FC<{ policy: PolicyV2; onClose: () => void }> = ({ pol
     );
 };
 
+// ─── DownloadModal ─────────────────────────────────────────────────────────────
+interface DownloadModalProps {
+    policy: PolicyV2;
+    onClose: () => void;
+    userRole?: string | null;
+}
+const DownloadModal: React.FC<DownloadModalProps> = ({ policy, onClose, userRole }) => {
+    const [templates, setTemplates] = useState<any[]>([]);
+    const [selectedTemplateId, setSelectedTemplateId] = useState('');
+    const [format, setFormat] = useState<'pdf' | 'docx'>('pdf');
+    const [loading, setLoading] = useState(true);
+    const [downloading, setDownloading] = useState(false);
+    const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+    const [previewLoading, setPreviewLoading] = useState(false);
+    const [isOpen, setIsOpen] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    const isAdmin = ['admin', 'tenant_admin', 'cxo'].includes(userRole || '');
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    useEffect(() => {
+        Promise.all([
+            SupabaseService.getPolicyTemplates(),
+            SupabaseService.getOrgSettings()
+        ]).then(([temps, settings]) => {
+            setTemplates(temps || []);
+            setSelectedTemplateId(settings?.selected_template_id || '');
+        }).catch(() => {}).finally(() => setLoading(false));
+    }, []);
+
+    const handleDownload = async () => {
+        setDownloading(true);
+        try {
+            await SupabaseService.downloadPolicyDocument(policy.policy_id, selectedTemplateId || undefined, format);
+            onClose();
+        } catch (err: any) {
+            alert('Failed to generate document: ' + err.message);
+        } finally {
+            setDownloading(false);
+        }
+    };
+
+    const handlePreview = async (templateId: string) => {
+        setPreviewLoading(true);
+        try {
+            const html = await SupabaseService.getPolicyDocumentPreview(policy.policy_id, templateId || undefined);
+            setPreviewHtml(html);
+        } catch (err: any) {
+            alert('Failed to load preview: ' + err.message);
+        } finally {
+            setPreviewLoading(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700">
+                    <h2 className="text-base font-semibold text-gray-900 dark:text-white">Download Policy</h2>
+                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">&times;</button>
+                </div>
+                <div className="p-6 space-y-4">
+                    {loading ? (
+                        <div className="flex items-center justify-center py-6">
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" />
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5 font-semibold">
+                                    Select Format
+                                </label>
+                                <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 p-1 bg-gray-50/50 dark:bg-gray-900/20 w-full">
+                                    <button
+                                        type="button"
+                                        onClick={() => setFormat('pdf')}
+                                        className={`flex-1 py-1.5 px-4 rounded-md text-sm font-medium transition-all ${
+                                            format === 'pdf'
+                                                ? 'bg-blue-600 text-white shadow-sm'
+                                                : 'text-gray-650 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                                        }`}
+                                    >
+                                        PDF (Recommended)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFormat('docx')}
+                                        className={`flex-1 py-1.5 px-4 rounded-md text-sm font-medium transition-all ${
+                                            format === 'docx'
+                                                ? 'bg-blue-600 text-white shadow-sm'
+                                                : 'text-gray-650 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                                        }`}
+                                    >
+                                        DOCX Word Document
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end gap-3 pt-4 border-t dark:border-gray-700">
+                                <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-800">
+                                    Cancel
+                                </button>
+
+                                <button
+                                    onClick={handleDownload}
+                                    disabled={downloading}
+                                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2 shadow-sm"
+                                >
+                                    {downloading ? (
+                                        <>
+                                            <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white" />
+                                            Generating...
+                                        </>
+                                    ) : (
+                                        'Download'
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Document Preview Modal */}
+            {previewHtml && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 animate-fade-in" onClick={() => setPreviewHtml(null)}>
+                    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-800 flex-shrink-0">
+                            <div>
+                                <h3 className="text-base font-semibold text-gray-900 dark:text-white">Document Layout Preview</h3>
+                                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Preview of generated layout with injected tenant and policy variables.</p>
+                            </div>
+                            <button onClick={() => setPreviewHtml(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-250 text-xl leading-none">&times;</button>
+                        </div>
+                        <div className="flex-1 overflow-hidden bg-gray-100 dark:bg-slate-950 p-6 flex justify-center">
+                            <iframe 
+                                srcDoc={previewHtml}
+                                title="Document Preview"
+                                className="bg-white border border-gray-200 dark:border-slate-800 shadow-xl max-w-[900px] w-full h-full"
+                                style={{ border: 'none' }}
+                            />
+                        </div>
+                        <div className="px-6 py-3.5 border-t dark:border-gray-800 flex justify-end flex-shrink-0">
+                            <button 
+                                onClick={() => setPreviewHtml(null)} 
+                                className="px-4 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 font-semibold shadow-sm transition-colors"
+                            >
+                                Close Preview
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Loading Indicator Overlay */}
+            {previewLoading && (
+                <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/30 backdrop-blur-[1px]">
+                    <div className="bg-white dark:bg-gray-850 rounded-xl p-5 shadow-2xl flex items-center gap-3 border dark:border-gray-800">
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600" />
+                        <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Generating document preview...</span>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 // ─── UserSelectionModal ─────────────────────────────────────────────────────────
 interface UserSelectionModalProps {
     title?: string;
@@ -251,19 +432,118 @@ interface ViewModalProps {
     onDelete?: () => void;
     onHistory?: () => void;
     onDownload?: () => void;
+    isReadOnly?: boolean;
 }
-const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUserEmail, onClose, onApproved, onEdit, onDelete, onHistory, onDownload }) => {
+const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUserEmail, onClose, onApproved, onEdit, onDelete, onHistory, onDownload, isReadOnly = false }) => {
     const [pendingApproval, setPendingApproval] = useState<PolicyApproval | null>(null);
     const [comment, setComment] = useState('');
     const [showRejectInput, setShowRejectInput] = useState(false);
     const [saving, setSaving] = useState(false);
-    const html = useMemo(() => renderMarkdown(policy.markdown || ''), [policy.markdown]);
+    const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+
+    useEffect(() => {
+        if (!policy?.doc_lang?.images || !Array.isArray(policy.doc_lang.images) || policy.doc_lang.images.length === 0) {
+            return;
+        }
+
+        const fetchUrls = async () => {
+            const urlsMap: Record<string, string> = {};
+            for (const img of policy.doc_lang.images) {
+                if (img.file_path) {
+                    try {
+                        const { data, error } = await SupabaseService.supabase.storage
+                            .from('policy-images')
+                            .createSignedUrl(img.file_path, 3600);
+                        if (!error && data?.signedUrl) {
+                            urlsMap[img.name] = data.signedUrl;
+                            const nameWithoutExt = img.name.replace(/\.[^/.]+$/, "");
+                            urlsMap[nameWithoutExt] = data.signedUrl;
+                        }
+                    } catch (err) {
+                        console.error('Error generating signed URL:', err);
+                    }
+                }
+            }
+            setSignedUrls(urlsMap);
+        };
+
+        fetchUrls();
+    }, [policy]);
+
+    const viewRenderMarkdown = (md: string) => {
+        if (!md) return '';
+        try {
+            let processed = md;
+
+            // 1. Replace [Image: Name] with HTML Image referencing signed URL
+            const imageRegex = /\[Image:\s*(.+?)\]/g;
+            processed = processed.replace(imageRegex, (match, name) => {
+                const signedUrl = signedUrls[name.trim()];
+                if (signedUrl) {
+                    return `<img src="${signedUrl}" alt="${name}" class="my-4 max-h-[400px] w-auto rounded border border-gray-200 dark:border-gray-800 shadow-sm" />`;
+                }
+                return `<div class="p-2 border border-dashed border-gray-300 dark:border-gray-700 text-xs text-gray-400 rounded my-2">Image "${name}" loading or private</div>`;
+            });
+
+            // 2. Replace standard markdown image tags ![Alt](images/filename.png) with signed URL matching filename
+            const markdownImageRegex = /!\[(.*?)\]\((.*?)\)/g;
+            processed = processed.replace(markdownImageRegex, (match, alt, url) => {
+                const filename = url.split('/').pop() || '';
+                const signedUrl = signedUrls[filename.trim()];
+                if (signedUrl) {
+                    return `<img src="${signedUrl}" alt="${alt || filename}" class="my-4 max-h-[400px] w-auto rounded border border-gray-200 dark:border-gray-800 shadow-sm" />`;
+                }
+                return match;
+            });
+
+            return renderMarkdown(processed);
+        } catch {
+            return renderMarkdown(md);
+        }
+    };
+
+    const html = useMemo(() => viewRenderMarkdown(policy.markdown || ''), [policy.markdown, signedUrls]);
+    const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+    const [loadingPreview, setLoadingPreview] = useState(false);
 
     useEffect(() => {
         if (policy.policy_status === 'in_approval' || policy.policy_status === 'to_review') {
             SupabaseService.getPolicyApproval(policy.policy_id).then(setPendingApproval);
         }
     }, [policy.policy_id, policy.policy_status]);
+
+    useEffect(() => {
+        let isMounted = true;
+        setLoadingPreview(true);
+        SupabaseService.getOrgSettings()
+            .then(async (settings) => {
+                if (settings && settings.selected_template_id) {
+                    try {
+                        const htmlPreview = await SupabaseService.getPolicyDocumentPreview(
+                            policy.policy_id,
+                            settings.selected_template_id
+                        );
+                        if (isMounted) {
+                            setPreviewHtml(htmlPreview);
+                        }
+                    } catch (err) {
+                        console.error("Failed to load templated preview", err);
+                    }
+                }
+            })
+            .catch((err) => {
+                console.error("Failed to load org settings", err);
+            })
+            .finally(() => {
+                if (isMounted) {
+                    setLoadingPreview(false);
+                }
+            });
+
+        return () => {
+            isMounted = false;
+        };
+    }, [policy.policy_id]);
 
     const isApprover = pendingApproval && (
         (pendingApproval.approver_id && pendingApproval.approver_id === currentUserId) ||
@@ -297,7 +577,7 @@ const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUse
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between px-6 py-4 border-b dark:border-gray-700 flex-shrink-0">
                     <div>
                         <div className="flex items-center gap-2 flex-wrap">
@@ -311,13 +591,23 @@ const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUse
                         </p>
                     </div>
                     <div className="flex items-center gap-1 ml-4">
-                        <button onClick={() => { onClose(); onEdit?.(); }} title="Edit" className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                        <button
+                            onClick={() => { onClose(); onEdit?.(); }}
+                            disabled={isReadOnly}
+                            title="Edit"
+                            className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
                             <PencilIcon className="h-4 w-4" />
                         </button>
                         <button onClick={() => onDownload?.() } title="Download PDF" className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
                             <DownloadIcon className="h-4 w-4" />
                         </button>
-                        <button onClick={() => { onClose(); onDelete?.(); }} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                        <button
+                            onClick={() => { onClose(); onDelete?.(); }}
+                            disabled={isReadOnly}
+                            title="Delete"
+                            className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
                             <TrashIcon className="h-4 w-4" />
                         </button>
                         <button onClick={() => { onClose(); onHistory?.(); }} title="History" className="p-1.5 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
@@ -327,8 +617,26 @@ const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUse
                     </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-8 py-6">
-                    <div className="policy-prose text-gray-800 dark:text-gray-200" dangerouslySetInnerHTML={{ __html: html }} />
+                <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+                    {loadingPreview ? (
+                        <div className="flex-1 flex flex-col items-center justify-center gap-3 py-12 bg-gray-50 dark:bg-gray-900/10">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+                            <span className="text-sm font-semibold text-gray-500 dark:text-gray-400">Loading templated view...</span>
+                        </div>
+                    ) : previewHtml ? (
+                        <div className="flex-1 bg-gray-105 dark:bg-slate-950 p-6 flex justify-center overflow-hidden">
+                            <iframe 
+                                srcDoc={previewHtml}
+                                title="Document Preview"
+                                className="bg-white border border-gray-200 dark:border-slate-800 shadow-xl max-w-[900px] w-full h-full"
+                                style={{ border: 'none' }}
+                            />
+                        </div>
+                    ) : (
+                        <div className="flex-1 overflow-y-auto px-8 py-6">
+                            <div className="policy-prose text-gray-800 dark:text-gray-200" dangerouslySetInnerHTML={{ __html: html }} />
+                        </div>
+                    )}
                 </div>
 
                 {isApprover && (
@@ -345,14 +653,15 @@ const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUse
                                     onChange={e => setComment(e.target.value)}
                                     placeholder="Reason for rejection (required)"
                                     rows={2}
-                                    className="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-400"
+                                    disabled={isReadOnly}
+                                    className="w-full rounded-md border border-gray-300 dark:border-gray-650 px-3 py-2 text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-red-400 disabled:opacity-60 disabled:cursor-not-allowed"
                                 />
                                 <div className="flex gap-2">
-                                    <button onClick={() => setShowRejectInput(false)} className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300">Cancel</button>
+                                    <button onClick={() => setShowRejectInput(false)} disabled={isReadOnly} className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">Cancel</button>
                                     <button
                                         onClick={handleReject}
-                                        disabled={!comment.trim() || saving}
-                                        className="px-4 py-1.5 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                                        disabled={!comment.trim() || saving || isReadOnly}
+                                        className="px-4 py-1.5 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         {saving ? 'Rejecting...' : 'Confirm Reject'}
                                     </button>
@@ -365,13 +674,14 @@ const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUse
                                     onChange={e => setComment(e.target.value)}
                                     placeholder="Optional comment..."
                                     rows={2}
-                                    className="flex-1 rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                    disabled={isReadOnly}
+                                    className="flex-1 rounded-md border border-gray-300 dark:border-gray-650 px-3 py-2 text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-60 disabled:cursor-not-allowed"
                                 />
                                 <div className="flex flex-col gap-2">
                                     <button 
                                         onClick={handleApprove} 
-                                        disabled={saving} 
-                                        className={`px-4 py-1.5 text-sm font-medium text-white rounded-md transition-colors disabled:bg-gray-300 ${
+                                        disabled={saving || isReadOnly} 
+                                        className={`px-4 py-1.5 text-sm font-medium text-white rounded-md transition-colors disabled:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed ${
                                             policy.policy_status === 'to_review' 
                                                 ? 'bg-blue-600 hover:bg-blue-700' 
                                                 : 'bg-green-600 hover:bg-green-700'
@@ -379,7 +689,7 @@ const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUse
                                     >
                                         {saving ? '...' : (policy.policy_status === 'to_review' ? 'Complete Review' : 'Approve')}
                                     </button>
-                                    <button onClick={() => setShowRejectInput(true)} className="px-4 py-1.5 text-sm font-medium text-white bg-red-500 rounded-md hover:bg-red-600">
+                                    <button onClick={() => setShowRejectInput(true)} disabled={isReadOnly} className="px-4 py-1.5 text-sm font-medium text-white bg-red-500 rounded-md hover:bg-red-650 disabled:opacity-50 disabled:cursor-not-allowed">
                                         Reject
                                     </button>
                                 </div>
@@ -396,80 +706,119 @@ const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUse
 interface EditorModalProps {
     policy?: PolicyV2 | null;
     initialMarkdown?: string;
+    initialDocLang?: any;
     onClose: () => void;
     onSaved: () => void;
+    orgId: string;
+    orgName: string;
+    currentUserEmail: string | null;
+    isReadOnly?: boolean;
 }
-const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onClose, onSaved }) => {
-    const [markdown, setMarkdown] = useState(policy?.markdown || initialMarkdown || '');
+
+const convertDocLangToMarkdown = (dl: any) => {
+    if (!dl) return '';
+    let md = `# ${dl.title || 'Untitled Policy'}\n\n`;
+    if (dl.metadata) {
+        md += `| Metadata | Value |\n| --- | --- |\n`;
+        if (dl.document_id) md += `| **Document ID:** | ${dl.document_id} |\n`;
+        if (dl.metadata.owner_name) md += `| **Owner:** | ${dl.metadata.owner_name} |\n`;
+        if (dl.version) md += `| **Version:** | ${dl.version} |\n`;
+        if (dl.status) md += `| **Status:** | ${dl.status} |\n`;
+        if (dl.metadata.refresh_date) md += `| **Next Review Date:** | ${dl.metadata.refresh_date} |\n`;
+        md += `\n`;
+    }
+    if (dl.sections && Array.isArray(dl.sections)) {
+        for (const sec of dl.sections) {
+            md += `## ${sec.title}\n\n${sec.content}\n\n`;
+        }
+    }
+    return md.trim();
+};
+
+const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, initialDocLang, onClose, onSaved, orgId, orgName, currentUserEmail, isReadOnly = false }) => {
+    const [docLang, setDocLang] = useState<any>(() => {
+        const currentUserName = sessionStorage.getItem("grcUserName") || currentUserEmail || 'Policy Owner';
+
+        if (policy?.doc_lang) return policy.doc_lang;
+        if (initialDocLang) {
+            const dl = { ...initialDocLang };
+            if (!dl.metadata) dl.metadata = {};
+            const originalOwner = dl.metadata.owner_name;
+            
+            // Always set owner to the creating user's name
+            dl.metadata.owner_name = currentUserName;
+            
+            if (dl.sections && Array.isArray(dl.sections)) {
+                dl.sections = dl.sections.map((sec: any) => {
+                    if (sec.content && typeof sec.content === 'string') {
+                        let updatedContent = sec.content.replace(/\[Author Name\]/gi, currentUserName);
+                        if (originalOwner && originalOwner.trim() !== '') {
+                            const escapedOwner = originalOwner.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                            updatedContent = updatedContent.replace(new RegExp(escapedOwner, 'g'), currentUserName);
+                        }
+                        return {
+                            ...sec,
+                            content: updatedContent
+                        };
+                    }
+                    return sec;
+                });
+            }
+            return dl;
+        }
+        return {
+            document_type: 'policy',
+            document_id: policy?.policy_ref || 'POL-TEMP',
+            title: policy?.name || 'New Policy Document',
+            version: policy?.version || '1.0',
+            status: policy?.policy_status || 'draft',
+            metadata: {
+                owner_name: currentUserName,
+                refresh_date: policy?.refresh_date || null
+            },
+            sections: [],
+            approval_matrix: [],
+            revision_history: [],
+            references: [],
+            applicability: [],
+            tables: [],
+            images: [],
+            signatures: [],
+            attachments: []
+        };
+    });
+
     const [status, setStatus] = useState<PolicyWorkflowStatus>(policy?.policy_status || 'draft');
     const [saving, setSaving] = useState(false);
     const [showApprover, setShowApprover] = useState(false);
     const [showReviewer, setShowReviewer] = useState(false);
-    const [uploading, setUploading] = useState(false);
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    
-    // Internal mapping of uploaded images to Supabase URLs (hidden from users)
-    const [imageMap, setImageMap] = useState<Map<string, string>>(new Map());
+    const [activeTab, setActiveTab] = useState<'edit' | 'preview'>('edit');
+    const [logoUrl, setLogoUrl] = useState<string | null>(null);
+    const [signatureUrl, setSignatureUrl] = useState<string | null>(null);
+    const [includeSignature, setIncludeSignature] = useState<boolean>(true);
 
-    // Extract existing image mappings on mount
     useEffect(() => {
-        const initialText = policy?.markdown || initialMarkdown || '';
-        const map = new Map<string, string>();
-        const regex = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+(?:\([^)]*\)[^\s)]*)*)\)/g;
-        let match;
-        while ((match = regex.exec(initialText)) !== null) {
-            const alt = match[1];
-            const url = match[2];
-            map.set(alt, url);
-        }
-        if (map.size > 0) {
-            setImageMap(map);
-        }
-    }, [policy, initialMarkdown]);
-    
-    // Display markdown with hidden URLs for user view
-    const displayMarkdown = useMemo(() => {
-        let processedMarkdown = markdown;
-        // Replace Supabase URLs with placeholder text using robust parenthesis-matching regex
-        const regex = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+(?:\([^)]*\)[^\s)]*)*)\)/g;
-        processedMarkdown = processedMarkdown.replace(regex, (match, alt) => {
-            return `![${alt}](Hide from markdown...)`;
-        });
-        return processedMarkdown;
-    }, [markdown]);
-
-    // Restore real URLs from imageMap whenever user edits displayMarkdown
-    const handleMarkdownChange = (newVal: string) => {
-        let restored = newVal;
-        imageMap.forEach((url, alt) => {
-            const escapedAlt = alt.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&');
-            const pattern = new RegExp(`!\\[${escapedAlt}\\]\\(Hide from markdown\\.\\.\\.\\)`, 'g');
-            restored = restored.replace(pattern, `![${alt}](${url})`);
-        });
-        setMarkdown(restored);
-    };
-    
-    const previewHtml = useMemo(() => {
-        // Replace image references with Supabase URLs for rendering
-        let processedMarkdown = markdown;
-        imageMap.forEach((url, filename) => {
-            const patterns = [
-                new RegExp(`!\\[([^\\]]*)\\]\\(${filename.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\)`, 'g'),
-                new RegExp(`!\\[([^\\]]*)\\]\\([^)]*${filename.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}[^)]*\\)`, 'g'),
-                new RegExp(`!\\[([^\\]]*)\\]\\([^)]*${filename.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}[^)]*\\)`, 'gi')
-            ];
-            
-            for (const pattern of patterns) {
-                if (pattern.test(processedMarkdown)) {
-                    pattern.lastIndex = 0;
-                    processedMarkdown = processedMarkdown.replace(pattern, `![$1](${url})`);
-                    break;
+        Promise.all([
+            SupabaseService.getOrgSettings(),
+            SupabaseService.getPolicyTemplates()
+        ]).then(([settings, templates]) => {
+            if (settings) {
+                setLogoUrl(settings.logo_url || null);
+                setSignatureUrl(settings.signature_url || null);
+                const selectedTemplateId = settings.selected_template_id || 'standard';
+                if (selectedTemplateId === 'standard') {
+                    const standardTemplate = templates?.find(t => t.name === 'Standard Template');
+                    if (standardTemplate && standardTemplate.placeholders) {
+                        setIncludeSignature(standardTemplate.placeholders.include_signature !== false);
+                    } else {
+                        setIncludeSignature(true);
+                }
+                } else {
+                    setIncludeSignature(false);
                 }
             }
-        });
-        return renderMarkdown(processedMarkdown);
-    }, [markdown, imageMap]);
-    
+        }).catch(() => {});
+    }, []);
     const isEdit = !!policy;
     const isApproved = isEdit && (policy?.policy_status === 'approved' || policy?.policy_status === 'reviewed');
     const isPolicyExpired = isEdit && policy ? isExpired(policy) : false;
@@ -478,15 +827,19 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
     const handleSave = async () => {
         setSaving(true);
         try {
+            const currentMarkdown = convertDocLangToMarkdown(docLang);
             if (isEdit) {
-                // When frozen (approved/expired), only send status change, not markdown
                 if (isFrozen) {
                     await SupabaseService.updatePolicy(policy!.policy_id, { policy_status: status });
                 } else {
-                    await SupabaseService.updatePolicy(policy!.policy_id, { markdown, policy_status: status });
+                    await SupabaseService.updatePolicy(policy!.policy_id, { 
+                        markdown: currentMarkdown, 
+                        doc_lang: docLang, 
+                        policy_status: status 
+                    });
                 }
             } else {
-                await SupabaseService.addPolicy(markdown, status);
+                await SupabaseService.addPolicy(currentMarkdown, status, docLang);
             }
             onSaved();
             onClose();
@@ -498,12 +851,14 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
     };
 
     const handleSendForApproval = () => {
-        if (!markdown.trim()) { alert('Please add some content first.'); return; }
+          const currentMarkdown = convertDocLangToMarkdown(docLang);
+        if (!currentMarkdown.trim()) { alert('Please add some content first.'); return; }
         setShowApprover(true);
     };
 
     const handleSendForReview = () => {
-        if (!markdown.trim()) { alert('Please add some content first.'); return; }
+        const currentMarkdown = convertDocLangToMarkdown(docLang);
+        if (!currentMarkdown.trim()) { alert('Please add some content first.'); return; }
         setShowReviewer(true);
     };
 
@@ -512,11 +867,15 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
         setSaving(true);
         try {
             let policyId = policy?.policy_id;
+            const currentMarkdown = convertDocLangToMarkdown(docLang);
             if (!isEdit) {
-                const created = await SupabaseService.addPolicy(markdown, 'draft');
+                const created = await SupabaseService.addPolicy(currentMarkdown, 'draft', docLang);
                 policyId = created.policy_id;
             } else {
-                await SupabaseService.updatePolicy(policy!.policy_id, { markdown });
+                  await SupabaseService.updatePolicy(policy!.policy_id, { 
+                    markdown: currentMarkdown, 
+                    doc_lang: docLang 
+                });
             }
             await SupabaseService.submitPolicyForApproval(policyId!, {
                 approver_id: user.user_id,
@@ -537,11 +896,15 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
         setSaving(true);
         try {
             let policyId = policy?.policy_id;
+            const currentMarkdown = convertDocLangToMarkdown(docLang);
             if (!isEdit) {
-                const created = await SupabaseService.addPolicy(markdown, 'draft');
+                const created = await SupabaseService.addPolicy(currentMarkdown, 'draft', docLang);
                 policyId = created.policy_id;
             } else {
-                await SupabaseService.updatePolicy(policy!.policy_id, { markdown });
+                await SupabaseService.updatePolicy(policy!.policy_id, { 
+                    markdown: currentMarkdown, 
+                    doc_lang: docLang 
+                });
             }
             await SupabaseService.submitPolicyForReview(policyId!, {
                 reviewer_id: user.user_id,
@@ -557,218 +920,12 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
         }
     };
 
-    const handleImageUpload = async (files: FileList) => {
-        if (isFrozen) return;
-        
-        setUploading(true);
-        try {
-            const imageFiles: File[] = [];
-            const zipFile = Array.from(files).find(file => file.name.toLowerCase().endsWith('.zip'));
-            
-            if (zipFile) {
-                // Handle ZIP file for bulk upload
-                console.log('Processing ZIP file:', zipFile.name);
-                const zip = new JSZip();
-                const zipContent = await zip.loadAsync(zipFile);
-                const imagePromises: Promise<{ name: string; url: string }>[] = [];
-                
-                // Extract images from ZIP
-                for (const [filename, file] of Object.entries(zipContent.files)) {
-                    if (!file.dir && /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(filename)) {
-                        console.log('Extracting image from ZIP:', filename);
-                        const blob = await file.async('blob');
-                        
-                        // Ensure proper MIME type based on file extension
-                        let mimeType = blob.type;
-                        if (!mimeType || mimeType === 'application/octet-stream') {
-                            const ext = filename.toLowerCase().split('.').pop();
-                            const mimeMap: Record<string, string> = {
-                                'jpg': 'image/jpeg',
-                                'jpeg': 'image/jpeg',
-                                'png': 'image/png',
-                                'gif': 'image/gif',
-                                'webp': 'image/webp',
-                                'svg': 'image/svg+xml'
-                            };
-                            mimeType = mimeMap[ext || ''] || 'image/jpeg';
-                        }
-                        
-                        const imageFile = new File([blob], filename, { type: mimeType });
-                        console.log('Created image file:', { name: filename, type: mimeType, size: imageFile.size });
-                        imageFiles.push(imageFile);
-                        
-                        // Upload each image to Supabase
-                        const uploadPromise = uploadImageToSupabase(imageFile);
-                        imagePromises.push(uploadPromise);
-                    }
-                }
-                
-                if (imageFiles.length === 0) {
-                    throw new Error('No valid image files found in ZIP archive');
-                }
-                
-                console.log(`Found ${imageFiles.length} images in ZIP, uploading...`);
-                const uploadedImages = await Promise.all(imagePromises);
-                
-                // Update markdown with image references
-                let updatedMarkdown = markdown;
-                console.log('Mapping uploaded images to markdown references...');
-                uploadedImages.forEach(({ name, url }) => {
-                    console.log(`Processing image: ${name} -> ${url}`);
-                    const safeUrl = url.replace(/\(/g, '%28').replace(/\)/g, '%29').replace(/ /g, '%20');
-                    
-                    // Try different patterns to find existing references
-                    const patterns = [
-                        // Exact filename match
-                        new RegExp(`!\\[([^\\]]*)\\]\\(${name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\)`, 'g'),
-                        // Filename without path
-                        new RegExp(`!\\[([^\\]]*)\\]\\([^)]*${name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}[^)]*\\)`, 'g'),
-                        // Case-insensitive match
-                        new RegExp(`!\\[([^\\]]*)\\]\\([^)]*${name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}[^)]*\\)`, 'gi')
-                    ];
-                    
-                    let foundMatch = false;
-                    for (const pattern of patterns) {
-                        if (pattern.test(updatedMarkdown)) {
-                            console.log(`Found match for ${name} with pattern`);
-                            // Reset regex after test
-                            pattern.lastIndex = 0;
-                            updatedMarkdown = updatedMarkdown.replace(pattern, `![$1](${safeUrl})`);
-                            foundMatch = true;
-                            break;
-                        }
-                    }
-                    
-                    if (!foundMatch) {
-                        console.log(`No existing reference found for ${name}, appending to end`);
-                        updatedMarkdown += `\n\n![${name}](${safeUrl})`;
-                        // Store mapping for this new image
-                        setImageMap(prev => new Map(prev).set(name, safeUrl));
-                    } else {
-                        // Store mapping for existing image
-                        setImageMap(prev => new Map(prev).set(name, safeUrl));
-                    }
-                });
-                
-                setMarkdown(updatedMarkdown);
-            } else {
-                // Handle single image uploads
-                const singleImageFiles = Array.from(files).filter(file => 
-                    /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(file.name)
-                );
-                
-                if (singleImageFiles.length > 0) {
-                    let updatedMarkdown = markdown;
-                    
-                    for (const file of singleImageFiles) {
-                        const uploadResult = await uploadImageToSupabase(file);
-                        console.log(`Processing single image: ${file.name} -> ${uploadResult.url}`);
-                        const safeUrl = uploadResult.url.replace(/\(/g, '%28').replace(/\)/g, '%29').replace(/ /g, '%20');
-                        
-                        // Try different patterns to find existing references
-                        const patterns = [
-                            // Exact filename match
-                            new RegExp(`!\\[([^\\]]*)\\]\\(${file.name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\)`, 'g'),
-                            // Filename without path
-                            new RegExp(`!\\[([^\\]]*)\\]\\([^)]*${file.name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}[^)]*\\)`, 'g'),
-                            // Case-insensitive match
-                            new RegExp(`!\\[([^\\]]*)\\]\\([^)]*${file.name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}[^)]*\\)`, 'gi')
-                        ];
-                        
-                        let foundMatch = false;
-                        for (const pattern of patterns) {
-                            if (pattern.test(updatedMarkdown)) {
-                                console.log(`Found match for ${file.name} with pattern`);
-                                // Reset regex after test
-                                pattern.lastIndex = 0;
-                                updatedMarkdown = updatedMarkdown.replace(pattern, `![$1](${safeUrl})`);
-                                foundMatch = true;
-                                break;
-                            }
-                        }
-                        
-                        if (!foundMatch) {
-                            console.log(`No existing reference found for ${file.name}, appending to end`);
-                            updatedMarkdown += `\n\n![${file.name}](${safeUrl})`;
-                        }
-
-                        // Store mapping for single image upload
-                        setImageMap(prev => new Map(prev).set(file.name, safeUrl));
-                    }
-                    
-                    setMarkdown(updatedMarkdown);
-                }
-            }
-        } catch (err: any) {
-            alert('Image upload failed: ' + err.message);
-        } finally {
-            setUploading(false);
-        }
-    };
-
-    const uploadImageToSupabase = async (file: File): Promise<{ name: string; url: string }> => {
-        const fileName = `${Date.now()}-${file.name}`;
-        try {
-            const { data, error } = await SupabaseService.supabase.storage
-                .from('policy-images')
-                .upload(fileName, file, {
-                    cacheControl: '3600',
-                    upsert: false,
-                    contentType: file.type
-                });
-            
-            if (error) {
-                console.error('Supabase upload error:', error);
-                console.error('Error details:', {
-                    message: error?.message,
-                    statusCode: (error as any)?.statusCode,
-                    error: error,
-                    errorString: JSON.stringify(error, null, 2)
-                });
-                
-                // Try to extract meaningful error message
-                let errorMessage = 'Unknown error';
-                if (error?.message) {
-                    errorMessage = error.message;
-                } else if ((error as any)?.statusCode === 400) {
-                    errorMessage = 'Bad Request - Check bucket permissions or file size limits';
-                } else if ((error as any)?.statusCode === 413) {
-                    errorMessage = 'File too large';
-                } else {
-                    errorMessage = JSON.stringify(error);
-                }
-                
-                throw new Error(`Upload failed: ${errorMessage}`);
-            }
-            
-            const { data: { publicUrl } } = SupabaseService.supabase.storage
-                .from('policy-images')
-                .getPublicUrl(fileName);
-            
-            return { name: file.name, url: publicUrl };
-        } catch (err: any) {
-            console.error('Upload error details:', err);
-            throw new Error(`Image upload failed: ${err.message || 'Unknown error'}`);
-        }
-    };
-
-    const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const files = event.target.files;
-        if (files && files.length > 0) {
-            handleImageUpload(files);
-        }
-        // Reset file input
-        if (fileInputRef.current) {
-            fileInputRef.current.value = '';
-        }
-    };
-
+ 
     return (
         <>
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
                 <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
 
-                    {/* Header bar */}
                     <div className="flex items-center justify-between px-6 py-3 border-b dark:border-gray-700 flex-shrink-0 gap-4">
                         <div className="flex items-center gap-3 min-w-0">
                             <h2 className="text-base font-semibold text-gray-900 dark:text-white whitespace-nowrap">
@@ -777,7 +934,8 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
                             <select
                                 value={status}
                                 onChange={e => setStatus(e.target.value as PolicyWorkflowStatus)}
-                                className="text-xs border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1 dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                disabled={isReadOnly}
+                                className="text-xs border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1 dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60 disabled:cursor-not-allowed"
                             >
                                 <option value="draft">Draft</option>
                                 <option value="to_review">In Review</option>
@@ -785,29 +943,54 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
                                 <option value="reviewed">Reviewed</option>
                                 <option value="approved">Approved</option>
                             </select>
+                 
+                            <div className="flex items-center bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5 ml-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveTab('edit')}
+                                    className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
+                                        activeTab === 'edit'
+                                            ? 'bg-blue-600 text-white shadow-sm'
+                                            : 'text-gray-650 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                                    }`}
+                                >
+                                    Edit Policy
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveTab('preview')}
+                                    className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
+                                        activeTab === 'preview'
+                                            ? 'bg-blue-600 text-white shadow-sm'
+                                            : 'text-gray-650 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                                    }`}
+                                >
+                                    Live Preview
+                                </button>
+                            </div>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
                             {isFrozen && status !== policy?.policy_status ? (
-                                <button onClick={handleSave} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300">
+                                <button onClick={handleSave} disabled={saving || isReadOnly} className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">
                                     {saving ? 'Updating...' : 'Update Status'}
                                 </button>
                             ) : (
                                 <>
                                     {!isFrozen && (
                                         <>
-                                            <button onClick={handleSave} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300">
+                                            <button onClick={handleSave} disabled={saving || isReadOnly} className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">
                                                 {saving ? 'Saving...' : 'Save'}
                                             </button>
-                                            <button onClick={handleSendForReview} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-orange-500 rounded-md hover:bg-orange-600 disabled:bg-gray-300">
+                                            <button onClick={handleSendForReview} disabled={saving || isReadOnly} className="px-4 py-1.5 text-sm font-medium text-white bg-orange-500 rounded-md hover:bg-orange-600 disabled:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">
                                                 Send for Review
                                             </button>
-                                            <button onClick={handleSendForApproval} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-300">
+                                            <button onClick={handleSendForApproval} disabled={saving || isReadOnly} className="px-4 py-1.5 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">
                                                 Send for Approval
                                             </button>
                                         </>
                                     )}
                                     {isFrozen && status === 'reviewed' && (
-                                        <button onClick={handleSendForApproval} disabled={saving} className="px-4 py-1.5 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-300">
+                                        <button onClick={handleSendForApproval} disabled={saving || isReadOnly} className="px-4 py-1.5 text-sm font-medium text-white bg-yellow-500 rounded-md hover:bg-yellow-600 disabled:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">
                                             Send for Approval
                                         </button>
                                     )}
@@ -816,54 +999,14 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, onCl
                             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none ml-1">&times;</button>
                         </div>
                     </div>
+                    {/* Content view toggle */}
+                    <div className="flex-1 overflow-y-auto p-6 min-h-0 bg-gray-50/50 dark:bg-gray-900/50">
+                        {activeTab === 'edit' ? (
+                            <PolicyEditor key={`${docLang.document_id || 'editor'}_${docLang.sections?.length || 0}`} docLang={docLang} onChange={setDocLang} orgId={orgId} isReadOnly={isReadOnly} />
+                        ) : (
+                            <DocLangPreview docLang={docLang} orgName={orgName} logoUrl={logoUrl} signatureUrl={signatureUrl} includeSignature={includeSignature} />
+                            )}
 
-                    {/* Two-panel editor */}
-                    <div className="flex flex-1 overflow-hidden">
-                        <div className="w-1/2 flex flex-col border-r dark:border-gray-700">
-                            <div className="px-4 py-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex-shrink-0 flex items-center justify-between">
-                                <span>Markdown</span>
-                                {!isFrozen && (
-                                    <div className="flex items-center gap-2">
-                                        <input
-                                            ref={fileInputRef}
-                                            type="file"
-                                            accept="image/*,.zip"
-                                            multiple
-                                            onChange={handleFileSelect}
-                                            className="hidden"
-                                        />
-                                        <button
-                                            onClick={() => fileInputRef.current?.click()}
-                                            disabled={uploading}
-                                            title="Upload images or ZIP file"
-                                            className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                                        >
-                                            {uploading ? (
-                                                <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-500" />
-                                            ) : (
-                                                <PhotoIcon className="h-4 w-4" />
-                                            )}
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-                            <textarea
-                                value={displayMarkdown}
-                                onChange={e => { if (!isFrozen) handleMarkdownChange(e.target.value); }}
-                                readOnly={isFrozen}
-                                className={`flex-1 p-4 text-sm font-mono text-gray-800 dark:text-gray-200 resize-none focus:outline-none ${isFrozen ? 'bg-gray-100 dark:bg-gray-950 cursor-not-allowed opacity-75' : 'bg-white dark:bg-gray-900'}`}
-                                placeholder="Paste or type your markdown policy here..."
-                                spellCheck={false}
-                            />
-                        </div>
-                        <div className="w-1/2 flex flex-col overflow-hidden">
-                            <div className="px-4 py-1.5 text-xs font-medium text-gray-400 uppercase tracking-wider border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex-shrink-0">
-                                Preview
-                            </div>
-                            <div className="flex-1 overflow-y-auto p-5">
-                                <div className="policy-prose text-gray-800 dark:text-gray-200" dangerouslySetInnerHTML={{ __html: previewHtml }} />
-                            </div>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -936,13 +1079,17 @@ const PolicyCard: React.FC<PolicyCardProps> = ({ policy, selected, onToggleSelec
 };
 
 // ─── PoliciesView (main) ──────────────────────────────────────────────────────
+import { UserRole } from '../../types';
+
 interface PoliciesViewProps {
     isActive?: boolean;
     autoOpenPolicyId?: string | null;
     onAutoOpenConsumed?: () => void;
+    userRole?: UserRole | null;
 }
 
-export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, autoOpenPolicyId, onAutoOpenConsumed }) => {
+export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, autoOpenPolicyId, onAutoOpenConsumed, userRole }) => {
+    const isReadOnly = userRole === 'read-only';
     const [policies, setPolicies] = useState<PolicyV2[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -951,13 +1098,64 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
     const [isDownloading, setIsDownloading] = useState(false);
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
     const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+    const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
+    const [orgId, setOrgId] = useState<string>('');
+    const [orgName, setOrgName] = useState<string>('');
 
     // Modal targets
-    const [editorTarget, setEditorTarget] = useState<{ policy?: PolicyV2; initialMarkdown?: string } | null>(null);
+    const [editorTarget, setEditorTarget] = useState<{ policy?: PolicyV2; initialMarkdown?: string; initialDocLang?: any } | null>(null);
     const [aiDraftOpen, setAiDraftOpen] = useState(false);
     const [mapperOpen, setMapperOpen] = useState(false);
     const [viewTarget, setViewTarget] = useState<PolicyV2 | null>(null);
     const [historyTarget, setHistoryTarget] = useState<PolicyV2 | null>(null);
+    const [downloadTarget, setDownloadTarget] = useState<PolicyV2 | null>(null);
+
+    const [parsingFile, setParsingFile] = useState(false);
+    const policyImportInputRef = useRef<HTMLInputElement>(null);
+
+    const handlePolicyFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setParsingFile(true);
+        try {
+            const extractedText = await SupabaseService.parsePolicyDocumentFile(file);
+            const currentUserName = sessionStorage.getItem("grcUserName") || currentUserEmail || 'Policy Owner';
+            const defaultDocLang = {
+                document_type: 'policy',
+                document_id: 'POL-TEMP',
+                title: file.name.replace(/\.[^/.]+$/, ""),
+                version: '1.0',
+                status: 'draft',
+                metadata: {
+                    owner_name: currentUserName,
+                    refresh_date: null
+                },
+                sections: [],
+                approval_matrix: [],
+                revision_history: [],
+                references: [],
+                applicability: [],
+                tables: [],
+                images: [],
+                signatures: [],
+                attachments: []
+            };
+            const parsed = parseDocumentText(extractedText, defaultDocLang);
+            if (parsed) {
+                setEditorTarget({ initialDocLang: parsed });
+            } else {
+                alert('Could not parse any content from the document.');
+            }
+        } catch (err: any) {
+            alert(err.message || 'Failed to parse file.');
+        } finally {
+            setParsingFile(false);
+            if (policyImportInputRef.current) {
+                policyImportInputRef.current.value = '';
+            }
+        }
+    };
 
     // Inject prose styles once
     useEffect(() => {
@@ -972,7 +1170,13 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
     // Get current user
     useEffect(() => {
         SupabaseService.getOrgMe().then(me => {
-            if (me) { setCurrentUserId(me.userId); setCurrentUserEmail(me.email); }
+            if (me) { 
+                setCurrentUserId(me.userId); 
+                setCurrentUserEmail(me.email); 
+                setCurrentUserRole(me.role);
+                setOrgId(me.orgId || '');
+                setOrgName(me.orgName || '');
+            }
         });
     }, []);
 
@@ -1176,20 +1380,38 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
                 <div className="flex items-center space-x-2">
                     <button
                         onClick={() => setAiDraftOpen(true)}
+                        disabled={isReadOnly}
                         title="AI Policy Drafter"
-                        className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+                        className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <BotIcon className="h-5 w-5" />
                     </button>
                     <button
                         onClick={() => setMapperOpen(true)}
+                        disabled={isReadOnly}
                         title="Mapper Agent — map this policy to security domains + child policies"
-                        className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+                        className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <MapperIcon className="h-5 w-5" />
                     </button>
-                    <button disabled title="Upload (coming soon)" className="p-2 text-gray-300 dark:text-gray-600 rounded-md cursor-not-allowed">
-                        <UploadIcon className="h-5 w-5" />
+                    <button
+                        onClick={() => policyImportInputRef.current?.click()}
+                        disabled={parsingFile || isReadOnly}
+                        title="Upload policy document (.md, .pdf, .docx, .txt)"
+                        className={`p-2 rounded-md transition-colors ${
+                            parsingFile || isReadOnly
+                                ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed opacity-50'
+                                : 'text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700'
+                        }`}
+                    >
+                        {parsingFile ? (
+                            <svg className="animate-spin h-5 w-5 text-purple-500" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                        ) : (
+                            <UploadIcon className="h-5 w-5" />
+                        )}
                     </button>
                     <button
                         onClick={handleDownload}
@@ -1205,8 +1427,9 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
                     </button>
                     <button
                         onClick={() => setEditorTarget({})}
+                        disabled={isReadOnly}
                         title="Add Policy"
-                        className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+                        className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <PlusIcon className="h-5 w-5" />
                     </button>
@@ -1282,14 +1505,19 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
                 <EditorModal
                     policy={editorTarget.policy}
                     initialMarkdown={editorTarget.initialMarkdown}
+                    initialDocLang={editorTarget.initialDocLang}
                     onClose={() => setEditorTarget(null)}
                     onSaved={fetchPolicies}
+                    orgId={orgId}
+                    orgName={orgName}
+                    currentUserEmail={currentUserEmail}
+                    isReadOnly={isReadOnly}
                 />
             )}
             <PolicyAIDraftModal
                 isOpen={aiDraftOpen}
                 onClose={() => setAiDraftOpen(false)}
-                onUseDraft={(md) => setEditorTarget({ initialMarkdown: md })}
+                onUseDraft={(md, dl) => setEditorTarget({ initialMarkdown: md, initialDocLang: dl })}
             />
             <MapperRunModal
                 isOpen={mapperOpen}
@@ -1315,7 +1543,8 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
                     onEdit={() => { setViewTarget(null); setEditorTarget({ policy: viewTarget }); }}
                     onDelete={() => { setViewTarget(null); handleDelete(viewTarget); }}
                     onHistory={() => { setViewTarget(null); setHistoryTarget(viewTarget); }}
-                    onDownload={() => handleDownloadSingle(viewTarget)}
+                    onDownload={() => setDownloadTarget(viewTarget)}
+                    isReadOnly={isReadOnly}
                 />
             )}
             {historyTarget && (
@@ -1324,6 +1553,20 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
                     onClose={() => setHistoryTarget(null)}
                 />
             )}
+            {downloadTarget && (
+                <DownloadModal
+                    policy={downloadTarget}
+                    onClose={() => setDownloadTarget(null)}
+                    userRole={currentUserRole}
+                />
+            )}
+            <input
+                type="file"
+                ref={policyImportInputRef}
+                onChange={handlePolicyFileUpload}
+                accept=".md,.pdf,.docx,.txt"
+                className="hidden"
+            />
         </div>
     );
 };

@@ -6,7 +6,7 @@ import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
 
 
 
-import { ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlStatus, ControlType, EnforcementType, Capability, ControlEvidenceReview, EvidenceFileMetadata, ZtiHubStatus, ControlCheckResult } from '../../types';
+import { ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlStatus, ControlType, EnforcementType, Capability, ControlEvidenceReview, EvidenceFileMetadata, ZtiHubStatus, ControlCheckResult, UserRole } from '../../types';
 
 
 
@@ -2141,9 +2141,7 @@ interface ControlModalProps {
 
 
     customFields: CustomField[];
-
-
-
+    isReadOnly?: boolean;
 }
 
 
@@ -2264,23 +2262,16 @@ const DEFAULT_FORM: FormData = {
 
 
 
-const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, controlToEdit, mode, capabilities, onCapabilityCreated, onRequestEnforcement, onReviewAction, onEdit, onDelete, customFields }) => {
-
-
+const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, controlToEdit, mode, capabilities, onCapabilityCreated, onRequestEnforcement, onReviewAction, onEdit, onDelete, customFields, isReadOnly = false }) => {
 
     const [formData, setFormData] = useState<FormData>(DEFAULT_FORM);
 
-
-
     const [isSaving, setIsSaving] = useState(false);
-
-
 
     const isAdd = mode === 'add';
 
-
-
     const isView = mode === 'view';
+    const isFieldsDisabled = isView || isReadOnly;
 
 
 
@@ -2596,41 +2587,24 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
 
             headerActions={isView && (
-
-
-
                 <>
-
-
-
-                    <button onClick={() => { onClose(); onEdit?.(); }} title="Edit" className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
-
-
-
+                    <button
+                        onClick={() => { onClose(); onEdit?.(); }}
+                        disabled={isReadOnly}
+                        title="Edit"
+                        className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <PencilIcon className="h-4 w-4" />
-
-
-
                     </button>
-
-
-
-                    <button onClick={() => { onClose(); onDelete?.(); }} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
-
-
-
+                    <button
+                        onClick={() => { onClose(); onDelete?.(); }}
+                        disabled={isReadOnly}
+                        title="Delete"
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <TrashIcon className="h-4 w-4" />
-
-
-
                     </button>
-
-
-
                 </>
-
-
-
             )}
 
 
@@ -2704,105 +2678,33 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
 
                     <div>
-
-
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Control Name {MANDATORY_LABEL}{isNNFieldFrozen && mode === 'edit' && <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(system generated)</span>}</label>
-
-
-
-                        <input type="text" name="ctl_name" value={formData.ctl_name} onChange={handleChange} readOnly={isView || isSystemFieldFrozen || isNNFieldFrozen} required placeholder="e.g. Encrypt Data on End-User Devices" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:bg-gray-50 dark:disabled:bg-gray-800" />
-
-
-
+                        <input type="text" name="ctl_name" value={formData.ctl_name} onChange={handleChange} readOnly={isFieldsDisabled || isSystemFieldFrozen || isNNFieldFrozen} required placeholder="e.g. Encrypt Data on End-User Devices" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:bg-gray-50 dark:disabled:bg-gray-800" />
                     </div>
 
-
-
                     <div>
-
-
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status {MANDATORY_LABEL}</label>
-
-
-
-                        <select name="ctl_status" value={formData.ctl_status} onChange={handleChange} disabled={isView || isPending} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-
-
-
+                        <select name="ctl_status" value={formData.ctl_status} onChange={handleChange} disabled={isFieldsDisabled || isPending} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                             {(isPending ? ALL_CTL_STATUSES.filter(s => s === formData.ctl_status) : statusOptionsForEdit()).map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
-
-
-
                         </select>
-
-
-
                     </div>
 
-
-
                     <div>
-
-
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Control Type {MANDATORY_LABEL}{isNNFieldFrozen && mode === 'edit' && <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(system generated)</span>}</label>
-
-
-
-                        <select name="ctl_type" value={formData.ctl_type} onChange={handleChange} disabled={isView || isSystemFieldFrozen || isNNFieldFrozen} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-
-
-
+                        <select name="ctl_type" value={formData.ctl_type} onChange={handleChange} disabled={isFieldsDisabled || isSystemFieldFrozen || isNNFieldFrozen} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                             {CTL_TYPE_OPTIONS.map(t => (
-
-
-
                                 <option key={t} value={t} disabled={isAdd && SYSTEM_CTL_TYPES.includes(t)} className={isAdd && SYSTEM_CTL_TYPES.includes(t) ? 'text-gray-400' : ''}>
-
-
-
                                     {t}{isAdd && SYSTEM_CTL_TYPES.includes(t) ? ' (system)' : ''}
-
-
-
                                 </option>
-
-
-
                             ))}
-
-
-
                         </select>
-
-
-
                     </div>
 
-
-
                     <div>
-
-
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Enforcement Type {MANDATORY_LABEL}{isNNFieldFrozen && mode === 'edit' && <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(system generated)</span>}</label>
-
-
-
-                        <select name="enforcement_type" value={formData.enforcement_type} onChange={handleChange} disabled={isView || isSystemFieldFrozen || isNNFieldFrozen} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-
-
-
+                        <select name="enforcement_type" value={formData.enforcement_type} onChange={handleChange} disabled={isFieldsDisabled || isSystemFieldFrozen || isNNFieldFrozen} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                             {ENFORCEMENT_TYPE_OPTIONS.map(e => <option key={e} value={e}>{e === 'org_wide' ? 'Org-Wide' : e === 'Asset_specific' ? 'Asset-Specific' : 'BU-Specific'}</option>)}
-
-
-
                         </select>
-
-
-
                     </div>
 
                     {(formData.ctl_type === 'NN' || formData.ctl_type === 'Custom' || formData.ctl_type === 'Standard') && (
@@ -2830,7 +2732,7 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
                                         ctl_status: v === 100 ? 'Enforced' : prev.ctl_status,
                                     }));
                                 }}
-                                disabled={isView || isSystemFieldFrozen || formData.ctl_status === 'Enforced'}
+                                disabled={isFieldsDisabled || isSystemFieldFrozen || formData.ctl_status === 'Enforced'}
                                 className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-600 accent-blue-600"
                             />
                             
@@ -2845,75 +2747,25 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
                     )}
 
                     <div className="md:col-span-2">
-
-
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-
-
-
                             Controlled By (Capabilities)
-
-
-
-                            {!isView && !isFieldFrozen && <span className="ml-1 text-xs text-gray-400 font-normal">— select from Capability Register</span>}
-
-
-
+                            {!isFieldsDisabled && !isFieldFrozen && <span className="ml-1 text-xs text-gray-400 font-normal">— select from Capability Register</span>}
                         </label>
-
-
-
-                        <CapabilityMultiSelect values={formData.ctld_by} onChange={vals => setFormData(prev => ({ ...prev, ctld_by: vals }))} capabilities={capabilities} readOnly={isView || isFieldFrozen || isOtherSystemFieldFrozen} onCapabilityCreated={onCapabilityCreated} />
-
-
-
+                        <CapabilityMultiSelect values={formData.ctld_by} onChange={vals => setFormData(prev => ({ ...prev, ctld_by: vals }))} capabilities={capabilities} readOnly={isFieldsDisabled || isFieldFrozen || isOtherSystemFieldFrozen} onCapabilityCreated={onCapabilityCreated} />
                     </div>
-
-
 
                     <div className="md:col-span-2">
-
-
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description{isNNFieldFrozen && mode === 'edit' && <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(system generated)</span>}</label>
-
-
-
-                        <textarea name="ctl_description" value={formData.ctl_description} onChange={handleChange} readOnly={isView || isSystemFieldFrozen || isNNFieldFrozen} rows={2} placeholder="Short description of the control" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-
-
-
+                        <textarea name="ctl_description" value={formData.ctl_description} onChange={handleChange} readOnly={isFieldsDisabled || isSystemFieldFrozen || isNNFieldFrozen} rows={2} placeholder="Short description of the control" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
 
-
-
                     <div>
-
-
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reference Framework{isNNFieldFrozen && mode === 'edit' && <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(system generated)</span>}</label>
-
-
-
-                        <input type="text" name="ctl_ref_fw" value={formData.ctl_ref_fw} onChange={handleChange} readOnly={isView || isSystemFieldFrozen || isNNFieldFrozen} placeholder="e.g. ISO 27001, NIST CSF" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-
-
-
+                        <input type="text" name="ctl_ref_fw" value={formData.ctl_ref_fw} onChange={handleChange} readOnly={isFieldsDisabled || isSystemFieldFrozen || isNNFieldFrozen} placeholder="e.g. ISO 27001, NIST CSF" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
 
-
-
                     <div>
-
-
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Other Details</label>
-
-
-
-                        <input type="text" name="ctl_other_details" value={formData.ctl_other_details} onChange={handleChange} readOnly={isView || isFieldFrozen || isOtherSystemFieldFrozen} placeholder="Additional notes" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-
 
 
                     </div>
@@ -3067,68 +2919,33 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
                             {customFields.map(field => (
-
                                 <div key={field.id}>
-
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-
                                         {field.field_label}
-
                                         {field.is_required && <span className="text-red-500 ml-1">*</span>}
-
                                     </label>
-
                                     <input
-
                                         type="text"
-
                                         value={formData.custom_fields?.[field.field_name] || ''}
-
                                         onChange={(e) => handleCustomFieldChange(field.field_name, e.target.value)}
-
-                                        readOnly={isView}
-
+                                        readOnly={isFieldsDisabled}
                                         required={field.is_required}
-
                                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-
                                         placeholder={`Enter ${field.field_label}`}
-
                                     />
-
                                 </div>
-
                             ))}
-
                         </div>
-
                     </div>
-
                 )}
-
-
 
                 </div>
 
-
-
                 {!isView && !isPending && (
-
-
-
                     <div className="mt-6 flex justify-end space-x-3">
-
-
-
                         <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
-
-
-
                         {(!isFieldFrozen || formData.ctl_status === 'NotEnforced') && (
-
-
-
-                            <button type="submit" disabled={isSaving} className="flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed min-w-[5rem]">
+                            <button type="submit" disabled={isSaving || isReadOnly} className="flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed min-w-[5rem] disabled:opacity-50">
 
 
 
@@ -3341,17 +3158,9 @@ interface ControlRegistryViewProps {
 
 
     isActive?: boolean;
-
-
-
     autoOpenControlId?: string | null;
-
-
-
     onAutoOpenConsumed?: () => void;
-
-
-
+    userRole?: UserRole | null;
 }
 
 
@@ -3360,9 +3169,8 @@ interface ControlRegistryViewProps {
 
 
 
-export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActive = true, autoOpenControlId, onAutoOpenConsumed }) => {
-
-
+export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActive = true, autoOpenControlId, onAutoOpenConsumed, userRole }) => {
+    const isReadOnly = userRole === 'read-only';
 
     const [controls, setControls] = useState<ControlRegistry[]>([]);
 
@@ -4624,50 +4432,32 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
                     {/* Hub connectivity + token generation live in the global header. */}
 
-                    <button onClick={() => setShowAIChat(true)} title="AI Assistant" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
-
-
+                    <button
+                        onClick={() => setShowAIChat(true)}
+                        disabled={isReadOnly}
+                        title="AI Assistant"
+                        className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <BotIcon className="h-5 w-5" />
-
-
-
                     </button>
-
-
-
-                    <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
-
-
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isReadOnly}
+                        title="Import CSV"
+                        className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <UploadIcon className="h-5 w-5" />
-
-
-
                     </button>
-
-
-
                     <button onClick={handleExportCSV} title="Export CSV" data-testid="control-registry-export-csv" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
-
-
                         <DownloadIcon className="h-5 w-5" />
-
-
-
                     </button>
-
-
-
-                    <button onClick={() => setModalState({ type: 'add' })} title="Add Control" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
-
-
+                    <button
+                        onClick={() => setModalState({ type: 'add' })}
+                        disabled={isReadOnly}
+                        title="Add Control"
+                        className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <PlusIcon className="h-5 w-5" />
-
-
-
                     </button>
 
 
@@ -4740,26 +4530,16 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
 
-                                    <button onClick={() => setShowColumnManagement(true)} title="Manage Columns" className="ml-2 p-1 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
-
-
-
+                                    <button
+                                        onClick={() => setShowColumnManagement(true)}
+                                        disabled={isReadOnly}
+                                        title="Manage Columns"
+                                        className="ml-2 p-1 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
                                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-
-
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-
-
-
                                         </svg>
-
-
-
                                     </button>
-
-
-
                                 </th>
 
 
@@ -5606,74 +5386,27 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
 
 
             <ControlModal
-
-
-
                 isOpen={modalState.type === 'add' || modalState.type === 'edit' || modalState.type === 'view'}
-
-
-
                 onClose={closeModal}
-
-
-
                 onSave={handleSave}
-
-
-
                 controlToEdit={modalState.item ?? null}
-
-
-
                 mode={modalState.type as 'add' | 'edit' | 'view'}
-
-
-
                 capabilities={capabilities}
-
-
-
                 onCapabilityCreated={(cap) => setCapabilities(prev => [...prev, cap])}
-
-
-
                 onRequestEnforcement={(ctl, status, pendingData) => {
-
-
-
                     closeModal();
-
-
-
                     setEnforcementModal({ 
                         isOpen: true, 
                         control: ctl, 
                         requestedStatus: (status === 'Enforced' || status === 'NotEnforced') ? status : (ctl.ctl_status === 'Enforced' ? 'Enforced' : 'NotEnforced'),
                         pendingData 
                     });
-
-
-
                 }}
-
-
-
                 onReviewAction={() => { closeModal(); fetchControls(); }}
-
-
-
                 onEdit={() => setModalState({ type: 'edit', item: modalState.item })}
-
-
-
                 onDelete={() => { setError(null); setModalState({ type: 'delete', item: modalState.item }); }}
-
-
-
                 customFields={customFields}
-
-
-
+                isReadOnly={isReadOnly}
             />
 
 
@@ -6024,33 +5757,20 @@ export const ControlRegistryView: React.FC<ControlRegistryViewProps> = ({ isActi
             {/* Selection Action Bar */}
 
             {bulkProgress.status === 'idle' && (
-
                 <SelectionActionBar
-
                     selectedCount={selectedIds.size}
-
                     isEditing={isEditing}
-
                     isConfirmingDelete={isConfirmingDelete}
-
                     isSaving={isSaving}
-
                     onEdit={() => startEdit(filteredAndSorted.filter(i => selectedIds.has(i.id)), i => i.id)}
-
                     onSaveAll={handleSaveAll}
-
                     onCancelEdit={cancelEdit}
-
                     onDelete={() => setIsConfirmingDelete(true)}
-
                     onConfirmDelete={handleBulkDelete}
-
                     onCancelDelete={() => setIsConfirmingDelete(false)}
-
                     onClear={clearAll}
-
+                    disabled={isReadOnly}
                 />
-
             )}
 
 

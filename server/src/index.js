@@ -334,9 +334,6 @@ app.use("/api/zti-hub", ztiHubRouter);
 app.use("/api/vuln-scan", vulnScanRouter);
 app.use("/api/cspm-scan", cspmScanRouter);
 
-app.use("/api/vuln-scan", vulnScanRouter);
-app.use("/api/cspm-scan", cspmScanRouter);
-
 
 
 app.get("/api/health", (_req, res) => {

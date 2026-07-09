@@ -2,9 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import * as SupabaseService from '../../services/supabase';
 import { ScfFramework, FwcrPreview, FwcrApplyResult, NnPreview, EmailTemplate } from '../../types';
 
+import { UserRole } from '../../types';
+
 interface OrgSettingsTabProps {
     isActive?: boolean;
     readOnly?: boolean;
+    userRole?: UserRole | null;
 }
 
 type RecomputeUiState =
@@ -15,10 +18,17 @@ type RecomputeUiState =
     | { kind: 'done'; result: FwcrApplyResult; nnAdded: number }
     | { kind: 'error'; message: string };
 
-export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true, readOnly = false }) => {
+export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true, readOnly = false, userRole }) => {
+    const isReadOnly = userRole === 'read-only';
     const [policyRefreshMonths, setPolicyRefreshMonths] = useState(3);
     const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([]);
     const [policyExpiryTemplateId, setPolicyExpiryTemplateId] = useState<string>('');
+    const [logoUrl, setLogoUrl] = useState<string>('');
+    const [signatureUrl, setSignatureUrl] = useState<string>('');
+    const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+    const [policyTemplates, setPolicyTemplates] = useState<any[]>([]);
+    const [uploadingLogo, setUploadingLogo] = useState(false);
+    const [uploadingSignature, setUploadingSignature] = useState(false);
     const [frameworks, setFrameworks] = useState<ScfFramework[]>([]);
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [savedSelected, setSavedSelected] = useState<Set<string>>(new Set());
@@ -35,15 +45,20 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
             SupabaseService.getOrgSettings(),
             SupabaseService.getScfFrameworks(),
             SupabaseService.getEmailTemplates(),
+            SupabaseService.getPolicyTemplates(),
         ])
-            .then(([settings, fws, templates]) => {
+            .then(([settings, fws, templates, policyTemps]) => {
                 setPolicyRefreshMonths(settings.policy_refresh_months);
                 setPolicyExpiryTemplateId(settings.policy_expiry_template_id || '');
+                setLogoUrl((settings as any).logo_url || '');
+                setSignatureUrl((settings as any).signature_url || '');
+                setSelectedTemplateId((settings as any).selected_template_id || '');
                 const saved = new Set(settings.needed_framework || []);
                 setSelected(saved);
                 setSavedSelected(new Set(saved));
                 setFrameworks(fws || []);
                 setEmailTemplates(templates || []);
+                setPolicyTemplates(policyTemps || []);
             })
             .catch(() => {})
             .finally(() => setLoading(false));
@@ -64,7 +79,7 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
             .slice(0, 30);
     }, [frameworks, search]);
 
-    // Selected frameworks that are NOT in the catalog (legacy values stored)
+    // Selected frameworks that are NOT in the catalog (legacy values stored
     // before the SCF picker existed). Surface them so admins can see + remove.
     const orphanSelected = useMemo(() => {
         const names = new Set(frameworks.map((f) => f.name));
@@ -78,7 +93,7 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
     }, [selected, savedSelected]);
 
     const toggle = (name: string) => {
-        if (readOnly) return;
+        if (readOnly || isReadOnly) return;
         setSelected((prev) => {
             const next = new Set(prev);
             if (next.has(name)) next.delete(name);
@@ -91,14 +106,16 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
         setSaving(true);
         setSaveMsg(null);
         try {
-            const prevSelected = new Set(savedSelected);
+            const prevSelected = new Set<string>(savedSelected);
             const res = await SupabaseService.updateOrgSettings({
                 policy_refresh_months: policyRefreshMonths,
                 needed_framework: [...selected],
                 policy_expiry_template_id: policyExpiryTemplateId || null,
+                selected_template_id: selectedTemplateId || null,
             });
             setPolicyRefreshMonths(res.policy_refresh_months);
             setPolicyExpiryTemplateId(res.policy_expiry_template_id || '');
+            setSelectedTemplateId((res as any).selected_template_id || '');
             const newSaved = new Set(res.needed_framework || []);
             setSavedSelected(newSaved);
             setSelected(new Set(newSaved));
@@ -177,6 +194,38 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
         }
     };
 
+    const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setUploadingLogo(true);
+        try {
+            const res = await SupabaseService.uploadLogo(file);
+            setLogoUrl(res.logo_url);
+            setSaveMsg('Logo uploaded successfully.');
+            setTimeout(() => setSaveMsg(null), 3000);
+        } catch (err: any) {
+            alert(err.message || 'Failed to upload logo.');
+        } finally {
+            setUploadingLogo(false);
+        }
+    };
+
+    const handleSignatureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setUploadingSignature(true);
+        try {
+            const res = await SupabaseService.uploadSignature(file);
+            setSignatureUrl(res.signature_url);
+            setSaveMsg('Signature uploaded successfully.');
+            setTimeout(() => setSaveMsg(null), 3000);
+        } catch (err: any) {
+            alert(err.message || 'Failed to upload signature.');
+        } finally {
+            setUploadingSignature(false);
+        }
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center py-12">
@@ -204,8 +253,8 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                             max={120}
                             value={policyRefreshMonths}
                             onChange={(e) => setPolicyRefreshMonths(Math.max(1, parseInt(e.target.value) || 1))}
-                            disabled={readOnly}
-                            className={`w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+                            disabled={readOnly || isReadOnly}
+                            className={`w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 ${(readOnly || isReadOnly) ? 'opacity-60 cursor-not-allowed' : ''}`}
                         />
                         <span className="text-sm text-gray-500 dark:text-gray-400">months</span>
                     </div>
@@ -222,8 +271,8 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                         id="policy-expiry-template"
                         value={policyExpiryTemplateId}
                         onChange={(e) => setPolicyExpiryTemplateId(e.target.value)}
-                        disabled={readOnly}
-                        className={`min-w-[16rem] px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 ${readOnly ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        disabled={readOnly || isReadOnly}
+                        className={`min-w-[16rem] px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 ${(readOnly || isReadOnly) ? 'opacity-60 cursor-not-allowed' : ''}`}
                     >
                         <option value="">Built-in default</option>
                         {emailTemplates.map((t) => (
@@ -236,6 +285,8 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                     Organisation → Templates. Leave as "Built-in default" to use the standard wording.
                 </p>
             </div>
+
+            {/* Branding Assets (Logo and Signature) & Templates section removed from UI */}
 
             {/* Frameworks & Regulations */}
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 mb-6">
@@ -267,7 +318,7 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                                 <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">Common</div>
                                 <div className="flex flex-wrap gap-2">
                                     {commonFrameworks.map((f) => (
-                                        <FwChip key={f.name} fw={f} selected={selected.has(f.name)} onToggle={toggle} readOnly={readOnly} />
+                                        <FwChip key={f.name} fw={f} selected={selected.has(f.name)} onToggle={toggle} readOnly={readOnly || isReadOnly} />
                                     ))}
                                 </div>
                             </div>
@@ -280,7 +331,7 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                                 placeholder="Search 250+ frameworks (e.g. NIST 800-171, HIPAA, DORA)…"
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
-                                disabled={readOnly}
+                                disabled={readOnly || isReadOnly}
                                 className="block w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                             />
                             {search.trim() && (
@@ -292,7 +343,7 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                                             <button
                                                 key={f.name}
                                                 onClick={() => toggle(f.name)}
-                                                disabled={readOnly}
+                                                disabled={readOnly || isReadOnly}
                                                 className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/60 ${selected.has(f.name) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
                                             >
                                                 <span>{f.display_name}</span>
@@ -327,7 +378,8 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                                             {!readOnly && (
                                                 <button
                                                     onClick={() => toggle(name)}
-                                                    className="ml-1 w-5 h-5 rounded-full hover:bg-white/20 inline-flex items-center justify-center"
+                                                    disabled={isReadOnly}
+                                                    className="ml-1 w-5 h-5 rounded-full hover:bg-white/20 inline-flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                                                     title="Remove"
                                                 >
                                                     ×
@@ -351,7 +403,7 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
             </div>
 
             {/* Save + Recompute */}
-            {readOnly ? (
+            {readOnly && !isReadOnly ? (
                 <p className="text-xs text-gray-400 dark:text-gray-500">
                     You have view-only access to settings. Contact your admin to make changes.
                 </p>
@@ -359,8 +411,8 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                 <div className="flex flex-wrap items-center gap-3">
                     <button
                         onClick={handleSaveSettings}
-                        disabled={saving}
-                        className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300 transition-colors"
+                        disabled={saving || isReadOnly}
+                        className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                         {saving ? 'Saving…' : 'Save Settings'}
                     </button>
@@ -369,8 +421,8 @@ export const OrgSettingsTab: React.FC<OrgSettingsTabProps> = ({ isActive = true,
                         standards — even when the framework selection hasn't changed. */}
                     <button
                         onClick={handleRecompute}
-                        disabled={saving || recomputeState.kind === 'previewing' || recomputeState.kind === 'applying'}
-                        className="px-4 py-1.5 text-sm font-medium text-white bg-emerald-600 rounded-md hover:bg-emerald-700 disabled:bg-gray-300 transition-colors"
+                        disabled={saving || recomputeState.kind === 'previewing' || recomputeState.kind === 'applying' || isReadOnly}
+                        className="px-4 py-1.5 text-sm font-medium text-white bg-emerald-600 rounded-md hover:bg-emerald-700 disabled:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         title="Saves selection, re-seeds the NN baseline, and rebuilds framework-standard controls (shows a diff to confirm first)"
                     >
                         Recompute Control Registry and Save

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import * as SupabaseService from '../../services/supabase';
-import type { CspmScanJob, CspmPreviewRow } from '../../types';
+import type { CspmScanJob, CspmPreviewRow, UserRole } from '../../types';
 
 const statusBadge = (status: string): string => {
   switch (status) {
@@ -41,7 +41,8 @@ const scopeText = (j: CspmScanJob): string => {
 
 const fmtDate = (s?: string | null): string => (s ? new Date(s).toLocaleString() : '—');
 
-export const CSPMAssessmentView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
+export const CSPMAssessmentView: React.FC<{ isActive?: boolean, userRole?: UserRole | null }> = ({ isActive = true, userRole }) => {
+  const isReadOnly = userRole === 'read-only';
   const [jobs, setJobs] = useState<CspmScanJob[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -158,8 +159,8 @@ export const CSPMAssessmentView: React.FC<{ isActive?: boolean }> = ({ isActive 
             <span className="text-sm text-gray-600 dark:text-gray-300">{counts.approve} to import · {counts.discard} to discard</span>
             <button
               onClick={commit}
-              disabled={committing || preview.length === 0}
-              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50"
+              disabled={committing || preview.length === 0 || isReadOnly}
+              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {committing ? 'Importing…' : 'Approve & import'}
             </button>
@@ -176,7 +177,8 @@ export const CSPMAssessmentView: React.FC<{ isActive?: boolean }> = ({ isActive 
             <select
               value={reviewerId}
               onChange={(e) => setReviewerId(e.target.value)}
-              className="px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              disabled={isReadOnly}
+              className="px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value="">Select a reviewer…</option>
               {members.map((m) => (
@@ -233,19 +235,20 @@ export const CSPMAssessmentView: React.FC<{ isActive?: boolean }> = ({ isActive 
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => setDecisions((p) => ({ ...p, [r.id]: 'approve' }))}
-                            disabled={!row.matched}
-                            className={`px-3 py-1 text-xs font-medium rounded ${decision === 'approve' ? 'bg-green-600 text-white' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600'} disabled:opacity-40`}
-                          >
-                            Import
-                          </button>
-                          <button
-                            onClick={() => setDecisions((p) => ({ ...p, [r.id]: 'discard' }))}
-                            className={`px-3 py-1 text-xs font-medium rounded ${decision === 'discard' ? 'bg-gray-600 text-white' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600'}`}
-                          >
-                            Discard
-                          </button>
+                           <button
+                             onClick={() => setDecisions((p) => ({ ...p, [r.id]: 'approve' }))}
+                             disabled={!row.matched || isReadOnly}
+                             className={`px-3 py-1 text-xs font-medium rounded ${decision === 'approve' ? 'bg-green-600 text-white' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600'} disabled:opacity-40 disabled:cursor-not-allowed`}
+                           >
+                             Import
+                           </button>
+                           <button
+                             onClick={() => setDecisions((p) => ({ ...p, [r.id]: 'discard' }))}
+                             disabled={isReadOnly}
+                             className={`px-3 py-1 text-xs font-medium rounded ${decision === 'discard' ? 'bg-gray-600 text-white' : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                           >
+                             Discard
+                           </button>
                         </div>
                       </td>
                     </tr>
@@ -325,7 +328,11 @@ export const CSPMAssessmentView: React.FC<{ isActive?: boolean }> = ({ isActive 
                   </td>
                   <td className="px-4 py-3 text-right">
                     {j.pending_count > 0 ? (
-                      <button onClick={() => openReview(j)} className="px-3 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700">
+                      <button
+                        onClick={() => openReview(j)}
+                        disabled={isReadOnly}
+                        className="px-3 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
                         Review &amp; import
                       </button>
                     ) : (

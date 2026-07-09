@@ -345,20 +345,6 @@ export const Header: React.FC<HeaderProps> = ({
                         {/* Demo mode toggle — only for the ABC News tenant */}
                         {isAbcNews && <DemoToggle />}
 
-                        {/* Role selector commented out - users now have fixed roles based on their actual permissions */}
-                        {/*
-                        <select
-                            value={userRole}
-                            onChange={(e) => setUserRole(e.target.value as UserRole)}
-                            className="bg-gray-50 border border-gray-300 text-gray-900 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-1.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                        >
-                            <option value="user">User View</option>
-                            <option value="admin">Admin View</option>
-                            <option value="tenant_admin">Tenant Admin View</option>
-                            <option value="cxo">CXO View</option>
-                        </select>
-                        */}
-
                         {/* AI Employee (coming soon) */}
                         <button
                             disabled

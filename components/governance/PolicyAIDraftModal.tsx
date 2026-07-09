@@ -22,8 +22,28 @@ interface Citation {
 interface PolicyAIDraftModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onUseDraft: (markdown: string) => void;
+    onUseDraft: (markdown: string, doclang: any) => void;
 }
+
+// ── Utility: convert DocLang JSON to Markdown ──────────────────────────────
+const convertDocLangToMarkdown = (dl: any) => {
+    if (!dl) return '';
+    let md = `# ${dl.title || 'Untitled Policy'}\n\n`;
+    if (dl.metadata) {
+        md += `| Metadata | Value |\n| --- | --- |\n`;
+        if (dl.document_id) md += `| **Document ID:** | ${dl.document_id} |\n`;
+        if (dl.metadata.owner_name) md += `| **Owner:** | ${dl.metadata.owner_name} |\n`;
+        if (dl.version) md += `| **Version:** | ${dl.version} |\n`;
+        if (dl.status) md += `| **Status:** | ${dl.status} |\n`;
+        md += `\n`;
+    }
+    if (dl.sections && Array.isArray(dl.sections)) {
+        for (const sec of dl.sections) {
+            md += `## ${sec.title}\n\n${sec.content}\n\n`;
+        }
+    }
+    return md.trim();
+};
 
 export const PolicyAIDraftModal: React.FC<PolicyAIDraftModalProps> = ({ isOpen, onClose, onUseDraft }) => {
     const [policyType, setPolicyType] = useState('Access Control Policy');
@@ -31,6 +51,8 @@ export const PolicyAIDraftModal: React.FC<PolicyAIDraftModalProps> = ({ isOpen, 
     const [userPrompt, setUserPrompt] = useState('');
     const [streaming, setStreaming] = useState(false);
     const [markdown, setMarkdown] = useState('');
+    const [doclangRawText, setDoclangRawText] = useState('');
+    const [doclangObj, setDoclangObj] = useState<any>(null);
     const [citations, setCitations] = useState<Citation[]>([]);
     const [needInfo, setNeedInfo] = useState<NeedInfo | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -41,6 +63,8 @@ export const PolicyAIDraftModal: React.FC<PolicyAIDraftModalProps> = ({ isOpen, 
     useEffect(() => {
         if (!isOpen) {
             setMarkdown('');
+            setDoclangRawText('');
+            setDoclangObj(null);
             setCitations([]);
             setNeedInfo(null);
             setError(null);
@@ -57,6 +81,8 @@ export const PolicyAIDraftModal: React.FC<PolicyAIDraftModalProps> = ({ isOpen, 
         setError(null);
         setNeedInfo(null);
         setMarkdown('');
+        setDoclangRawText('');
+        setDoclangObj(null);
         setCitations([]);
         setStreaming(true);
 
@@ -71,7 +97,7 @@ export const PolicyAIDraftModal: React.FC<PolicyAIDraftModalProps> = ({ isOpen, 
             }
 
             abortRef.current = new AbortController();
-            const resp = await fetch(`${AI_AGENT_URL}/policy/draft`, {
+            const resp = await fetch(`${AI_AGENT_URL}/policy/draft-doclang`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -91,6 +117,7 @@ export const PolicyAIDraftModal: React.FC<PolicyAIDraftModalProps> = ({ isOpen, 
             const reader = resp.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
+            let accumulatedJson = '';
             // SSE parser: events separated by blank line, each starts with "data: "
             while (true) {
                 const { value, done } = await reader.read();
@@ -112,9 +139,35 @@ export const PolicyAIDraftModal: React.FC<PolicyAIDraftModalProps> = ({ isOpen, 
                     } else if (evt.type === 'start') {
                         setCitations(evt.citations || []);
                     } else if (evt.type === 'chunk') {
-                        setMarkdown(prev => prev + (evt.text || ''));
+                        accumulatedJson += (evt.text || '');
+                        setDoclangRawText(accumulatedJson);
                     } else if (evt.type === 'done') {
                         setStreaming(false);
+                        try {
+                            let cleanJson = accumulatedJson.trim();
+                            
+                            // Extract only the JSON boundaries to ignore preambles/postambles
+                            const firstBrace = cleanJson.indexOf('{');
+                            const lastBrace = cleanJson.lastIndexOf('}');
+                            if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                                cleanJson = cleanJson.slice(firstBrace, lastBrace + 1);
+                            } else {
+                                if (cleanJson.startsWith('```json')) {
+                                    cleanJson = cleanJson.slice(7);
+                                }
+                                if (cleanJson.endsWith('```')) {
+                                    cleanJson = cleanJson.slice(0, -3);
+                                }
+                            }
+                            
+                            const parsed = JSON.parse(cleanJson.trim());
+                            setDoclangObj(parsed);
+                            const convertedMd = convertDocLangToMarkdown(parsed);
+                            setMarkdown(convertedMd);
+                        } catch (parseErr: any) {
+                            console.error("Failed to parse DocLang JSON:", parseErr);
+                            setError("Generated policy structure was invalid JSON. Please retry.");
+                        }
                     } else if (evt.type === 'error') {
                         setError(evt.message || 'Unknown error');
                         setStreaming(false);
@@ -145,7 +198,7 @@ export const PolicyAIDraftModal: React.FC<PolicyAIDraftModalProps> = ({ isOpen, 
                 alert('No organisation/user context.');
                 return;
             }
-            // 1. Submit pending entry
+            // 1. Submit pending
             const submitResp = await fetch(`${AI_AGENT_URL}/policy/org-memory`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -334,7 +387,7 @@ export const PolicyAIDraftModal: React.FC<PolicyAIDraftModalProps> = ({ isOpen, 
                         Cancel
                     </button>
                     <button
-                        onClick={() => { onUseDraft(markdown); onClose(); }}
+                        onClick={() => { onUseDraft(markdown, doclangObj); onClose(); }}
                         disabled={!markdown || streaming}
                         className="px-4 py-2 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400"
                     >

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, ChangeEvent, useCallback, useMemo } from 'react';
 import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ProgramStatus, ActivityLog, AllActivityLog, OrgContact, formatOrgContact } from '../../types';
 import * as SupabaseService from '../../services/supabase';
-import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, HistoryIcon, MessageCircleIcon } from '../Icons';
+import { EyeIcon, PencilIcon, TrashIcon, PlusIcon, UploadIcon, DownloadIcon, SortUpDownIcon, SortUpIcon, SortDownIcon, HistoryIcon, MessageCircleIcon, BotIcon } from '../Icons';
 import { Modal } from '../common/Modal';
+import { AIChatModal } from '../common/AIChatModal';
 import { StatusBadge } from '../common/StatusBadge';
 import { DeleteConfirmationModal } from '../common/DeleteConfirmationModal';
 import { useTableSelection } from '../../hooks/useTableSelection';
@@ -206,9 +207,10 @@ interface ProgramModalProps {
     onEditComment?: (commentId: string, comment: string) => void;
     onDeleteComment?: (commentId: string) => void;
     currentUserId?: string;
+    isReadOnly?: boolean;
 }
 
-const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, taskToEdit, mode, contacts, onContactCreated, onEdit, onDelete, onSaveComment, onEditComment, onDeleteComment, currentUserId }) => {
+const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, taskToEdit, mode, contacts, onContactCreated, onEdit, onDelete, onSaveComment, onEditComment, onDeleteComment, currentUserId, isReadOnly = false }) => {
     const [formData, setFormData] = useState<ProgramTaskCreate | ProgramTaskUpdate>({});
     const [history, setHistory] = useState<AllActivityLog[]>([]);
     const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -234,6 +236,7 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
     };
     const [newComment, setNewComment] = useState('');
     const isViewMode = mode === 'view';
+    const isFieldsDisabled = isViewMode || isReadOnly;
 
     useEffect(() => {
         if (taskToEdit) {
@@ -293,10 +296,20 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
         <Modal isOpen={isOpen} onClose={onClose} title={title}
             headerActions={isViewMode && (
                 <>
-                    <button onClick={() => { onClose(); onEdit?.(); }} title="Edit" className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                    <button
+                        onClick={() => { onClose(); onEdit?.(); }}
+                        disabled={isReadOnly}
+                        title="Edit"
+                        className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <PencilIcon className="h-4 w-4" />
                     </button>
-                    <button onClick={() => { onClose(); onDelete?.(); }} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
+                    <button
+                        onClick={() => { onClose(); onDelete?.(); }}
+                        disabled={isReadOnly}
+                        title="Delete"
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <TrashIcon className="h-4 w-4" />
                     </button>
                 </>
@@ -306,7 +319,7 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Task Name</label>
-                        <input type="text" name="program_name" value={formData.program_name || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        <input type="text" name="program_name" value={formData.program_name || ''} onChange={handleChange} readOnly={isFieldsDisabled} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Assignee</label>
@@ -315,12 +328,12 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
                             onChange={val => setFormData(prev => ({ ...prev, assignee: val }))}
                             contacts={contacts}
                             onContactCreated={onContactCreated}
-                            readOnly={isViewMode}
+                            readOnly={isFieldsDisabled}
                         />
                     </div>
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
-                        <textarea name="description" value={formData.description || ''} onChange={handleChange} readOnly={isViewMode} rows={3} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
+                        <textarea name="description" value={formData.description || ''} onChange={handleChange} readOnly={isFieldsDisabled} rows={3} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
@@ -332,11 +345,16 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
                                 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
                             }`}>{formData.status || 'Planned'}</span>
                             {!isViewMode && (
-                                <button type="button" onClick={toggleEscalated} className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
-                                    isEscalated
-                                        ? 'border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-900/30'
-                                        : 'border-purple-300 text-purple-700 hover:bg-purple-50 dark:border-purple-600 dark:text-purple-300 dark:hover:bg-purple-900/30'
-                                }`}>
+                                <button
+                                    type="button"
+                                    onClick={toggleEscalated}
+                                    disabled={isReadOnly}
+                                    className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
+                                        isEscalated
+                                            ? 'border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-900/30'
+                                            : 'border-purple-300 text-purple-700 hover:bg-purple-50 dark:border-purple-600 dark:text-purple-300 dark:hover:bg-purple-900/30'
+                                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                                >
                                     {isEscalated ? 'Remove Escalation' : 'Escalate to CXO'}
                                 </button>
                             )}
@@ -344,12 +362,12 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
                     </div>
                      <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Progress (%)</label>
-                        <input type="range" name="progress_percent" min="0" max="100" value={formData.progress_percent || 0} onChange={handleChange} disabled={isViewMode || isEscalated} className="mt-1 block w-full" />
+                        <input type="range" name="progress_percent" min="0" max="100" value={formData.progress_percent || 0} onChange={handleChange} disabled={isFieldsDisabled || isEscalated} className="mt-1 block w-full" />
                         <span className="text-sm dark:text-gray-300">{formData.progress_percent || 0}%</span>
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Due Date</label>
-                        <input type="date" name="due_date" value={formData.due_date || ''} onChange={handleChange} readOnly={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+                        <input type="date" name="due_date" value={formData.due_date || ''} onChange={handleChange} readOnly={isFieldsDisabled} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
                 </div>
 
@@ -363,8 +381,9 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
                         name="newComment"
                         value={newComment}
                         onChange={(e) => setNewComment(e.target.value)}
+                        disabled={isReadOnly}
                         rows={3}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                         placeholder="Add a comment..."
                     ></textarea>
 
@@ -376,7 +395,8 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
                                     onSaveComment?.(newComment);
                                     setNewComment('');
                                 }}
-                                className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
+                                disabled={isReadOnly}
+                                className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 Save Comment
                             </button>
@@ -405,8 +425,8 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
                                                     </span>
                                                     {isAuthor && !isEditing && (
                                                         <div className="flex items-center gap-2">
-                                                            <button type="button" onClick={() => { setEditingCommentId(h.id); setEditCommentText(typeof ed.comment === 'string' ? ed.comment : (ed.comment?.text || '')); }} className="text-[10px] text-blue-600 hover:underline">Edit</button>
-                                                            <button type="button" onClick={() => onDeleteComment?.(h.id)} className="text-[10px] text-red-600 hover:underline">Delete</button>
+                                                            <button type="button" disabled={isReadOnly} onClick={() => { setEditingCommentId(h.id); setEditCommentText(typeof ed.comment === 'string' ? ed.comment : (ed.comment?.text || '')); }} className="text-[10px] text-blue-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed">Edit</button>
+                                                            <button type="button" disabled={isReadOnly} onClick={() => onDeleteComment?.(h.id)} className="text-[10px] text-red-600 hover:underline disabled:opacity-50 disabled:cursor-not-allowed">Delete</button>
                                                         </div>
                                                     )}
                                                 </div>
@@ -433,7 +453,7 @@ const ProgramModal: React.FC<ProgramModalProps> = ({ isOpen, onClose, onSave, ta
                 {!isViewMode && (
                 <div className="mt-6 flex justify-end space-x-3">
                     <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
-                    <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">Save</button>
+                    <button type="submit" disabled={isReadOnly} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed">Save</button>
                 </div>
                 )}
             </form>
@@ -742,7 +762,8 @@ const AddChildModal: React.FC<{
     );
 };
 
-export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: boolean; isCxo?: boolean }> = ({ isActive = true, hideEscalated = false, isCxo = false }) => {
+export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: boolean; isCxo?: boolean; userRole?: UserRole | null }> = ({ isActive = true, hideEscalated = false, isCxo = false, userRole }) => {
+    const isReadOnly = userRole === 'read-only';
     const [tasks, setTasks] = useState<ProgramTask[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
@@ -764,6 +785,15 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
     const [currentUserId, setCurrentUserId] = useState<string>();
     const [isImporting, setIsImporting] = useState(false);
     const [importProgress, setImportProgress] = useState<BulkProgress>({ total: 0, completed: 0, failed: 0, status: 'idle' });
+    const [showAIChat, setShowAIChat] = useState(false);
+    // Collapsed parent task ids — children are hidden while their parent id is in this set.
+    const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+    const toggleCollapsed = (id: string) => setCollapsed(prev => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return next;
+    });
 
     const {
         selectedIds, isEditing, editValues, isConfirmingDelete, isSaving, bulkProgress,
@@ -815,6 +845,30 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
         } catch (err) {
             setError('Failed to save task.');
         }
+    };
+
+    // Reuses the shared AI helper modal (module="program"). The agent returns loosely-typed
+    // records; we coerce each into a ProgramTaskCreate and bulk-insert. task_code / parent_id
+    // are omitted (server-generated); status is re-derived from progress by the backend.
+    const handleAIChatConfirm = async (records: Record<string, unknown>[]) => {
+        const toCreate: ProgramTaskCreate[] = records.map(r => {
+            const progress = Math.max(0, Math.min(100, Number(r.progress_percent) || 0));
+            const allowed: ProgramStatus[] = ['Planned', 'InProgress', 'Completed', 'Blocked', 'Escalated'];
+            const status = allowed.includes(r.status as ProgramStatus) ? (r.status as ProgramStatus) : 'Planned';
+            return {
+                program_name: String(r.program_name || '').trim(),
+                description: String(r.description || ''),
+                month: String(r.month || ''),
+                due_date: r.due_date ? String(r.due_date) : null,
+                assignee: r.assignee ? String(r.assignee) : null,
+                status,
+                progress_percent: progress,
+                comments: r.comments ? String(r.comments) : null,
+            };
+        }).filter(t => t.program_name);
+        if (toCreate.length === 0) throw new Error('No valid tasks to add.');
+        await SupabaseService.bulkAddTasks(toCreate);
+        fetchTasks();
     };
 
     const handleDeleteTask = async () => {
@@ -1062,7 +1116,11 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
             const visibleKids = q ? kids.filter(matches) : kids;
             if (q && !parentMatches && visibleKids.length === 0) continue;
             rows.push({ task: p, depth: 0, childCount: kids.length });
-            for (const k of sortItems(visibleKids)) rows.push({ task: k, depth: 1, childCount: 0 });
+            // While filtering, always show matching children so nothing is hidden behind a collapse.
+            const isCollapsed = !q && collapsed.has(p.id);
+            if (!isCollapsed) {
+                for (const k of sortItems(visibleKids)) rows.push({ task: k, depth: 1, childCount: 0 });
+            }
         }
         // Defensive: children whose parent isn't a current top-level row show standalone.
         for (const t of tasks) {
@@ -1071,7 +1129,7 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
             }
         }
         return rows;
-    }, [tasks, filter, sortConfig, isCxo, escalatedOnly]);
+    }, [tasks, filter, sortConfig, isCxo, escalatedOnly, collapsed]);
 
     const filteredAndSortedTasks = useMemo(() => displayRows.map(r => r.task), [displayRows]);
 
@@ -1199,13 +1257,31 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                     />
                     <div className="flex items-center space-x-2">
                         <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
-                        <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <button
+                            onClick={() => setShowAIChat(true)}
+                            disabled={isReadOnly}
+                            title="AI Generate"
+                            className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <BotIcon className="h-5 w-5" />
+                        </button>
+                        <button
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={isReadOnly}
+                            title="Import CSV"
+                            className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
                             <UploadIcon className="h-5 w-5" />
                         </button>
                         <button onClick={handleExportCSV} title="Export CSV" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
                             <DownloadIcon className="h-5 w-5" />
                         </button>
-                        <button onClick={() => setModalState({ type: 'add' })} title="Add Task" className="p-2 text-gray-400 hover:text-blue-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
+                        <button
+                            onClick={() => setModalState({ type: 'add' })}
+                            disabled={isReadOnly}
+                            title="Add Task"
+                            className="p-2 text-gray-400 hover:text-blue-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
                             <PlusIcon className="h-5 w-5" />
                         </button>
                     </div>
@@ -1265,6 +1341,23 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                                             <input type="text" value={editValues[task.id]?.program_name ?? task.program_name} onChange={e => updateField(task.id, 'program_name', e.target.value)} className={editInputCls} />
                                         ) : (
                                             <div className="flex items-center gap-3 group" style={depth > 0 ? { paddingLeft: '1.5rem' } : undefined}>
+                                                {depth === 0 && (
+                                                    childCount > 0 ? (
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); toggleCollapsed(task.id); }}
+                                                            className="p-0.5 -ml-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded transition-colors"
+                                                            title={collapsed.has(task.id) ? 'Expand sub-tasks' : 'Collapse sub-tasks'}
+                                                            aria-expanded={!collapsed.has(task.id)}
+                                                            aria-label={collapsed.has(task.id) ? 'Expand sub-tasks' : 'Collapse sub-tasks'}
+                                                        >
+                                                            <svg className={`h-4 w-4 transition-transform ${collapsed.has(task.id) ? '' : 'rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                                            </svg>
+                                                        </button>
+                                                    ) : (
+                                                        <span className="inline-block w-4 -ml-1" aria-hidden="true" />
+                                                    )
+                                                )}
                                                 {depth > 0 && <span className="text-gray-300 dark:text-gray-600 select-none -ml-1">↳</span>}
                                                 <div className="flex flex-col">
                                                     <span className="flex items-center gap-2">
@@ -1407,6 +1500,7 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                 onEditComment={handleEditComment}
                 onDeleteComment={handleDeleteComment}
                 currentUserId={currentUserId}
+                isReadOnly={isReadOnly}
             />
 
             {modalState.type === 'log' && modalState.task && (
@@ -1453,6 +1547,7 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                     onConfirmDelete={handleBulkDelete}
                     onCancelDelete={() => setIsConfirmingDelete(false)}
                     onClear={clearAll}
+                    disabled={isReadOnly}
                 />
             )}
 
@@ -1468,6 +1563,13 @@ export const ProgramTrackerView: React.FC<{ isActive?: boolean; hideEscalated?: 
                 title="Importing Tasks"
                 progress={importProgress}
                 onClose={() => setIsImporting(false)}
+            />
+
+            <AIChatModal
+                isOpen={showAIChat}
+                onClose={() => setShowAIChat(false)}
+                module="program"
+                onConfirm={handleAIChatConfirm}
             />
         </div>
     );

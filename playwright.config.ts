@@ -21,7 +21,11 @@ export default defineConfig({
 
   use: {
     baseURL: BASE_URL,
-    screenshot: 'off',
+    // Off by default; the internal-tool QA runner sets QA_SCREENSHOTS=on to
+    // capture a screenshot after every test (pass AND fail) so they're embedded
+    // in the HTML report it zips up. Other scripts (test:ui/test:preprod) keep
+    // screenshots off for speed.
+    screenshot: process.env.QA_SCREENSHOTS === 'on' ? 'on' : 'off',
     video: 'off',
     trace: 'off',
     headless: !!process.env.CI,
