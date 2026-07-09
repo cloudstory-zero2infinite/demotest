@@ -21,9 +21,10 @@ export default defineConfig({
 
   use: {
     baseURL: BASE_URL,
-    // Off by default; the post-deploy E2E workflow sets QA_SCREENSHOTS=on to
-    // capture a screenshot after every test (pass AND fail) for the emailed
-    // HTML report. Other scripts (test:ui/test:preprod) keep it off for speed.
+    // Off by default; the internal-tool QA runner sets QA_SCREENSHOTS=on to
+    // capture a screenshot after every test (pass AND fail) so they're embedded
+    // in the HTML report it zips up. Other scripts (test:ui/test:preprod) keep
+    // screenshots off for speed.
     screenshot: process.env.QA_SCREENSHOTS === 'on' ? 'on' : 'off',
     video: 'off',
     trace: 'off',
