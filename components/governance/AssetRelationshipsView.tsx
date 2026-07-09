@@ -4,7 +4,7 @@ import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
 
 import * as SupabaseService from '../../services/supabase';
 
-import { AssetRelationship, AssetRelationshipCreate } from '../../types';
+import { AssetRelationship, AssetRelationshipCreate, UserRole } from '../../types';
 
 import { CustomField } from '../../services/supabase';
 
@@ -36,34 +36,22 @@ const RELATIONSHIP_TYPES = ['Depends On', 'Hosts', 'Communicates With', 'Contain
 
 
 interface AssetRelationshipModalProps {
-
     isOpen: boolean;
-
     onClose: () => void;
-
     onSave: (rel: AssetRelationshipCreate) => void;
-
     relToEdit: AssetRelationship | null;
-
     mode: 'add' | 'edit' | 'view';
-
     assetIds: string[];
-
     onEdit?: () => void;
-
     onDelete?: () => void;
-
     customFields: CustomField[];
-
+    isReadOnly?: boolean;
 }
 
-
-
-const AssetRelationshipModal: React.FC<AssetRelationshipModalProps> = ({ isOpen, onClose, onSave, relToEdit, mode, assetIds, onEdit, onDelete, customFields }) => {
-
+const AssetRelationshipModal: React.FC<AssetRelationshipModalProps> = ({ isOpen, onClose, onSave, relToEdit, mode, assetIds, onEdit, onDelete, customFields, isReadOnly = false }) => {
     const [formData, setFormData] = useState<Partial<AssetRelationshipCreate>>({});
-
     const isViewMode = mode === 'view';
+    const isFieldsDisabled = isViewMode || isReadOnly;
 
 
 
@@ -156,161 +144,95 @@ const AssetRelationshipModal: React.FC<AssetRelationshipModalProps> = ({ isOpen,
             title={title}
 
             headerActions={isViewMode && (
-
                 <>
-
-                    <button onClick={() => { onClose(); onEdit?.(); }} title="Edit" className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
-
+                    <button
+                        onClick={() => { onClose(); onEdit?.(); }}
+                        disabled={isReadOnly}
+                        title="Edit"
+                        className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <PencilIcon className="h-4 w-4" />
-
                     </button>
-
-                    <button onClick={() => { onClose(); onDelete?.(); }} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
-
+                    <button
+                        onClick={() => { onClose(); onDelete?.(); }}
+                        disabled={isReadOnly}
+                        title="Delete"
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <TrashIcon className="h-4 w-4" />
-
                     </button>
-
                 </>
-
             )}
-
         >
-
             <form onSubmit={handleSubmit} className="space-y-4">
-
                 <div className="grid grid-cols-1 gap-4">
-
                     <div>
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Source Asset</label>
-
-                        {isViewMode ? (
-
+                        {isFieldsDisabled ? (
                             <input type="text" value={formData.source_asset_id || ''} readOnly className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-
                         ) : (
-
                             <select name="source_asset_id" value={formData.source_asset_id || ''} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-
                                 <option value="">Select asset...</option>
-
                                 {assetIds.map(id => <option key={id} value={id}>{id}</option>)}
-
                             </select>
-
                         )}
-
                     </div>
 
                     <div>
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Target Asset</label>
-
-                        {isViewMode ? (
-
+                        {isFieldsDisabled ? (
                             <input type="text" value={formData.target_asset_id || ''} readOnly className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-
                         ) : (
-
                             <select name="target_asset_id" value={formData.target_asset_id || ''} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-
                                 <option value="">Select asset...</option>
-
                                 {assetIds.map(id => <option key={id} value={id}>{id}</option>)}
-
                             </select>
-
                         )}
-
                     </div>
 
                     <div>
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Relationship Type</label>
-
-                        {isViewMode ? (
-
+                        {isFieldsDisabled ? (
                             <input type="text" value={formData.relationship_type || ''} readOnly className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-
                         ) : (
-
                             <select name="relationship_type" value={formData.relationship_type || ''} onChange={handleChange} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-
                                 {RELATIONSHIP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-
                             </select>
-
                         )}
-
                     </div>
-
                 </div>
 
-                
-
                 {/* Custom Fields Section */}
-
                 {customFields.length > 0 && (
-
                     <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-
                         <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Custom Fields</h3>
-
                         <div className="grid grid-cols-1 gap-4">
-
                             {customFields.map(field => (
-
                                 <div key={field.id}>
-
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-
                                         {field.field_label}
-
                                         {field.is_required && <span className="text-red-500 ml-1">*</span>}
-
                                     </label>
-
                                     <input
-
                                         type="text"
-
                                         value={formData.custom_fields?.[field.field_name] || ''}
-
                                         onChange={(e) => handleCustomFieldChange(field.field_name, e.target.value)}
-
-                                        readOnly={isViewMode}
-
+                                        readOnly={isFieldsDisabled}
                                         required={field.is_required}
-
                                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-
                                         placeholder={`Enter ${field.field_label}`}
-
                                     />
-
                                 </div>
-
                             ))}
-
                         </div>
-
                     </div>
-
                 )}
 
-                
-
                 {!isViewMode && (
-
                     <div className="mt-6 flex justify-end space-x-3">
-
                         <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
-
-                        <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700">Save</button>
-
+                        <button type="submit" disabled={isReadOnly} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Save</button>
                     </div>
-
                 )}
 
             </form>
@@ -323,7 +245,8 @@ const AssetRelationshipModal: React.FC<AssetRelationshipModalProps> = ({ isOpen,
 
 
 
-export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
+export const AssetRelationshipsView: React.FC<{ isActive?: boolean, userRole?: UserRole | null }> = ({ isActive = true, userRole }) => {
+    const isReadOnly = userRole === 'read-only';
 
     const [relationships, setRelationships] = useState<AssetRelationship[]>([]);
 
@@ -1302,38 +1225,37 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
                     <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
 
-                     <button onClick={() => setShowAIChat(true)} title="AI Assistant" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
+                     <button
+                        onClick={() => setShowAIChat(true)}
+                        disabled={isReadOnly}
+                        title="AI Assistant"
+                        className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                     >
                         <BotIcon className="h-5 w-5" />
-
                     </button>
-
-                    <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md relative">
-
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isReadOnly}
+                        title="Import CSV"
+                        className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md relative disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <UploadIcon className="h-5 w-5" />
-
                         {importData.addedCount && (
-
                             <span className="absolute -top-1 -right-1 bg-green-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
-
                                 {importData.addedCount}
-
                             </span>
-
                         )}
-
                     </button>
-
                     <button onClick={handleExportCSV} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
                         <DownloadIcon className="h-5 w-5" />
-
                     </button>
-
-                    <button onClick={() => setModalState({ type: 'add' })} title="Add Relationship" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
+                    <button
+                        onClick={() => setModalState({ type: 'add' })}
+                        disabled={isReadOnly}
+                        title="Add Relationship"
+                        className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <PlusIcon className="h-5 w-5" />
-
                     </button>
 
                 </div>
@@ -1372,14 +1294,15 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
 
                                         />
 
-                                        <button onClick={() => setShowColumnManagement(true)} title="Manage Columns" className="p-1 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
-
+                                        <button
+                                            onClick={() => setShowColumnManagement(true)}
+                                            disabled={isReadOnly}
+                                            title="Manage Columns"
+                                            className="p-1 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
                                             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-
                                             </svg>
-
                                         </button>
 
                                     </div>
@@ -1649,25 +1572,16 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
             {/* Add / Edit / View Modal */}
 
             <AssetRelationshipModal
-
                 isOpen={modalState.type === 'add' || modalState.type === 'edit' || modalState.type === 'view'}
-
                 onClose={() => setModalState({ type: null })}
-
                 onSave={handleSave}
-
                 relToEdit={modalState.rel ?? null}
-
                 mode={modalState.type as 'add' | 'edit' | 'view'}
-
                 assetIds={assetIds}
-
                 onEdit={() => setModalState({ type: 'edit', rel: modalState.rel })}
-
                 onDelete={() => setModalState({ type: 'delete', rel: modalState.rel })}
-
                 customFields={customFields}
-
+                isReadOnly={isReadOnly}
             />
 
 
@@ -1844,6 +1758,7 @@ export const AssetRelationshipsView: React.FC<{ isActive?: boolean }> = ({ isAct
                     onConfirmDelete={handleBulkDelete}
                     onCancelDelete={() => setIsConfirmingDelete(false)}
                     onClear={clearAll}
+                    disabled={isReadOnly}
                 />
             )}
         </div>

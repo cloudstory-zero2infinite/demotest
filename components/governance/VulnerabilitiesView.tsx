@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, ChangeEvent, useMemo }
 
 import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
 
-import { Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, VulnerabilityStatus, VulnerabilitySource, Asset } from '../../types';
+import { Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, VulnerabilityStatus, VulnerabilitySource, Asset, UserRole } from '../../types';
 
 import * as SupabaseService from '../../services/supabase';
 
@@ -54,30 +54,21 @@ const sanitizeInput = (input: string): string => {
 };
 
 interface VulnerabilityModalProps {
-
     isOpen: boolean;
-
     onClose: () => void;
-
     onSave: (vulnerability: VulnerabilityCreate | VulnerabilityUpdate) => void;
-
     vulnerabilityToEdit: Vulnerability | null;
-
     mode: 'add' | 'edit' | 'view';
-
     onEdit?: () => void;
-
     onDelete?: () => void;
-
     customFields: CustomField[];
-
+    isReadOnly?: boolean;
 }
 
-const VulnerabilityModal: React.FC<VulnerabilityModalProps> = ({ isOpen, onClose, onSave, vulnerabilityToEdit, mode, onEdit, onDelete, customFields }) => {
-
+const VulnerabilityModal: React.FC<VulnerabilityModalProps> = ({ isOpen, onClose, onSave, vulnerabilityToEdit, mode, onEdit, onDelete, customFields, isReadOnly = false }) => {
     const [formData, setFormData] = useState<Partial<VulnerabilityCreate>>({});
-
     const isViewMode = mode === 'view';
+    const isFieldsDisabled = isViewMode || isReadOnly;
 
     const [allAssets, setAllAssets] = useState<Asset[]>([]);
 
@@ -242,23 +233,24 @@ const VulnerabilityModal: React.FC<VulnerabilityModalProps> = ({ isOpen, onClose
         <Modal isOpen={isOpen} onClose={onClose} title={title}
 
             headerActions={isViewMode && (
-
                 <>
-
-                    <button onClick={() => { onClose(); onEdit?.(); }} title="Edit" className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
-
+                    <button
+                        onClick={() => { onClose(); onEdit?.(); }}
+                        disabled={isReadOnly}
+                        title="Edit"
+                        className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <PencilIcon className="h-4 w-4" />
-
                     </button>
-
-                    <button onClick={() => { onClose(); onDelete?.(); }} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
-
+                    <button
+                        onClick={() => { onClose(); onDelete?.(); }}
+                        disabled={isReadOnly}
+                        title="Delete"
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <TrashIcon className="h-4 w-4" />
-
                     </button>
-
                 </>
-
             )}
 
         >
@@ -266,175 +258,94 @@ const VulnerabilityModal: React.FC<VulnerabilityModalProps> = ({ isOpen, onClose
             <form onSubmit={handleSubmit} className="space-y-4">
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
                     <div className="md:col-span-2">
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name</label>
-
-                        <input type="text" name="name" value={formData.name || ''} onChange={handleChange} readOnly={isViewMode} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-
+                        <input type="text" name="name" value={formData.name || ''} onChange={handleChange} readOnly={isFieldsDisabled} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
 
                     <div className="md:col-span-2">
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
-
-                        <textarea name="description" value={formData.description || ''} onChange={handleChange} readOnly={isViewMode} rows={3} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
-
+                        <textarea name="description" value={formData.description || ''} onChange={handleChange} readOnly={isFieldsDisabled} rows={3} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
                     </div>
 
                     <div>
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Source (Derived From)</label>
-
-                        <select name="derived_from" value={formData.derived_from} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-
+                        <select name="derived_from" value={formData.derived_from} onChange={handleChange} disabled={isFieldsDisabled} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                             {vulnerabilitySources.map(source => (
-
                                 <option key={source} value={source}>{source}</option>
-
                             ))}
-
                         </select>
-
                     </div>
 
                     <div>
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
-
-                        <select name="status" value={formData.status} onChange={handleChange} disabled={isViewMode} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-
+                        <select name="status" value={formData.status} onChange={handleChange} disabled={isFieldsDisabled} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                             <option>Planned</option>
-
                             <option>Remediated</option>
-
                             <option>NA</option>
-
                         </select>
-
                     </div>
 
                     <div className="md:col-span-2" ref={autocompleteRef}>
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Associated Asset</label>
-
                         <div className="relative">
-
                             <input
-
                                 type="text"
-
                                 value={assetSearchText}
-
                                 onChange={e => {
-
                                     setAssetSearchText(e.target.value);
-
                                     setFormData(prev => ({ ...prev, asset_id: null }));
-
                                     if (!showAssetSuggestions) setShowAssetSuggestions(true);
-
                                 }}
-
                                 onFocus={() => setShowAssetSuggestions(true)}
-
                                 placeholder="Search by asset name or ID"
-
-                                readOnly={isViewMode}
-
+                                readOnly={isFieldsDisabled}
                                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-
                             />
-
-                            {!isViewMode && showAssetSuggestions && filteredAssets.length > 0 && (
-
+                            {!isFieldsDisabled && showAssetSuggestions && filteredAssets.length > 0 && (
                                 <ul className="absolute z-10 w-full bg-white dark:bg-gray-800 border rounded-md mt-1 max-h-40 overflow-y-auto shadow-lg">
-
                                     {filteredAssets.map(asset => (
-
                                         <li key={asset.id} onClick={() => handleAssetSelect(asset)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer text-sm text-gray-900 dark:text-gray-200">
-
                                             {asset.name} ({asset.asset_id})
-
                                         </li>
-
                                     ))}
-
                                 </ul>
-
                             )}
-
                         </div>
-
                     </div>
-
                 </div>
 
-                
-
                 {/* Custom Fields Section */}
-
                 {customFields.length > 0 && (
-
                     <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-
                         <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Custom Fields</h3>
-
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
                             {customFields.map(field => (
-
                                 <div key={field.id}>
-
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-
                                         {field.field_label}
-
                                         {field.is_required && <span className="text-red-500 ml-1">*</span>}
-
                                     </label>
-
                                     <input
-
                                         type="text"
-
                                         value={formData.custom_fields?.[field.field_name] || ''}
-
                                         onChange={(e) => handleCustomFieldChange(field.field_name, e.target.value)}
-
-                                        readOnly={isViewMode}
-
+                                        readOnly={isFieldsDisabled}
                                         required={field.is_required}
-
                                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-
                                         placeholder={`Enter ${field.field_label}`}
-
                                     />
-
                                 </div>
-
                             ))}
-
                         </div>
-
                     </div>
-
                 )}
 
-                
-
                 {!isViewMode && (
-
                     <div className="mt-6 flex justify-end space-x-3">
-
                         <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
-
-                        <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700">Save</button>
-
+                        <button type="submit" disabled={isReadOnly} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Save</button>
                     </div>
-
                 )}
 
             </form>
@@ -445,7 +356,8 @@ const VulnerabilityModal: React.FC<VulnerabilityModalProps> = ({ isOpen, onClose
 
 };
 
-export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
+export const VulnerabilitiesView: React.FC<{ isActive?: boolean, userRole?: UserRole | null }> = ({ isActive = true, userRole }) => {
+    const isReadOnly = userRole === 'read-only';
 
     const [vulnerabilities, setVulnerabilities] = useState<Vulnerability[]>([]);
 
@@ -1256,28 +1168,32 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
 
                     <input type="file" accept=".csv,.xlsx,.xls" ref={fileInputRef} onChange={handleImportCSV} className="hidden" />
 
-                    <button onClick={() => setShowAIChat(true)} title="AI Generate" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
+                    <button
+                        onClick={() => setShowAIChat(true)}
+                        disabled={isReadOnly}
+                        title="AI Generate"
+                        className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <BotIcon className="h-5 w-5" />
-
                     </button>
-
-                    <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isReadOnly}
+                        title="Import CSV"
+                        className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <UploadIcon className="h-5 w-5" />
-
                     </button>
-
                     <button onClick={handleExportCSV} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
                         <DownloadIcon className="h-5 w-5" />
-
                     </button>
-
-                    <button onClick={() => setModalState({ type: 'add' })} title="Add Vulnerability" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
+                    <button
+                        onClick={() => setModalState({ type: 'add' })}
+                        disabled={isReadOnly}
+                        title="Add Vulnerability"
+                        className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <PlusIcon className="h-5 w-5" />
-
                     </button>
 
                     
@@ -1314,12 +1230,14 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
 
                                         />
 
-                                        <button onClick={() => setShowColumnManagement(true)} title="Manage Columns" className="p-1 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
-
+                                        <button
+                                            onClick={() => setShowColumnManagement(true)}
+                                            disabled={isReadOnly}
+                                            title="Manage Columns"
+                                            className="p-1 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
                                             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-
                                             </svg>
 
                                         </button>
@@ -1508,23 +1426,15 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
 
 
             <VulnerabilityModal
-
                 isOpen={modalState.type === 'add' || modalState.type === 'edit' || modalState.type === 'view'}
-
                 onClose={closeModal}
-
                 onSave={handleSaveVulnerability}
-
                 vulnerabilityToEdit={modalState.vulnerability || null}
-
                 mode={modalState.type as 'add' | 'edit' | 'view'}
-
                 onEdit={() => { if (modalState.vulnerability) setModalState({ type: 'edit', vulnerability: modalState.vulnerability }); }}
-
                 onDelete={() => { if (modalState.vulnerability) setModalState({ type: 'delete', vulnerability: modalState.vulnerability }); }}
-
                 customFields={customFields}
-
+                isReadOnly={isReadOnly}
             />
 
             <Modal
@@ -1729,6 +1639,7 @@ export const VulnerabilitiesView: React.FC<{ isActive?: boolean }> = ({ isActive
                     onConfirmDelete={handleBulkDelete}
                     onCancelDelete={() => setIsConfirmingDelete(false)}
                     onClear={clearAll}
+                    disabled={isReadOnly}
                 />
             )}
 

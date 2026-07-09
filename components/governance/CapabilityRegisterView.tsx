@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, ChangeEvent, useMemo }
 
 import { useUnifiedRefresh } from '../../hooks/useUnifiedRefresh';
 
-import { Capability, CapabilityCreate, CapabilityUpdate, OrgContact, Asset, formatOrgContact } from '../../types';
+import { Capability, CapabilityCreate, CapabilityUpdate, OrgContact, Asset, formatOrgContact, UserRole } from '../../types';
 
 import * as SupabaseService from '../../services/supabase';
 
@@ -568,72 +568,44 @@ const MANDATORY_LABEL = <span className="text-red-500 ml-0.5">*</span>;
 
 
 interface CapabilityModalProps {
-
     isOpen: boolean;
-
     onClose: () => void;
-
     onSave: (data: CapabilityCreate | CapabilityUpdate) => Promise<void>;
-
     capabilityToEdit: Capability | null;
-
     mode: 'add' | 'edit' | 'view';
-
     contacts: OrgContact[];
-
     assets: Asset[];
-
     onContactCreated?: (c: OrgContact) => void;
-
     onEdit?: () => void;
-
     onDelete?: () => void;
-
     customFields: CustomField[];
-
+    isReadOnly?: boolean;
 }
 
-
-
 type FormData = {
-
     capab_name: string;
-
     capab_provider: string[];
-
     capab_cmdb_id: string[];
-
     capab_owner: string;
-
     capab_other_details: string;
-
+    custom_fields?: Record<string, any>;
 };
-
-
 
 const DEFAULT_FORM: FormData = {
-
     capab_name: '',
-
     capab_provider: [],
-
     capab_cmdb_id: [],
-
     capab_owner: '',
-
     capab_other_details: '',
-
 };
 
-
-
-const CapabilityModal: React.FC<CapabilityModalProps> = ({ isOpen, onClose, onSave, capabilityToEdit, mode, contacts, assets, onContactCreated, onEdit, onDelete, customFields }) => {
+const CapabilityModal: React.FC<CapabilityModalProps> = ({ isOpen, onClose, onSave, capabilityToEdit, mode, contacts, assets, onContactCreated, onEdit, onDelete, customFields, isReadOnly = false }) => {
 
     const [formData, setFormData] = useState<FormData>(DEFAULT_FORM);
 
     const [isSaving, setIsSaving] = useState(false);
-
     const isView = mode === 'view';
+    const isFieldsDisabled = isView || isReadOnly;
 
 
 
@@ -746,188 +718,112 @@ const CapabilityModal: React.FC<CapabilityModalProps> = ({ isOpen, onClose, onSa
     return (
 
         <Modal isOpen={isOpen} onClose={onClose} title={title}
-
             headerActions={isView && (
-
                 <>
-
-                    <button onClick={() => { onClose(); onEdit?.(); }} title="Edit" className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
-
+                    <button
+                        onClick={() => { onClose(); onEdit?.(); }}
+                        disabled={isReadOnly}
+                        title="Edit"
+                        className="p-1.5 text-gray-400 hover:text-yellow-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <PencilIcon className="h-4 w-4" />
-
                     </button>
-
-                    <button onClick={() => { onClose(); onDelete?.(); }} title="Delete" className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors">
-
+                    <button
+                        onClick={() => { onClose(); onDelete?.(); }}
+                        disabled={isReadOnly}
+                        title="Delete"
+                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <TrashIcon className="h-4 w-4" />
-
                     </button>
-
                 </>
-
             )}
-
         >
-
             <form onSubmit={handleSubmit} className="space-y-4">
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
                     {mode !== 'add' && capabilityToEdit && (
-
                         <div>
-
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Capability ID</label>
-
                             <div className="mt-1 px-3 py-2 rounded-md bg-gray-100 dark:bg-gray-600 text-sm font-mono text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-500 flex items-center gap-2">
-
                                 {capabilityToEdit.capab_id}
-
                                 <span className="text-xs text-gray-400 dark:text-gray-500 font-sans">(auto-generated)</span>
-
                             </div>
-
                         </div>
-
                     )}
 
                     <div>
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Capability Name {MANDATORY_LABEL}</label>
-
-                        <input type="text" name="capab_name" value={formData.capab_name} onChange={handleChange} readOnly={isView} required placeholder="e.g. Incident Response, SOC, DevSecOps" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-
+                        <input type="text" name="capab_name" value={formData.capab_name} onChange={handleChange} readOnly={isFieldsDisabled} required placeholder="e.g. Incident Response, SOC, DevSecOps" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
 
                     <div>
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Capability Owner {MANDATORY_LABEL}</label>
-
                         <OwnerSelect
-
                             value={formData.capab_owner}
-
                             onChange={val => setFormData(prev => ({ ...prev, capab_owner: val }))}
-
                             contacts={contacts}
-
                             onContactCreated={onContactCreated}
-
-                            readOnly={isView}
-
+                            readOnly={isFieldsDisabled}
                         />
-
                     </div>
 
                     <div className="md:col-span-2">
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-
                             Provider(s) {MANDATORY_LABEL}
-
-                            {!isView && <span className="ml-1 text-xs text-gray-400 font-normal">— press Enter or comma to add</span>}
-
+                            {!isFieldsDisabled && <span className="ml-1 text-xs text-gray-400 font-normal">— press Enter or comma to add</span>}
                         </label>
-
-                        <TagInput values={formData.capab_provider} onChange={vals => setFormData(prev => ({ ...prev, capab_provider: vals }))} placeholder="e.g. Sophos Firewall, Palo Alto" readOnly={isView} />
-
+                        <TagInput values={formData.capab_provider} onChange={vals => setFormData(prev => ({ ...prev, capab_provider: vals }))} placeholder="e.g. Sophos Firewall, Palo Alto" readOnly={isFieldsDisabled} />
                     </div>
 
                     <div className="md:col-span-2">
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-
                             CMDB ID(s) {MANDATORY_LABEL}
-
-                            {!isView && <span className="ml-1 text-xs text-gray-400 font-normal">— type to search by asset ID or name</span>}
-
+                            {!isFieldsDisabled && <span className="ml-1 text-xs text-gray-400 font-normal">— type to search by asset ID or name</span>}
                         </label>
-
                         <AssetMultiSelect
-
                             values={formData.capab_cmdb_id}
-
                             onChange={vals => setFormData(prev => ({ ...prev, capab_cmdb_id: vals }))}
-
                             assets={assets}
-
-                            readOnly={isView}
-
+                            readOnly={isFieldsDisabled}
                         />
-
                     </div>
 
                     <div className="md:col-span-2">
-
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Other Details</label>
-
-                        <textarea name="capab_other_details" value={formData.capab_other_details} onChange={handleChange} readOnly={isView} rows={3} placeholder="Additional notes, scope, maturity level, etc." className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
-
+                        <textarea name="capab_other_details" value={formData.capab_other_details} onChange={handleChange} readOnly={isFieldsDisabled} rows={3} placeholder="Additional notes, scope, maturity level, etc." className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
-
                 </div>
 
-                
-
                 {/* Custom Fields Section */}
-
                 {customFields.length > 0 && (
-
                     <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-
                         <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Custom Fields</h3>
-
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
                             {customFields.map(field => (
-
                                 <div key={field.id}>
-
                                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-
                                         {field.field_label}
-
                                         {field.is_required && <span className="text-red-500 ml-1">*</span>}
-
                                     </label>
-
                                     <input
-
                                         type="text"
-
                                         value={formData.custom_fields?.[field.field_name] || ''}
-
                                         onChange={(e) => handleCustomFieldChange(field.field_name, e.target.value)}
-
-                                        readOnly={isView}
-
+                                        readOnly={isFieldsDisabled}
                                         required={field.is_required}
-
                                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-
                                         placeholder={`Enter ${field.field_label}`}
-
                                     />
-
                                 </div>
-
                             ))}
-
                         </div>
-
                     </div>
-
                 )}
 
-                
-
                 {!isView && (
-
                     <div className="mt-6 flex justify-end space-x-3">
-
                         <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500">Cancel</button>
-
-                        <button type="submit" disabled={isSaving} className="flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed min-w-[5rem]">
+                        <button type="submit" disabled={isSaving || isReadOnly} className="flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400 disabled:cursor-not-allowed min-w-[5rem] disabled:opacity-50">
 
                             {isSaving ? (
 
@@ -967,7 +863,8 @@ type ModalState = { type: 'add' | 'edit' | 'view' | 'delete' | 'import' | 'mappi
 
 
 
-export const CapabilityRegisterView: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
+export const CapabilityRegisterView: React.FC<{ isActive?: boolean, userRole?: UserRole | null }> = ({ isActive = true, userRole }) => {
+    const isReadOnly = userRole === 'read-only';
 
     const [capabilities, setCapabilities] = useState<Capability[]>([]);
 
@@ -1596,28 +1493,32 @@ const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded
 
                     <input type="file" accept=".csv" ref={fileInputRef} onChange={(e) => handleImportCSV(e)} className="hidden" />
 
-                    <button onClick={() => setShowAIChat(true)} title="AI Assistant" className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
+                    <button
+                        onClick={() => setShowAIChat(true)}
+                        disabled={isReadOnly}
+                        title="AI Assistant"
+                        className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <BotIcon className="h-5 w-5" />
-
                     </button>
-
-                    <button onClick={() => fileInputRef.current?.click()} title="Import CSV" className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isReadOnly}
+                        title="Import CSV"
+                        className="p-2 text-gray-400 hover:text-green-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <UploadIcon className="h-5 w-5" />
-
                     </button>
-
                     <button onClick={handleExportCSV} title="Export CSV" className="p-2 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
                         <DownloadIcon className="h-5 w-5" />
-
                     </button>
-
-                    <button onClick={() => setModalState({ type: 'add' })} title="Add Capability" className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md">
-
+                    <button
+                        onClick={() => setModalState({ type: 'add' })}
+                        disabled={isReadOnly}
+                        title="Add Capability"
+                        className="p-2 text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                         <PlusIcon className="h-5 w-5" />
-
                     </button>
 
                 </div>
@@ -1654,14 +1555,15 @@ const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded
 
                                     />
 
-                                    <button onClick={() => setShowColumnManagement(true)} title="Manage Columns" className="ml-2 p-1 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
-
+                                    <button
+                                        onClick={() => setShowColumnManagement(true)}
+                                        disabled={isReadOnly}
+                                        title="Manage Columns"
+                                        className="ml-2 p-1 text-gray-400 hover:text-purple-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
                                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-
                                         </svg>
-
                                     </button>
 
                                 </th>
@@ -2014,29 +1916,18 @@ const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded
             {/* Add / Edit / View Modal */}
 
             <CapabilityModal
-
                 isOpen={modalState.type === 'add' || modalState.type === 'edit' || modalState.type === 'view'}
-
                 onClose={closeModal}
-
                 onSave={handleSave}
-
                 capabilityToEdit={modalState.item ?? null}
-
                 mode={modalState.type as 'add' | 'edit' | 'view'}
-
                 contacts={orgContacts}
-
                 assets={orgAssets}
-
                 onContactCreated={c => setOrgContacts(prev => [...prev, c])}
-
                 onEdit={() => setModalState({ type: 'edit', item: modalState.item })}
-
                 onDelete={() => { setError(null); setModalState({ type: 'delete', item: modalState.item }); }}
-
                 customFields={customFields}
-
+                isReadOnly={isReadOnly}
             />
 
 
@@ -2158,33 +2049,20 @@ const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded
             {/* Selection Action Bar */}
 
             {bulkProgress.status === 'idle' && (
-
                 <SelectionActionBar
-
                     selectedCount={selectedIds.size}
-
                     isEditing={isEditing}
-
                     isConfirmingDelete={isConfirmingDelete}
-
                     isSaving={isSaving}
-
                     onEdit={() => startEdit(filteredAndSorted.filter(i => selectedIds.has(i.id)), i => i.id)}
-
                     onSaveAll={handleSaveAll}
-
                     onCancelEdit={cancelEdit}
-
                     onDelete={() => setIsConfirmingDelete(true)}
-
                     onConfirmDelete={handleBulkDelete}
-
                     onCancelDelete={() => setIsConfirmingDelete(false)}
-
                     onClear={clearAll}
-
+                    disabled={isReadOnly}
                 />
-
             )}
 
 
@@ -2279,6 +2157,7 @@ const editInputCls = "w-full border border-blue-300 dark:border-blue-600 rounded
                     onConfirmDelete={handleBulkDelete}
                     onCancelDelete={() => setIsConfirmingDelete(false)}
                     onClear={clearAll}
+                    disabled={isReadOnly}
                 />
             )}
 

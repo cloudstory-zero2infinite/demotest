@@ -103,6 +103,108 @@ def build_drafter_prompt(
     )
 
 
+DOCLANG_DRAFTER_SYSTEM_PROMPT = """You are a senior GRC policy author. Produce a complete,
+well-structured policy document tailored to the organisation described
+in ORG MEMORY in the structured DocLang JSON format. Follow these rules strictly:
+
+1. Output must be a SINGLE valid JSON object conforming to the DocLang schema. No markdown formatting outside the JSON, no preamble, no backticks (like ```json).
+2. The JSON schema must strictly contain:
+   {
+     "document_type": "policy",
+     "document_id": "%DOCUMENT_ID%",
+     "title": "%POLICY_TYPE%",
+     "version": "1.0",
+     "status": "Draft",
+     "metadata": {
+       "owner_name": "",
+       "refresh_date": ""
+     },
+     "approval_matrix": [],
+     "revision_history": [],
+     "references": [],
+     "applicability": [],
+     "sections": [
+       {
+         "id": "unique_section_id",
+         "title": "Section Title",
+         "content": "Section content in markdown format..."
+       }
+     ],
+     "tables": [],
+     "images": [],
+     "signatures": [],
+     "attachments": []
+   }
+3. Make every section SPECIFIC to the organisation named "%ORG_NAME%". Replace any reference to "Simplify3x" or similar template names with "%ORG_NAME%". Never leave placeholders like "[Company Name]" or "[insert location]". If you don't know a fact, omit the sentence rather than inventing it.
+4. For references to the policy name throughout the document, use "%POLICY_TYPE%" (the requested policy title).
+"""
+
+
+DOCLANG_SECTION_EDIT_SYSTEM_PROMPT = """You are a senior GRC policy editor. Your task is to update or regenerate a specific section or property of a policy document described in DocLang JSON.
+
+You are given:
+- The full current policy in DocLang JSON format.
+- The target section ID or property path (e.g. "sections.purpose" or "metadata.owner_name") to modify.
+- The user's editing instruction (e.g. "Regenerate only Scope", "Add ISO 27001 references").
+- The authoritative facts about the organisation in ORG MEMORY.
+
+Follow these rules strictly:
+1. Output the modified DocLang JSON object representing the ENTIRE updated document.
+2. Only modify the node requested. Keep all other sections/nodes exactly the same.
+3. Output MUST be a SINGLE valid JSON object conforming to the DocLang schema. No preamble, no backticks, no markdown wrapping.
+"""
+
+
+def build_doclang_drafter_prompt(
+    policy_type: str,
+    user_prompt: str,
+    org_memory: str,
+    chunks: list[dict],
+    org_name: str,
+    document_id: str,
+) -> str:
+    refs = []
+    for i, c in enumerate(chunks, 1):
+        refs.append(
+            f"[{i}] file={c.get('source_file')} section={c.get('section') or '-'}\n"
+            f"{c.get('chunk_text')}"
+        )
+    refs_block = "\n\n".join(refs) if refs else "(no reference excerpts found)"
+
+    sys_prompt = DOCLANG_DRAFTER_SYSTEM_PROMPT.replace("%ORG_NAME%", org_name).replace("%POLICY_TYPE%", policy_type).replace("%DOCUMENT_ID%", document_id)
+
+    return (
+        f"{sys_prompt}\n\n"
+        f"POLICY TYPE: {policy_type}\n\n"
+        f"DOCUMENT ID: {document_id}\n\n"
+        f"TARGET ORGANISATION NAME: {org_name}\n\n"
+        f"ORG MEMORY (authoritative facts about this organisation):\n"
+        f"---\n{org_memory or '(empty)'}\n---\n\n"
+        f"REFERENCE EXCERPTS (top matches from the policy knowledge base):\n"
+        f"---\n{refs_block}\n---\n\n"
+        f"USER REQUEST: {user_prompt}\n\n"
+        f"Now produce the DocLang JSON document."
+    )
+
+
+def build_doclang_edit_prompt(
+    current_doclang_json: str,
+    target_node: str,
+    instruction: str,
+    org_memory: str,
+) -> str:
+    return (
+        f"{DOCLANG_SECTION_EDIT_SYSTEM_PROMPT}\n\n"
+        f"CURRENT POLICY DOCLANG JSON:\n"
+        f"---\n{current_doclang_json}\n---\n\n"
+        f"TARGET NODE: {target_node}\n\n"
+        f"EDITING INSTRUCTION: {instruction}\n\n"
+        f"ORG MEMORY (authoritative facts about this organisation):\n"
+        f"---\n{org_memory or '(empty)'}\n---\n\n"
+        f"Now produce the updated DocLang JSON document."
+    )
+
+    
 def build_info_checker_prompt(policy_family: str, org_memory: str) -> tuple[str, list[str]]:
     required = POLICY_REQUIREMENTS.get(policy_family, POLICY_REQUIREMENTS["generic"])
     req_lines = "\n".join(

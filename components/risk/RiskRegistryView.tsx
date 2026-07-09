@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 
 import * as SupabaseService from '../../services/supabase';
-import { RiskRegisterEntry, RiskLevel, ManualRiskInput } from '../../types';
+import { RiskRegisterEntry, RiskLevel, ManualRiskInput, UserRole } from '../../types';
 import { ArrowPathIcon, ExclamationTriangleIcon, BotIcon, PlusIcon, PencilIcon, TrashIcon, XIcon } from '../Icons';
 
 const LEVELS: RiskLevel[] = ['Critical', 'High', 'Medium', 'Low'];
@@ -39,9 +39,11 @@ const EMPTY_FORM: ManualRiskInput = {
 
 interface Props {
   isActive?: boolean;
+  userRole?: UserRole | null;
 }
 
-export const RiskRegistryView: React.FC<Props> = ({ isActive = true }) => {
+export const RiskRegistryView: React.FC<Props> = ({ isActive = true, userRole }) => {
+  const isReadOnly = userRole === 'read-only';
   const [register, setRegister] = useState<RiskRegisterEntry[]>([]);
   const [computedAt, setComputedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -179,14 +181,15 @@ export const RiskRegistryView: React.FC<Props> = ({ isActive = true }) => {
         <div className="flex gap-2">
           <button
             onClick={openAdd}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
+            disabled={isReadOnly}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <PlusIcon className="w-4 h-4" /> Add Risk
           </button>
           <button
             onClick={compute}
-            disabled={computing}
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+            disabled={computing || isReadOnly}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {computing ? <BotIcon className="w-4 h-4 animate-pulse" /> : <ArrowPathIcon className="w-4 h-4" />}
             {computing ? 'Computing…' : 'Compute Risk'}
@@ -298,10 +301,20 @@ export const RiskRegistryView: React.FC<Props> = ({ isActive = true }) => {
                         <td className="px-3 py-2 whitespace-nowrap text-right">
                           {manual && (
                             <div className="flex gap-1 justify-end">
-                              <button onClick={() => openEdit(r)} title="Edit" className="p-1 text-gray-400 hover:text-blue-600">
+                              <button
+                                onClick={() => openEdit(r)}
+                                disabled={isReadOnly}
+                                title="Edit"
+                                className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
                                 <PencilIcon className="w-4 h-4" />
                               </button>
-                              <button onClick={() => deleteManual(r)} title="Delete" className="p-1 text-gray-400 hover:text-red-600">
+                              <button
+                                onClick={() => deleteManual(r)}
+                                disabled={isReadOnly}
+                                title="Delete"
+                                className="p-1 text-gray-400 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
                                 <TrashIcon className="w-4 h-4" />
                               </button>
                             </div>
@@ -335,7 +348,8 @@ export const RiskRegistryView: React.FC<Props> = ({ isActive = true }) => {
                 <input
                   value={form.risk_name}
                   onChange={(e) => field('risk_name', e.target.value)}
-                  className="w-full text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2"
+                  readOnly={isReadOnly}
+                  className="w-full text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                   placeholder="e.g. Unencrypted data flow between services"
                 />
               </div>
@@ -345,7 +359,8 @@ export const RiskRegistryView: React.FC<Props> = ({ isActive = true }) => {
                   <input
                     value={form.risk_grouping}
                     onChange={(e) => field('risk_grouping', e.target.value)}
-                    className="w-full text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2"
+                    readOnly={isReadOnly}
+                    className="w-full text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                     placeholder="e.g. Data Security"
                   />
                 </div>
@@ -354,7 +369,8 @@ export const RiskRegistryView: React.FC<Props> = ({ isActive = true }) => {
                   <input
                     value={form.nist_csf_function}
                     onChange={(e) => field('nist_csf_function', e.target.value)}
-                    className="w-full text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2"
+                    readOnly={isReadOnly}
+                    className="w-full text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                     placeholder="e.g. Protect"
                   />
                 </div>
@@ -364,8 +380,9 @@ export const RiskRegistryView: React.FC<Props> = ({ isActive = true }) => {
                 <textarea
                   value={form.risk_description}
                   onChange={(e) => field('risk_description', e.target.value)}
+                  readOnly={isReadOnly}
                   rows={3}
-                  className="w-full text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2"
+                  className="w-full text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -374,7 +391,8 @@ export const RiskRegistryView: React.FC<Props> = ({ isActive = true }) => {
                   <select
                     value={form.inherent_level}
                     onChange={(e) => field('inherent_level', e.target.value)}
-                    className="w-full text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2"
+                    disabled={isReadOnly}
+                    className="w-full text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {ALL_LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
                   </select>
@@ -384,7 +402,8 @@ export const RiskRegistryView: React.FC<Props> = ({ isActive = true }) => {
                   <select
                     value={form.residual_level}
                     onChange={(e) => field('residual_level', e.target.value)}
-                    className="w-full text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2"
+                    disabled={isReadOnly}
+                    className="w-full text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {ALL_LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
                   </select>
@@ -401,8 +420,8 @@ export const RiskRegistryView: React.FC<Props> = ({ isActive = true }) => {
               </button>
               <button
                 onClick={saveManual}
-                disabled={saving}
-                className="px-4 py-2 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                disabled={saving || isReadOnly}
+                className="px-4 py-2 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {saving ? 'Saving…' : editingId ? 'Save changes' : 'Add risk'}
               </button>

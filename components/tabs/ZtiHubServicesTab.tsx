@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { VulnerabilityAssessmentView } from '../hub/VulnerabilityAssessmentView';
 import { CSPMAssessmentView } from '../hub/CSPMAssessmentView';
+import { UserRole } from '../../types';
 
 type SubTab = 'va' | 'cspm' | 'pentest' | 'code_review';
 
@@ -12,7 +13,7 @@ const ComingSoon: React.FC<{ title: string; blurb: string }> = ({ title, blurb }
   </div>
 );
 
-export const ZtiHubServicesTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
+export const ZtiHubServicesTab: React.FC<{ isActive?: boolean, userRole?: UserRole | null }> = ({ isActive = true, userRole }) => {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('va');
   const [mountedSubTabs, setMountedSubTabs] = useState<Set<SubTab>>(new Set(['va']));
 
@@ -51,12 +52,12 @@ export const ZtiHubServicesTab: React.FC<{ isActive?: boolean }> = ({ isActive =
       <div className="mt-4">
         {mountedSubTabs.has('va') && (
           <div className={activeSubTab === 'va' ? '' : 'hidden'}>
-            <VulnerabilityAssessmentView isActive={isActive && activeSubTab === 'va'} />
+            <VulnerabilityAssessmentView isActive={isActive && activeSubTab === 'va'} userRole={userRole} />
           </div>
         )}
         {mountedSubTabs.has('cspm') && (
           <div className={activeSubTab === 'cspm' ? '' : 'hidden'}>
-            <CSPMAssessmentView isActive={isActive && activeSubTab === 'cspm'} />
+            <CSPMAssessmentView isActive={isActive && activeSubTab === 'cspm'} userRole={userRole} />
           </div>
         )}
         {mountedSubTabs.has('pentest') && (

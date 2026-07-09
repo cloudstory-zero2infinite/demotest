@@ -21,34 +21,24 @@ import { DueDiligenceTPRMView } from '../governance/DueDiligenceTPRMView';
 
 
 
+import { UserRole } from '../../types';
+
 interface GovernanceTabProps {
-
     isActive?: boolean;
-
     externalSubTab?: string | null;
-
     externalOpenItemId?: string | null;
-
     onExternalSubTabConsumed?: () => void;
-
     activeGovernanceSubTab?: 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry' | 'due_diligence' | 'mapper_visualizer';
-
+    userRole: UserRole | null;
 }
 
-
-
 export const GovernanceTab: React.FC<GovernanceTabProps> = ({ 
-
     isActive = true, 
-
     externalSubTab, 
-
     externalOpenItemId, 
-
     onExternalSubTabConsumed,
-
-    activeGovernanceSubTab = 'assets'
-
+    activeGovernanceSubTab = 'assets',
+    userRole
 }) => {
 
     type SubTab = 'controls' | 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry' | 'due_diligence' | 'mapper_visualizer';
@@ -184,7 +174,7 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
 
                 {mountedSubTabs.has('assets') && (
 
-                    <div className={activeSubTab === 'assets' ? '' : 'hidden'}><AssetsView isActive={isActive && activeSubTab === 'assets'} /></div>
+                    <div className={activeSubTab === 'assets' ? '' : 'hidden'}><AssetsView userRole={userRole} isActive={isActive && activeSubTab === 'assets'} /></div>
 
                 )}
 
@@ -192,7 +182,7 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
 
                     <div className={activeSubTab === 'policies' ? '' : 'hidden'}>
 
-                        <PoliciesView isActive={isActive && activeSubTab === 'policies'} autoOpenPolicyId={openPolicyId} onAutoOpenConsumed={() => setOpenPolicyId(null)} />
+                        <PoliciesView userRole={userRole} isActive={isActive && activeSubTab === 'policies'} autoOpenPolicyId={openPolicyId} onAutoOpenConsumed={() => setOpenPolicyId(null)} />
 
                     </div>
 
@@ -200,19 +190,19 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
 
                 {mountedSubTabs.has('vulnerability') && (
 
-                    <div className={activeSubTab === 'vulnerability' ? '' : 'hidden'}><VulnerabilitiesView isActive={isActive && activeSubTab === 'vulnerability'} /></div>
+                    <div className={activeSubTab === 'vulnerability' ? '' : 'hidden'}><VulnerabilitiesView userRole={userRole} isActive={isActive && activeSubTab === 'vulnerability'} /></div>
 
                 )}
 
                 {mountedSubTabs.has('relationships') && (
 
-                    <div className={activeSubTab === 'relationships' ? '' : 'hidden'}><AssetRelationshipsView isActive={isActive && activeSubTab === 'relationships'} /></div>
+                    <div className={activeSubTab === 'relationships' ? '' : 'hidden'}><AssetRelationshipsView userRole={userRole} isActive={isActive && activeSubTab === 'relationships'} /></div>
 
                 )}
 
                 {mountedSubTabs.has('capabilities') && (
 
-                    <div className={activeSubTab === 'capabilities' ? '' : 'hidden'}><CapabilityRegisterView isActive={isActive && activeSubTab === 'capabilities'} /></div>
+                    <div className={activeSubTab === 'capabilities' ? '' : 'hidden'}><CapabilityRegisterView userRole={userRole} isActive={isActive && activeSubTab === 'capabilities'} /></div>
 
                 )}
 
@@ -220,7 +210,7 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
 
                     <div className={activeSubTab === 'control_registry' ? '' : 'hidden'}>
 
-                        <ControlRegistryView isActive={isActive && activeSubTab === 'control_registry'} autoOpenControlId={openControlId} onAutoOpenConsumed={() => setOpenControlId(null)} />
+                        <ControlRegistryView userRole={userRole} isActive={isActive && activeSubTab === 'control_registry'} autoOpenControlId={openControlId} onAutoOpenConsumed={() => setOpenControlId(null)} />
 
                     </div>
 
@@ -230,7 +220,7 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
 
                     <div className={activeSubTab === 'due_diligence' ? '' : 'hidden'}>
 
-                        <DueDiligenceTPRMView isActive={isActive && activeSubTab === 'due_diligence'} />
+                        <DueDiligenceTPRMView userRole={userRole} isActive={isActive && activeSubTab === 'due_diligence'} />
 
                     </div>
 
@@ -241,6 +231,7 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
                     <div className={activeSubTab === 'mapper_visualizer' ? '' : 'hidden'}>
 
                         <MapperVisualizerView
+                            userRole={userRole}
                             isActive={isActive && activeSubTab === 'mapper_visualizer'}
                             focusMasterPolicyId={focusMasterPolicyId}
                             onFocusConsumed={() => setFocusMasterPolicyId(null)}

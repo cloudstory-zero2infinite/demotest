@@ -8,6 +8,12 @@ import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
 import http from 'http';
 import https from 'https';
+import multer from 'multer';
+import mammoth from 'mammoth';
+import { PDFParse } from 'pdf-parse';
+import { convertHtmlToMarkdown } from './policy-templates.js';
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 async function fetchImageBase64(url) {
   if (!url) return '';
@@ -104,26 +110,99 @@ function extractMetadata(markdown) {
     const reviewDateMatch = line.match(/next[_\s-]*review[_\s-]*date[:\s]+(\d{4}-\d{2}-\d{2})/i);
     if (reviewDateMatch) refresh_date = reviewDateMatch[1];
 
-    // Support tables with horizontal headers: | Document ID: ... | Owner: ... |
+      // Support tables with horizontal/vertical headers: | Key | Value |
     if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
       const parts = line.split('|').map(p => p.trim()).filter(Boolean);
+      if (parts.length >= 2) {
+        const key = parts[0].replace(/\*\*/g, '').toLowerCase();
+        const val = parts[1].trim();
+        if (key.includes('document id')) policy_ref = val;
+        if (key.includes('owner')) owner_name = val;
+        if (key.includes('document type')) document_type = val;
+        if (key.includes('version')) version = val;
+      }
       for (const part of parts) {
         const docIdTbl = part.match(/Document\s*ID:\s*(.+)/i);
-        if (docIdTbl) policy_ref = docIdTbl[1].trim();
+        if (docIdTbl) policy_ref = docIdTbl[1].replace(/\*\*/g, '').trim();
 
         const ownerTbl = part.match(/Owner:\s*(.+)/i);
-        if (ownerTbl) owner_name = ownerTbl[1].trim();
+        if (ownerTbl) owner_name = ownerTbl[1].replace(/\*\*/g, '').trim();
 
         const typeTbl = part.match(/Document\s*Type:\s*(.+)/i);
-        if (typeTbl) document_type = typeTbl[1].trim();
+        if (typeTbl) document_type = typeTbl[1].replace(/\*\*/g, '').trim();
 
         const verTbl = part.match(/Version:\s*(.+)/i);
-        if (verTbl) version = verTbl[1].trim();
+        if (verTbl) version = verTbl[1].replace(/\*\*/g, '').trim();
       }
     }
   }
 
+  // Sanity check: clean any lingering double asterisks from matches
+  if (policy_ref) policy_ref = policy_ref.replace(/\*\*/g, '').trim();
+  if (version) version = version.replace(/\*\*/g, '').trim();
+  if (owner_name) owner_name = owner_name.replace(/\*\*/g, '').trim();
+  if (document_type) document_type = document_type.replace(/\*\*/g, '').trim();
+
   return { name, policy_ref, version, owner_name, document_type, refresh_date };
+}
+
+// ── Utility: convert Markdown to DocLang JSON ──────────────────────────────
+export function convertMarkdownToDocLang(markdown, policy) {
+  if (!markdown) return null;
+  const sections = parseMarkdownIntoSections(markdown);
+  const metadata = {
+    owner_name: policy?.owner_name || getDocumentMetadata(markdown, policy).match(/\*\*Owner:\*\*\s*(.+)/i)?.[1]?.trim() || '',
+    refresh_date: policy?.refresh_date || null
+  };
+  
+  const doclangSections = sections.map((s, index) => ({
+    id: s.id || s.cleanTitle.replace(/\s+/g, '_').toLowerCase() || `section_${index}`,
+    title: s.title,
+    content: s.content
+  }));
+
+  return {
+    document_type: policy?.document_type || 'policy',
+    document_id: policy?.policy_id || 'IT-ISMS-POL-001',
+    title: policy?.name || 'Policy Title',
+    version: policy?.version || '1.0',
+    status: policy?.policy_status || 'Draft',
+    metadata: metadata,
+    approval_matrix: getApprovalMatrix(markdown) ? [getApprovalMatrix(markdown)] : [],
+    revision_history: getRevisionHistory(markdown) ? [getRevisionHistory(markdown)] : [],
+    references: getStandardReferences(markdown) ? [getStandardReferences(markdown)] : [],
+    applicability: getApplicability(markdown) ? [getApplicability(markdown)] : [],
+    sections: doclangSections,
+    tables: extractTables(markdown) || [],
+    images: [],
+    signatures: [],
+    attachments: []
+  };
+}
+
+// ── Utility: convert DocLang JSON to Markdown ──────────────────────────────
+export function convertDocLangToMarkdown(dl) {
+  if (!dl) return '';
+  let md = `# ${dl.title || 'Untitled Policy'}\n\n`;
+  
+  if (dl.metadata) {
+    md += `| Metadata | Value |\n| --- | --- |\n`;
+    if (dl.document_id) md += `| **Document ID:** | ${dl.document_id} |\n`;
+    if (dl.metadata.owner_name) md += `| **Owner:** | ${dl.metadata.owner_name} |\n`;
+    if (dl.document_type) md += `| **Document Type:** | ${dl.document_type} |\n`;
+    if (dl.version) md += `| **Version:** | ${dl.version} |\n`;
+    if (dl.status) md += `| **Status:** | ${dl.status} |\n`;
+    if (dl.metadata.refresh_date) md += `| **Next Review Date:** | ${dl.metadata.refresh_date} |\n`;
+    md += `\n`;
+  }
+  
+  if (dl.sections && Array.isArray(dl.sections)) {
+    for (const sec of dl.sections) {
+      md += `## ${sec.title}\n\n${sec.content}\n\n`;
+    }
+  }
+  
+  return md.trim();
 }
 
 // ── Utility: generate sequential human-readable policy ID ──────────────────
@@ -219,11 +298,23 @@ router.get('/', requireAuth, async (req, res) => {
 
     const { data, error } = await supabaseAdmin
       .from('policy_documents')
-      .select('policy_id,name,policy_ref,policy_status,refresh_date,version,document_type,owner_name,is_master,org_id,user_id,created_at,updated_at,markdown')
+      .select('policy_id,name,policy_ref,policy_status,refresh_date,version,document_type,owner_name,is_master,org_id,user_id,created_at,updated_at,markdown,doc_lang')
       .eq('org_id', req.orgId)
       .order('updated_at', { ascending: false });
     if (error) throw error;
-    res.json(data || []);
+    
+        const enriched = (data || []).map(policy => {
+      if (!policy.doc_lang && policy.markdown) {
+        const parsedDocLang = convertMarkdownToDocLang(policy.markdown, policy);
+        if (parsedDocLang) {
+          policy.doc_lang = parsedDocLang;
+          supabaseAdmin.from('policy_documents').update({ doc_lang: parsedDocLang }).eq('policy_id', policy.policy_id).then(() => {});
+        }
+      }
+      return policy;
+    });
+
+    res.json(enriched);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -948,7 +1039,49 @@ router.get('/:id/download', requireAuth, async (req, res) => {
     };
 
     // Pre-replace organization and policy metadata placeholders inside the policy markdown content
-    const policyMarkdown = replacePlaceholders(policy.markdown || '', metadataValues);
+        let policyMarkdown = replacePlaceholders(policy.markdown || '', metadataValues);
+
+    // Resolve DocLang image references for private files in PDF export
+    if (policy.doc_lang?.images && Array.isArray(policy.doc_lang.images)) {
+      const signedUrlsMap = {};
+      for (const img of policy.doc_lang.images) {
+        if (img.file_path) {
+          try {
+            const { data } = await supabaseAdmin.storage
+              .from('policy-images')
+              .createSignedUrl(img.file_path, 3600);
+            if (data?.signedUrl) {
+              signedUrlsMap[img.name] = data.signedUrl;
+              const nameWithoutExt = img.name.replace(/\.[^/.]+$/, "");
+              signedUrlsMap[nameWithoutExt] = data.signedUrl;
+            }
+          } catch (err) {
+            console.error('[PDF Export] Failed to sign image URL:', err);
+          }
+        }
+      }
+
+      // Replace [Image: Name]
+      const imageRegex = /\[Image:\s*(.+?)\]/g;
+      policyMarkdown = policyMarkdown.replace(imageRegex, (match, name) => {
+        const signedUrl = signedUrlsMap[name.trim()];
+        if (signedUrl) {
+          return `<img src="${signedUrl}" alt="${name}" style="margin: 15px 0; max-height: 400px; max-width: 100%; display: block; border-radius: 4px;" />`;
+        }
+        return match;
+      });
+
+      // Replace standard markdown image tags ![Alt](images/filename.png)
+      const markdownImageRegex = /!\[(.*?)\]\((.*?)\)/g;
+      policyMarkdown = policyMarkdown.replace(markdownImageRegex, (match, alt, url) => {
+        const filename = url.split('/').pop() || '';
+        const signedUrl = signedUrlsMap[filename.trim()];
+        if (signedUrl) {
+          return `<img src="${signedUrl}" alt="${alt || filename}" style="margin: 15px 0; max-height: 400px; max-width: 100%; display: block; border-radius: 4px;" />`;
+        }
+        return match;
+      });
+    }
 
     const cleanPolicyMarkdown = selectedTemplateId === 'standard'
       ? stripStandardTemplateElements(policyMarkdown)
@@ -1761,6 +1894,15 @@ router.get('/:id', requireAuth, async (req, res) => {
       .eq('org_id', req.orgId)
       .single();
     if (error) throw error;
+
+    if (data && !data.doc_lang && data.markdown) {
+      const parsedDocLang = convertMarkdownToDocLang(data.markdown, data);
+      if (parsedDocLang) {
+        data.doc_lang = parsedDocLang;
+        supabaseAdmin.from('policy_documents').update({ doc_lang: parsedDocLang }).eq('policy_id', data.policy_id).then(() => {});
+      }
+    }
+
     res.json(data);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -1773,29 +1915,57 @@ router.post('/', requireAuth, async (req, res) => {
     if (!req.orgId) {
       return res.status(400).json({ message: 'No organisation found. Please complete onboarding first.' });
     }
-    const { markdown, policy_status = 'draft' } = req.body;
-    const meta = extractMetadata(markdown);
+    const { markdown, doc_lang, policy_status = 'draft' } = req.body;
     const policyId = await generatePolicyId(req.orgId);
+
+    let finalMarkdown = markdown || '';
+    let finalDocLang = doc_lang || null;
+    const meta = markdown ? extractMetadata(markdown) : {};
+
+    if (doc_lang && !markdown) {
+      finalMarkdown = convertDocLangToMarkdown(doc_lang);
+    } else if (markdown && !doc_lang) {
+      finalDocLang = convertMarkdownToDocLang(markdown, { policy_id: policyId, name: meta.name });
+    }
+
+    const docName = doc_lang?.title || meta.name || 'Untitled Policy';
+    const docRef = doc_lang?.document_id || meta.policy_ref || policyId;
+    const docVersion = doc_lang?.version || meta.version || '1.0';
+    const docType = doc_lang?.document_type || meta.document_type || 'policy';
+    const docOwner = doc_lang?.metadata?.owner_name || meta.owner_name || null;
+    const docRefresh = doc_lang?.metadata?.refresh_date || meta.refresh_date || null;
+
+    if (finalDocLang) {
+      finalDocLang.document_id = docRef;
+      finalDocLang.version = docVersion;
+      finalDocLang.document_type = docType;
+      if (finalDocLang.metadata) {
+        finalDocLang.metadata.owner_name = docOwner;
+      }
+      finalMarkdown = convertDocLangToMarkdown(finalDocLang);
+    }
+
     const actorName = req.user?.email || req.userId;
     const today = new Date().toISOString().split('T')[0];
 
     const payload = {
       policy_id: policyId,
-      name: meta.name || 'Untitled Policy',
-      markdown: markdown || '',
-      policy_ref: meta.policy_ref || null,
+      name: docName,
+      markdown: finalMarkdown,
+      doc_lang: finalDocLang,
+      policy_ref: docRef,
       policy_status,
-      version: meta.version || 'V1.0',
-      document_type: meta.document_type || null,
-      owner_name: meta.owner_name || null,
-      refresh_date: meta.refresh_date || null,
+      version: docVersion,
+      document_type: docType,
+      owner_name: docOwner,
+      refresh_date: docRefresh,
       user_id: req.userId,
       org_id: req.orgId,
       document_content: 0,
       grc_contact: '',
       policy_reviewer_contact: '',
       published_date: today,
-      next_review_date: meta.refresh_date || today,
+      next_review_date: docRefresh || today,
       status: 0,
     };
 
@@ -1810,7 +1980,7 @@ router.post('/', requireAuth, async (req, res) => {
       action: 'policy_created',
       module: 'Policy',
       entity_id: policyId,
-      entity_name: meta.name || 'Untitled Policy',
+      entity_name: docName,
       user_id: req.userId,
       org_id: req.orgId,
       severity: 'info',
@@ -1831,8 +2001,15 @@ router.post('/', requireAuth, async (req, res) => {
 // ── PUT /:id  ─ update policy ─────────────────────────────────────────────
 router.put('/:id', requireAuth, async (req, res) => {
   try {
-    const { markdown, policy_status } = req.body;
-    const meta = markdown !== undefined ? extractMetadata(markdown) : {};
+    const { markdown, doc_lang, policy_status } = req.body;
+    let finalMarkdown = markdown;
+    let finalDocLang = doc_lang;
+
+    if (doc_lang !== undefined) {
+      finalMarkdown = convertDocLangToMarkdown(doc_lang);
+    }
+
+    const meta = finalMarkdown !== undefined ? extractMetadata(finalMarkdown) : {};
     const actorName = req.user?.email || req.userId;
 
     const { data: current, error: currentError } = await supabaseAdmin
@@ -1847,18 +2024,20 @@ router.put('/:id', requireAuth, async (req, res) => {
     }
 
     const updatePayload = {
-      ...(markdown !== undefined ? {
-        markdown,
-        name: meta.name || current?.name || 'Untitled Policy',
-        policy_ref: meta.policy_ref || null,
-        version: meta.version || 'V1.0',
-        document_type: meta.document_type || null,
-        owner_name: meta.owner_name || null,
+      ...(finalMarkdown !== undefined || finalDocLang !== undefined ? {
+        markdown: finalMarkdown,
+        doc_lang: finalDocLang,
+        name: doc_lang?.title || meta.name || current?.name || 'Untitled Policy',
+        policy_ref: doc_lang?.document_id || meta.policy_ref || null,
+        version: doc_lang?.version || meta.version || 'V1.0',
+        document_type: doc_lang?.document_type || meta.document_type || null,
+        owner_name: doc_lang?.metadata?.owner_name || meta.owner_name || null,
+
         // NOTE: refresh_date (the renewal/due date) is intentionally NOT set here.
         // It is owned solely by the approval flow (POST /:id/approve) — editing a
         // policy must never create or change a due date. next_review_date is kept
         // for display only and must not feed refresh_date.
-        next_review_date: meta.refresh_date || current?.next_review_date || new Date().toISOString().split('T')[0],
+        next_review_date: doc_lang?.metadata?.refresh_date || meta.refresh_date || current?.next_review_date || new Date().toISOString().split('T')[0],
       } : {}),
       ...(policy_status ? { policy_status } : {}),
       updated_at: new Date().toISOString(),
@@ -2346,6 +2525,48 @@ router.post('/:id/reject', requireAuth, async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// POST /api/policies/parse-file — parse PDF, DOCX, or Markdown document files and return extracted text
+router.post('/parse-file', requireAuth, upload.single('file'), async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ message: 'No file was uploaded.' });
+    }
+
+    const fileExt = (file.originalname.split('.').pop() || '').toLowerCase();
+    let textContent = '';
+
+    if (fileExt === 'md' || fileExt === 'markdown' || fileExt === 'txt') {
+      textContent = file.buffer.toString('utf8');
+    } else if (fileExt === 'docx') {
+      try {
+        const result = await mammoth.convertToHtml({ buffer: file.buffer });
+        const html = result.value || '';
+        textContent = convertHtmlToMarkdown(html);
+      } catch (parseErr) {
+        console.error('[policies/parse-file] Mammoth DOCX conversion error:', parseErr);
+        return res.status(400).json({ message: `Failed to parse DOCX file: ${parseErr.message}` });
+      }
+    } else if (fileExt === 'pdf') {
+      try {
+        const parser = new PDFParse({ data: file.buffer });
+        const parsed = await parser.getText();
+        textContent = parsed.text || '';
+      } catch (parseErr) {
+        console.error('[policies/parse-file] pdf-parse conversion error:', parseErr);
+        return res.status(400).json({ message: `Failed to parse PDF file: ${parseErr.message}` });
+      }
+    } else {
+      return res.status(400).json({ message: `Unsupported file type: .${fileExt}. Supported formats are .md, .pdf, .docx, and .txt` });
+    }
+
+    res.json({ text: textContent });
+  } catch (err) {
+    console.error('[policies/parse-file] Catch-all error:', err);
     res.status(500).json({ message: err.message });
   }
 });
