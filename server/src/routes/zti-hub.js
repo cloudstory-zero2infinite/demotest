@@ -14,7 +14,7 @@ function isOnline(lastBeaconAt) {
   return Date.now() - new Date(lastBeaconAt).getTime() < ONLINE_WINDOW_MS;
 }
 
-const SOURCE_ORDER = ['AD', 'OpenVAS', 'GCP', 'Prowler'];
+const SOURCE_ORDER = ['AD', 'OpenVAS', 'Wazuh', 'GCP', 'Prowler'];
 
 async function sourcesForDevices(orgId, devices) {
   const sourceMap = new Map(devices.map((d) => [d.id, new Set()]));
@@ -44,7 +44,13 @@ async function sourcesForDevices(orgId, devices) {
   }
   for (const j of vulnJobs || []) {
     if (!j.device_id) continue;
-    sourceMap.get(j.device_id)?.add(j.scanner === 'ad' ? 'AD' : 'OpenVAS');
+    if (j.scanner === 'ad') {
+      sourceMap.get(j.device_id)?.add('AD');
+    } else if (j.scanner === 'wazuh') {
+      sourceMap.get(j.device_id)?.add('Wazuh');
+    } else {
+      sourceMap.get(j.device_id)?.add('OpenVAS');
+    }
   }
 
   return sourceMap;

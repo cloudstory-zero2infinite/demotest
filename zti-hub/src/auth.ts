@@ -4,12 +4,12 @@ import { HubApi } from './api.js';
 import { ask } from './prompt.js';
 
 function openBrowser(url: string): void {
-  const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-  try {
-    spawn(cmd, [url], { stdio: 'ignore', detached: true }).unref();
-  } catch {
-    /* user can open manually */
-  }
+  const child = process.platform === 'win32'
+    // `start` is a cmd builtin on Windows, not an executable.
+    ? spawn('cmd', ['/c', 'start', '', url], { stdio: 'ignore', detached: true, windowsHide: true })
+    : spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [url], { stdio: 'ignore', detached: true });
+  child.on('error', () => { /* user can open manually */ });
+  child.unref();
 }
 
 export async function authenticate(): Promise<void> {
@@ -25,10 +25,12 @@ export async function authenticate(): Promise<void> {
 
   console.log('\nOpening the app so you can generate a device token:');
   console.log(`  1. Sign in at ${cfg.appUrl}`);
-  console.log('  2. Go to  Governance → Control Registry');
-  console.log('  3. Click the  Hub connect (＋)  button in the toolbar');
+  console.log('  2. Click  Hub online/offline  in the top header (or Profile → ZTI Hub CLI token)');
+  console.log('  3. Choose  Generate device token');
   console.log('  4. Copy the device token it shows (shown once)\n');
-  openBrowser(cfg.appUrl);
+  const connectUrl = new URL(cfg.appUrl);
+  connectUrl.searchParams.set('hubConnect', '1');
+  openBrowser(connectUrl.toString());
 
   const token = await ask('Paste your device token');
   if (!token || !token.startsWith('zti_')) {

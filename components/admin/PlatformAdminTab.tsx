@@ -725,7 +725,7 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                     <div className="px-6 py-10 text-center text-gray-400 text-sm">Loading devices…</div>
                 ) : hubDevices.length === 0 ? (
                     <div className="px-6 py-10 text-center text-gray-400 text-sm">
-                        No hub devices yet. Generate a token from Governance → Control Registry, then run <span className="font-mono">zti authenticate</span>.
+                        No hub devices yet. Generate a token from the header <span className="font-mono">Hub</span> menu (or Profile → ZTI Hub CLI token), then run <span className="font-mono">zti authenticate</span>.
                     </div>
                 ) : (
                     <div className="overflow-auto max-h-[360px]">
