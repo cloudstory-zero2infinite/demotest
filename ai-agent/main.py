@@ -51,10 +51,16 @@ MODULE_TABLE_MAP = {
     "vulnerabilities": "vulnerability_management",
     "policies": "policy_documents",
     "capabilities": "capability_register",
+    "program": "program",
 }
 
-# Columns managed by the system — exclude from AI generation
-EXCLUDED_COLUMNS = {"id", "created_at", "updated_at", "org_id", "user_id", "owner_id", "asset_id", "capab_id"}
+# Columns managed by the system — exclude from AI generation.
+# task_code / parent_id / last_updated are server-managed on the `program` table
+# (only that table has them, so listing them here is a no-op for other modules).
+EXCLUDED_COLUMNS = {
+    "id", "created_at", "updated_at", "org_id", "user_id", "owner_id", "asset_id", "capab_id",
+    "task_code", "parent_id", "last_updated",
+}
 
 MODULE_SYSTEM_PROMPTS = {
     "assets": (
@@ -138,6 +144,23 @@ MODULE_SYSTEM_PROMPTS = {
         "- capab_cmdb_id: a JSON array of CMDB reference IDs (e.g. [\"cmdb-001\", \"cmdb-003\"]) — REQUIRED, must be a JSON array of strings\n"
         "- capab_owner: the person or team responsible for this capability — REQUIRED\n"
         "- capab_other_details: additional notes, scope, maturity level, or description (optional, can be null)\n"
+        "- Return ONLY a valid JSON array, no markdown, no explanation"
+    ),
+    "program": (
+        "You are a GRC data assistant. Convert natural language descriptions into program tracker "
+        "task records for a Governance, Risk & Compliance platform.\n\n"
+        "Rules:\n"
+        "- DO NOT include task_code, parent_id, id, or last_updated — they are managed by the system\n"
+        "- program_name: short descriptive task name (e.g. 'Roll out MFA', 'Complete ISO 27001 gap assessment') — REQUIRED\n"
+        "- description: detailed description of what the task involves — REQUIRED\n"
+        "- assignee: the person or team responsible for the task (name or email)\n"
+        "- month: the target month for the task (e.g. 'January', 'Feb 2026') — infer from context if a timeframe is mentioned\n"
+        "- due_date: target completion date in YYYY-MM-DD format, otherwise null\n"
+        "- progress_percent: integer 0-100 indicating completion (default 0)\n"
+        "- status: must be exactly one of: Planned, InProgress, Completed, Blocked, Escalated "
+        "(infer from context; if progress is 0 use Planned, if 100 use Completed, otherwise InProgress "
+        "unless the task is clearly blocked or escalated)\n"
+        "- comments: optional free-text notes, otherwise null\n"
         "- Return ONLY a valid JSON array, no markdown, no explanation"
     ),
 }
