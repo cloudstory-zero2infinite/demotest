@@ -33,11 +33,13 @@ interface HeaderProps {
     openFeedback: () => void;
     onNavigate?: (tab: string, subTab?: string, itemId?: string) => void;
     onDeleteAccount?: () => Promise<void>;
+     /** Called when the mobile hamburger button is tapped to open/close the sidebar */
+    onSidebarToggle?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
     userRole, setUserRole, isDarkMode, toggleDarkMode,
-    onSignOut, userName, userEmail, userPhotoUrl, orgName, isAbcNews, openFeedback, onNavigate, onDeleteAccount
+    onSignOut, userName, userEmail, userPhotoUrl, orgName, isAbcNews, openFeedback, onNavigate, onDeleteAccount, onSidebarToggle
 }) => {
     // ─── ZTI Hub connectivity + device token (org-wide CLI auth) ───
     const [hubStatus, setHubStatus] = useState<ZtiHubStatus>({ active: false });

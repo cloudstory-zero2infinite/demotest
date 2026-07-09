@@ -129,6 +129,15 @@ router.post('/devices', requireAuth, async (req, res) => {
       .single();
     if (error) throw error;
     // Raw token is returned exactly once; only its hash is persisted.
+    supabaseAdmin.from('all_activity_log').insert({
+      org_id: req.orgId,
+      user_id: req.userId,
+      module: 'ZTI Hub',
+      action: 'Generate token',
+      entity_id: data.id,
+      entity_name: deviceName,
+      severity: 'info'
+    }).then(() => {}).catch(err => console.error('Error logging to all_activity_log:', err));
     res.status(201).json({ device: data, token: rawToken });
   } catch (err) {
     console.error('[zti-hub] device register error:', err);

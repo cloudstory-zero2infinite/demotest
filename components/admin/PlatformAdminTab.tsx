@@ -11,30 +11,54 @@ import { parseCSVLine } from '../../utils/csvParser';
 
 // ─── Status badge ────────────────────────────────────────────────────────────
 
-const StatusBadge: React.FC<{ member: any }> = ({ member }) => {
-    if (member.status === 'pending_approval') {
+const OnlineStatusBadge: React.FC<{ member: any }> = ({ member }) => {
+    const ONLINE_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+    
+    if (!member.last_seen) {
         return (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
-                Pending Approval
+           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-gray-400 inline-block" />
+                Never
             </span>
         );
     }
-    if (!member.user_id) {
+    const lastSeenTime = new Date(member.last_seen).getTime();
+    const isOnline = Date.now() - lastSeenTime < ONLINE_WINDOW_MS;
+    const timeAgo = getTimeAgo(member.last_seen);
+    
+    if (isOnline) {
         return (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300">
-                <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 inline-block" />
-                Pending Signup
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block animate-pulse" />
+                Online
             </span>
         );
     }
     return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
-            Active
+         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+            <span className="w-1.5 h-1.5 rounded-full bg-gray-400 inline-block" />
+            {timeAgo}
         </span>
     );
 };
+
+function getTimeAgo(dateString: string): string {
+    const now = Date.now();
+    const then = new Date(dateString).getTime();
+    const diffMs = now - then;
+    
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffMins < 60) {
+        return `${diffMins}m ago`;
+    } else if (diffHours < 24) {
+        return `${diffHours}h ago`;
+    } else {
+        return `${diffDays}d ago`;
+    }
+}
 
 const RoleBadge: React.FC<{ role: string }> = ({ role }) => {
     const map: Record<string, string> = {
@@ -452,7 +476,7 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                                     <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Email</th>
                                     <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Role</th>
                                     <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Status</th>
-                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Added</th>
+                                    <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Add</th>
                                     {!readOnly && (
                                         <th className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">Actions</th>
                                     )}
@@ -503,7 +527,7 @@ export const PlatformAdminTab: React.FC<{ isActive?: boolean; readOnly?: boolean
                                                 )}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
-                                                <StatusBadge member={member} />
+                                                <OnlineStatusBadge member={member} />
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
                                                 {member.created_at ? new Date(member.created_at).toLocaleDateString() : '—'}

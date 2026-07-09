@@ -44,6 +44,15 @@ router.post('/', requireAuth, async (req, res) => {
       .select(COLS)
       .single();
     if (error) throw error;
+    supabaseAdmin.from('all_activity_log').insert({
+      org_id: req.orgId,
+      user_id: req.userId,
+      module: 'Email Templates',
+      action: 'Create template',
+      entity_id: data.id,
+      entity_name: data.name,
+      severity: 'info'
+    }).then(() => {}).catch(err => console.error('Error logging to all_activity_log:', err));
     res.json(data);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -74,6 +83,15 @@ router.put('/:id', requireAuth, async (req, res) => {
       .single();
     if (error) throw error;
     if (!data) return res.status(404).json({ message: 'Template not found' });
+    supabaseAdmin.from('all_activity_log').insert({
+      org_id: req.orgId,
+      user_id: req.userId,
+      module: 'Email Templates',
+      action: 'Update template',
+      entity_id: data.id,
+      entity_name: data.name,
+      severity: 'info'
+    }).then(() => {}).catch(err => console.error('Error logging to all_activity_log:', err));
     res.json(data);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -94,6 +112,15 @@ router.delete('/:id', requireAuth, async (req, res) => {
       .eq('id', req.params.id)
       .eq('org_id', req.orgId);
     if (error) throw error;
+    supabaseAdmin.from('all_activity_log').insert({
+      org_id: req.orgId,
+      user_id: req.userId,
+      module: 'Email Templates',
+      action: 'Delete template',
+      entity_id: req.params.id,
+      entity_name: `Template ID: ${req.params.id}`,
+      severity: 'warning'
+    }).then(() => {}).catch(err => console.error('Error logging to all_activity_log:', err));
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ message: err.message });
