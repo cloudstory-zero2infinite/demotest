@@ -51,7 +51,14 @@ export const handleDemoRequest = async <T>(path: string, options: RequestInit = 
 
   // ─── Org / users / settings ────────────────────────────────────────────────
   if (path === '/api/org/me') return SEED_ORG_ME as T;
-  if (path === '/api/org/users') return SEED_ORG_USERS as T;
+  if (path === '/api/org/users') {
+    // Enrich demo users with last_seen for online/offline status
+    const enrichedUsers = SEED_ORG_USERS.map((user, i) => ({
+      ...user,
+      last_seen: i === 0 ? NOW() : NOW(-i * 30), // Demo: current user online, others offline
+    }));
+    return enrichedUsers as T;
+  }
   if (path === '/api/org/notifications') return store.orgNotifications as T;
   if (path === '/api/org/notifications/read-all' && method === 'PUT') {
     store.orgNotifications.forEach(n => (n.read = true));

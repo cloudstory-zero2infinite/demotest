@@ -68,8 +68,25 @@ router.get('/users', requireAuth, async (req, res) => {
       .select('*')
       .eq('org_id', req.orgId)
       .order('created_at', { ascending: false });
+    
     if (error) throw error;
-    res.json(data || []);
+    
+    // Enrich with auth.users last_sign_in_at for online/offline status
+    const enrichedData = await Promise.all((data || []).map(async (member) => {
+      if (!member.user_id) return { ...member, last_seen: null };
+      
+      try {
+        const { data: userData } = await supabaseAdmin.auth.admin.getUserById(member.user_id);
+        return { 
+          ...member, 
+          last_seen: userData?.user?.last_sign_in_at || null 
+        };
+      } catch {
+        return { ...member, last_seen: null };
+      }
+    }));
+    
+    res.json(enrichedData);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -207,6 +224,15 @@ router.post('/onboard', requireAuth, async (req, res) => {
       .select()
       .single();
     if (error) throw error;
+    supabaseAdmin.from('all_activity_log').insert({
+      org_id: orgId,
+      user_id: req.userId,
+      module: 'Organization',
+      action: 'Add member',
+      entity_name: email,
+      severity: 'info',
+      event_data: { role }
+    }).then(() => {}).catch(err => console.error('Error logging to all_activity_log:', err));
     res.status(201).json(data);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -578,7 +604,14 @@ router.delete('/remove-member/:id', requireAuth, async (req, res) => {
       .eq('id', id)
       .eq('org_id', req.orgId);
     if (error) throw error;
-
+    supabaseAdmin.from('all_activity_log').insert({
+      org_id: req.orgId,
+      user_id: req.userId,
+      module: 'Organization',
+      action: 'Remove member',
+      entity_name: `Member ID: ${id}`,
+      severity: 'warning'
+    }).then(() => {}).catch(err => console.error('Error logging to all_activity_log:', err));
     res.status(204).send();
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -623,6 +656,15 @@ router.put('/update-role/:id', requireAuth, async (req, res) => {
       .single();
 
     if (error) throw error;
+    supabaseAdmin.from('all_activity_log').insert({
+      org_id: req.orgId,
+      user_id: req.userId,
+      module: 'Organization',
+      action: 'Update member role',
+      entity_name: `Member ID: ${id}`,
+      severity: 'info',
+      event_data: { role }
+    }).then(() => {}).catch(err => console.error('Error logging to all_activity_log:', err));
     res.json(data);
   } catch (err) {
     res.status(500).json({ message: err.message });

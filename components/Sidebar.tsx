@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 
 
@@ -148,6 +148,34 @@ const MenuIcon = () => (
 
 );
 
+const CloseIcon = () => (
+
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+
+    </svg>
+
+);
+
+
+
+// ─── Hook: detect mobile (< 1024px) ──────────────────────────────────────────
+function useIsMobile(): boolean {
+    const [isMobile, setIsMobile] = useState(() =>
+        typeof window !== 'undefined' ? window.innerWidth < 1024 : false
+    );
+
+    useEffect(() => {
+        const mq = window.matchMedia('(max-width: 1023px)');
+        const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+        mq.addEventListener('change', handler);
+        return () => mq.removeEventListener('change', handler);
+    }, []);
+
+    return isMobile;
+}
+
 
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
@@ -161,6 +189,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
 
     const [expandedItems, setExpandedItems] = useState<Set<MainTab>>(new Set());
+    const isMobile = useIsMobile();
+
+    // On mobile, close sidebar when navigating to a new tab
+    const handleMobileClose = () => {
+        if (isMobile && isOpen) onToggle();
+    };
 
 
 
@@ -172,11 +206,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         { id: 'program', label: 'Program', icon: <ProgramIcon /> },
 
-        { 
+        {
 
-            id: 'governance', 
+            id: 'governance',
 
-            label: 'Governance', 
+            label: 'Governance',
 
             icon: <GovernanceIcon />
 
@@ -198,8 +232,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         if (item.children) {
 
-            // Toggle expansion for items with children
-
             setExpandedItems(prev => {
 
                 const next = new Set(prev);
@@ -218,8 +250,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             });
 
-            // Navigate to the main tab and default to 'assets' if not already active
-
             if (activeTab !== item.id) {
 
                 onNavigate(item.id, 'assets');
@@ -229,6 +259,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         } else {
 
             onNavigate(item.id);
+            handleMobileClose();
 
         }
 
@@ -239,6 +270,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const handleSubItemClick = (parentId: MainTab, subId: GovernanceSubTab) => {
 
         onNavigate(parentId, subId);
+        handleMobileClose();
 
     };
 
@@ -246,31 +278,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     const isItemActive = (item: NavItem) => activeTab === item.id;
 
-    const isSubItemActive = (parentId: MainTab, subId: GovernanceSubTab) => 
+    const isSubItemActive = (parentId: MainTab, subId: GovernanceSubTab) =>
 
         activeTab === parentId && activeGovernanceSubTab === subId;
 
-
-
-    return (
-
-        <aside
-
-            className={`
-
-                flex flex-col bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700
-
-                transition-all duration-200 ease-in-out flex-shrink-0
-
-                ${isOpen ? 'w-56' : 'w-16'}
-
-            `}
-
-            style={{ height: 'calc(100vh - 64px)' }}
-
-        >
-
-            {/* Toggle button */}
+    // On mobile: sidebar is a fixed drawer overlay
+    // On desktop: sidebar is a regular aside in the flex layout
+    const sidebarContent = (
+        <>
+            {/* Toggle / Close button */}
 
             <div className="flex items-center h-12 px-4 border-b border-gray-100 dark:border-gray-700 gap-3">
 
@@ -282,13 +298,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                     title={isOpen ? 'Collapse sidebar' : 'Expand sidebar'}
 
+                    aria-label={isOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+
                 >
 
-                    <MenuIcon />
+                    {isMobile && isOpen ? <CloseIcon /> : <MenuIcon />}
 
                 </button>
 
-                {isOpen && (
+                {(isOpen || isMobile) && (
 
                     <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Menu</span>
 
@@ -300,13 +318,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             {/* Nav items */}
 
-            <nav className="flex-1 py-2 overflow-y-auto overflow-x-hidden">
+            <nav className="flex-1 py-2 overflow-y-auto overflow-x-hidden" aria-label="Main navigation">
 
                 {navItems.map(item => {
 
                     const active = isItemActive(item);
 
                     const isExpanded = expandedItems.has(item.id);
+                    // On mobile drawer, always show labels (isOpen is true on mobile when drawer shows)
+                    const showLabel = isOpen || isMobile;
 
 
 
@@ -320,7 +340,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                                 onClick={() => handleMainClick(item)}
 
-                                title={!isOpen ? item.label : undefined}
+                                title={!showLabel ? item.label : undefined}
+
+                                aria-current={active ? 'page' : undefined}
 
                                 className={`
 
@@ -336,7 +358,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                                     }
 
-                                    ${!isOpen ? 'justify-center' : ''}
+                                    ${!showLabel ? 'justify-center' : ''}
 
                                 `}
 
@@ -352,7 +374,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                                 <span className={active ? 'text-blue-600 dark:text-blue-400' : ''}>{item.icon}</span>
 
-                                {isOpen && (
+                                {showLabel && (
 
                                     <>
 
@@ -374,7 +396,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                             {/* Submenu items */}
 
-                            {item.children && isExpanded && isOpen && (
+                            {item.children && isExpanded && showLabel && (
 
                                 <div className="ml-4 mt-1 space-y-1">
 
@@ -435,10 +457,57 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 })}
 
             </nav>
+        </>
+    );
+
+    // ── Mobile: drawer overlay ────────────────────────────────────────────────
+    if (isMobile) {
+        return (
+            <>
+                {/* Overlay backdrop */}
+                {isOpen && (
+                    <div
+                        className="zti-sidebar-overlay"
+                        onClick={onToggle}
+                        aria-hidden="true"
+                    />
+                )}
+
+                {/* Drawer panel */}
+                <aside
+                    className={`zti-sidebar-drawer flex flex-col bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 ${isOpen ? 'is-open' : ''}`}
+                    aria-label="Sidebar"
+                >
+                    {sidebarContent}
+                </aside>
+            </>
+        );
+    }
+
+    // ── Desktop: regular sidebar ──────────────────────────────────────────────
+    return (
+
+        <aside
+
+            className={`
+
+                flex flex-col bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700
+
+                transition-all duration-200 ease-in-out flex-shrink-0
+
+                ${isOpen ? 'w-56' : 'w-16'}
+
+            `}
+
+            style={{ height: 'calc(100vh - 64px)' }}
+            aria-label="Sidebar"
+
+        >
+
+            {sidebarContent}
 
         </aside>
 
     );
 
 };
-

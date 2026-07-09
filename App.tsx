@@ -52,6 +52,8 @@ const App: React.FC = () => {
   >(null);
 
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
+      // Default closed on mobile (< 1024px), respect saved preference on desktop
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) return false;
     return localStorage.getItem("sidebarOpen") !== "false";
   });
 
@@ -125,9 +127,10 @@ const App: React.FC = () => {
   const handleToggleSidebar = () => {
     setSidebarOpen((prev) => {
       const next = !prev;
-
-      localStorage.setItem("sidebarOpen", String(next));
-
+      // Only persist preference on desktop; on mobile the sidebar always starts closed
+      if (typeof window !== "undefined" && window.innerWidth >= 1024) {
+        localStorage.setItem("sidebarOpen", String(next));
+      }
       return next;
     });
   };
@@ -757,6 +760,7 @@ const App: React.FC = () => {
           orgName={displayOrgName}
           isAbcNews={orgName === DEMO_ORG_NAME || isDemoEnabled()}
           openFeedback={() => setIsFeedbackOpen(true)}
+          onSidebarToggle={handleToggleSidebar}
           onNavigate={(tab, subTab, itemId) =>
             handleNavigate(tab as MainTab, subTab, itemId)
           }
@@ -814,8 +818,8 @@ const App: React.FC = () => {
             isAdmin={isAdmin}
           />
 
-          <main className="flex-1 overflow-y-auto">
-            <div className="px-4 py-3">{renderContent()}</div>
+          <main className="zti-main-content">
+            <div className="zti-page">{renderContent()}</div>
           </main>
         </div>
       </div>
