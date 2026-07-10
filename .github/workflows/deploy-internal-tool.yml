@@ -1,0 +1,71 @@
+name: Deploy internal tool
+
+# Manual only — no auto-deploy on merge. Builds the internal-tool image
+# (Playwright base, so the deployed tool can run E2E) and deploys to Cloud Run.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag prefix'
+        required: false
+        default: manual
+
+env:
+  PROJECT_ID: gen-lang-client-0099829502
+  AR_REGION: asia-southeast1
+  REPOSITORY: my-repo
+  SERVICE: zti-internal-tool
+  REGION: asia-south1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - id: auth
+        name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${AR_REGION}-docker.pkg.dev
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push image (from repo root → includes e2e/ specs)
+        run: |
+          TAG="${{ github.event.inputs.tag }}-$(echo ${{ github.sha }} | cut -c1-7)"
+          IMAGE="${AR_REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/shankar/${SERVICE}:${TAG}"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          docker buildx build --platform linux/amd64 \
+            -f internal-tool/Dockerfile \
+            --build-arg VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }} \
+            --build-arg VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }} \
+            --build-arg VITE_API_BASE_URL= \
+            --build-arg VITE_APP_VERSION="${TAG}" \
+            -t "$IMAGE" \
+            --push .
+
+      - name: Deploy to Cloud Run
+        run: |
+          # '^##^' custom delimiter so values containing commas don't break parsing.
+          gcloud run deploy "${SERVICE}" \
+            --image "${IMAGE}" \
+            --region "${REGION}" \
+            --platform managed \
+            --allow-unauthenticated \
+            --port 8080 \
+            --memory 2Gi \
+            --cpu 2 \
+            --max-instances 1 \
+            --no-cpu-throttling \
+            --timeout 3600 \
+            --set-env-vars "^##^SUPABASE_URL=${{ secrets.SUPABASE_URL }}##SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}##POLICY_CORPUS_BUCKET=policy-corpus##E2E_EMAIL=${{ secrets.E2E_EMAIL }}##E2E_PASSWORD=${{ secrets.E2E_PASSWORD }}##E2E_URL_PRE_PROD=${{ vars.E2E_URL_PRE_PROD }}##E2E_URL_PROD=${{ vars.E2E_URL_PROD }}"
