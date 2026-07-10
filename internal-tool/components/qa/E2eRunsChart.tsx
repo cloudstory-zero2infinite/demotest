@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  BarChart,
+  ComposedChart,
   Bar,
+  Line,
   XAxis,
   YAxis,
   Tooltip,
@@ -78,15 +79,22 @@ export const E2eRunsChart: React.FC<{ environment?: string }> = ({ environment }
     for (const r of filtered) {
       const d = dayKey(r.finished_at || r.created_at);
       if (!d) continue;
-      if (!byDay.has(d)) byDay.set(d, { date: d });
+      if (!byDay.has(d)) byDay.set(d, { date: d, _runs: [], _passed: 0, _failed: 0 });
       const row = byDay.get(d)!;
       const env = r.environment || 'unknown';
       row[env] = (row[env] || 0) + 1;
+      row._passed += r.passed || 0;
+      row._failed += r.failed || 0;
+      row._runs.push({ env, version: r.app_version, pct: r.success_pct, passed: r.passed, failed: r.failed });
     }
-    // zero-fill each env so bars/legend render consistently
     const rows = [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date));
-    for (const row of rows) for (const e of environments) if (row[e] == null) row[e] = 0;
-    return rows.map((row) => ({ ...row, label: row.date.slice(5) })); // MM-DD
+    for (const row of rows) {
+      for (const e of environments) if (row[e] == null) row[e] = 0; // zero-fill bars
+      const pcts = row._runs.map((x: any) => x.pct).filter((v: any) => v != null).map(Number);
+      row.successPct = pcts.length ? Math.round((pcts.reduce((a: number, b: number) => a + b, 0) / pcts.length) * 10) / 10 : null;
+      row.label = row.date.slice(5); // MM-DD
+    }
+    return rows;
   }, [filtered, environments]);
 
   // KPIs respect the selected environment (but not the chart's period window).
@@ -115,7 +123,7 @@ export const E2eRunsChart: React.FC<{ environment?: string }> = ({ environment }
             E2E runs over time
           </h3>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            How many times the suite ran per environment (from GitHub Actions)
+            Runs per environment (bars) + average pass % (line) — from GitHub Actions
           </p>
         </div>
         <div className="inline-flex rounded border border-gray-300 dark:border-gray-600 overflow-hidden text-xs">
@@ -149,21 +157,70 @@ export const E2eRunsChart: React.FC<{ environment?: string }> = ({ environment }
           No runs recorded yet for this period. Runs appear here after a deploy to main (or a manual GitHub Action run).
         </p>
       ) : (
-        <div className="h-56">
+        <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} margin={{ left: 4, right: 8, top: 8, bottom: 4 }}>
+            <ComposedChart data={data} margin={{ left: 4, right: 12, top: 8, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-              <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-              <Tooltip />
+              <YAxis
+                yAxisId="count"
+                allowDecimals={false}
+                tick={{ fontSize: 11 }}
+                label={{ value: 'runs', angle: -90, position: 'insideLeft', fontSize: 10 }}
+              />
+              <YAxis
+                yAxisId="pct"
+                orientation="right"
+                domain={[0, 100]}
+                tick={{ fontSize: 11 }}
+                tickFormatter={(v) => `${v}%`}
+              />
+              <Tooltip content={<ChartTooltip />} />
               <Legend />
               {environments.map((env, i) => (
-                <Bar key={env} dataKey={env} name={env} fill={colorFor(env, i)} radius={[2, 2, 0, 0]} />
+                <Bar key={env} yAxisId="count" dataKey={env} name={env} fill={colorFor(env, i)} radius={[2, 2, 0, 0]} />
               ))}
-            </BarChart>
+              <Line
+                yAxisId="pct"
+                type="monotone"
+                dataKey="successPct"
+                name="Avg pass %"
+                stroke="#111827"
+                strokeWidth={2}
+                dot={{ r: 3 }}
+                connectNulls
+              />
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
       )}
+    </div>
+  );
+};
+
+// Tooltip: bucket totals + per-run pass % so you see each run's result.
+const ChartTooltip: React.FC<any> = ({ active, payload }) => {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+  const runs = row._runs || [];
+  return (
+    <div className="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-xs shadow max-w-[260px]">
+      <div className="font-semibold text-gray-900 dark:text-gray-100">{row.date}</div>
+      <div className="text-gray-600 dark:text-gray-300">
+        {runs.length} run{runs.length !== 1 ? 's' : ''} · avg{' '}
+        <b>{row.successPct == null ? '—' : `${row.successPct}%`}</b> pass
+      </div>
+      <div className="text-gray-500 dark:text-gray-400 mb-1">
+        <span className="text-green-600 dark:text-green-400">{row._passed} passed</span>
+        {row._failed > 0 && <span className="text-red-600 dark:text-red-400"> · {row._failed} failed</span>}
+      </div>
+      {runs.slice(0, 10).map((r: any, i: number) => (
+        <div key={i} className="text-gray-500 dark:text-gray-400 truncate">
+          {r.env} {r.version || ''} — {r.pct == null ? '—' : `${r.pct}%`} ({r.passed}✓{r.failed ? ` ${r.failed}✗` : ''})
+        </div>
+      ))}
+      {runs.length > 10 && <div className="text-gray-400">…and {runs.length - 10} more</div>}
     </div>
   );
 };
