@@ -202,7 +202,8 @@ export interface QaSuite {
   specFiles: number;
 }
 
-export type QaEnvironment = 'pre-prod' | 'prod';
+// Discovered from server E2E_URL_<ENV> vars — any env id (pre-prod, prod, dev, qa, stage…).
+export type QaEnvironment = string;
 
 export interface QaEnvOption {
   id: QaEnvironment;

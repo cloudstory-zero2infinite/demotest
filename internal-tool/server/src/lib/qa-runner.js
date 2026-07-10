@@ -21,26 +21,41 @@ export const E2E_ROOT =
 const SPECS_DIR = path.join(E2E_ROOT, 'e2e', 'specs');
 const AUTH_FILE = path.join(E2E_ROOT, 'e2e', 'fixtures', 'user.json');
 
-// Target URLs per environment. Override via PREPROD_BASE_URL / PROD_BASE_URL.
-// Same E2E_EMAIL/E2E_PASSWORD authenticate against both (shared Supabase project).
+// pre-prod default so the tool works out of the box locally.
 export const PREPROD_BASE_URL =
+  process.env.E2E_URL_PRE_PROD ||
   process.env.PREPROD_BASE_URL ||
   'https://pre-prod-987276481381.asia-south1.run.app';
-export const PROD_BASE_URL = process.env.PROD_BASE_URL || ''; // set once the prod URL is known
 
-export const ENVIRONMENTS = ['pre-prod', 'prod'];
-
-// Resolve the base URL for an environment; throws if prod is picked but unset.
-export function baseUrlForEnv(environment) {
-  if (environment === 'prod') {
-    if (!PROD_BASE_URL) {
-      const err = new Error('PROD_BASE_URL is not configured on the server.');
-      err.code = 'NO_PROD_URL';
-      throw err;
-    }
-    return PROD_BASE_URL;
+// Selectable environments are discovered from E2E_URL_<ENV> env vars, e.g.
+// E2E_URL_PRE_PROD, E2E_URL_PROD, E2E_URL_DEV, E2E_URL_QA, E2E_URL_STAGE.
+// Adding a new environment = set a new E2E_URL_* var (no code change). An env
+// appears only if its URL is set (pre-prod always present via the default above).
+// Same E2E_EMAIL/E2E_PASSWORD authenticate against all (shared Supabase project).
+export function listEnvironments() {
+  const map = new Map();
+  map.set('pre-prod', PREPROD_BASE_URL);
+  if (process.env.PROD_BASE_URL) map.set('prod', process.env.PROD_BASE_URL); // legacy
+  for (const [k, v] of Object.entries(process.env)) {
+    if (!k.startsWith('E2E_URL_') || !v) continue;
+    const id = k.slice('E2E_URL_'.length).toLowerCase().replace(/_/g, '-');
+    map.set(id, v);
   }
-  return PREPROD_BASE_URL;
+  const rank = (id) => (id === 'pre-prod' ? 0 : id === 'prod' ? 1 : 2);
+  return [...map.entries()]
+    .map(([id, url]) => ({ id, url }))
+    .sort((a, b) => rank(a.id) - rank(b.id) || a.id.localeCompare(b.id));
+}
+
+// Resolve the base URL for an environment; throws if it isn't configured.
+export function baseUrlForEnv(environment) {
+  const found = listEnvironments().find((e) => e.id === environment);
+  if (!found || !found.url) {
+    const err = new Error(`Environment not configured: ${environment}`);
+    err.code = 'BAD_ENV';
+    throw err;
+  }
+  return found.url;
 }
 
 // Where per-run artifacts (html report + results.json) are written.
@@ -231,12 +246,7 @@ export async function startRun(suiteId, environment = 'pre-prod') {
     throw err;
   }
 
-  if (!ENVIRONMENTS.includes(environment)) {
-    const err = new Error(`Unknown environment: ${environment}`);
-    err.code = 'BAD_ENV';
-    throw err;
-  }
-  const baseUrl = baseUrlForEnv(environment); // throws NO_PROD_URL if prod unset
+  const baseUrl = baseUrlForEnv(environment); // throws BAD_ENV if not configured
 
   // Validate the suite id against the real folder list to avoid arg injection.
   let specArg = null; // null => whole testDir (run all)
