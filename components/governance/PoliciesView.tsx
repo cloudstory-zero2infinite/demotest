@@ -16,6 +16,61 @@ import { DocLangPreview } from './DocLangPreview';
 marked.setOptions({ gfm: true, breaks: true });
 const renderMarkdown = (md: string): string => String(marked.parse(md || ''));
 
+interface MiniPolicy {
+    policy_id: string;
+    policy_ref: string | null;
+    name: string;
+}
+
+export function findMatchingPolicy(href: string, text: string, allPolicies?: MiniPolicy[]): MiniPolicy | null {
+  if (!allPolicies || allPolicies.length === 0) return null;
+  const cleanHref = href.toLowerCase().trim();
+  const cleanText = text.toLowerCase().trim();
+  
+  for (const policy of allPolicies) {
+    const pId = (policy.policy_id || '').toLowerCase().trim();
+    const pRef = (policy.policy_ref || '').toLowerCase().trim();
+    const pName = (policy.name || '').toLowerCase().trim();
+    
+    if (
+      (pId && (cleanHref === pId || cleanHref.includes(pId))) ||
+      (pRef && (cleanHref === pRef || cleanHref.includes(pRef) || cleanHref.startsWith(pRef) || cleanText.includes(pRef))) ||
+      (pName && (cleanHref === pName || cleanText === pName))
+    ) {
+      return policy;
+    }
+    
+    const strippedHref = cleanHref.replace(/\.(md|pdf|docx|txt)$/, '').split('/').pop();
+    if (strippedHref && (strippedHref === pId || strippedHref === pRef || strippedHref === pName)) {
+      return policy;
+    }
+  }
+  return null;
+}
+
+export function processMarkdownLinks(md: string, allPolicies?: MiniPolicy[], isBackend = false): string {
+  if (!md) return md;
+  const linkRegex = /(^|[^!])\[(.*?)\]\((.*?)\)/g;
+  
+  return md.replace(linkRegex, (match, prefix, text, href) => {
+    const isExternal = href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:');
+    const matchedPolicy = findMatchingPolicy(href, text, allPolicies);
+    
+    if (matchedPolicy) {
+      if (isBackend) {
+        return `${prefix}<a href="?policyId=${matchedPolicy.policy_id}" style="color: #2563eb; text-decoration: underline;">${text}</a>`;
+      } else {
+        return `${prefix}<a href="javascript:void(0)" onclick="window.parent.postMessage({type:'OPEN_POLICY',policyId:'${matchedPolicy.policy_id}'},'*'); window.postMessage({type:'OPEN_POLICY',policyId:'${matchedPolicy.policy_id}'},'*'); event.stopPropagation();" class="text-blue-600 dark:text-blue-400 hover:underline font-medium">${text}</a>`;
+      }
+    } else {
+      if (isExternal) {
+        return match;
+      }
+      return `${prefix}${text}`;
+    }
+  });
+}
+
 // ─── Inline prose styles injected once into <head> ───────────────────────────
 const PROSE_STYLE = `
 .policy-prose h1{font-size:1.5rem;font-weight:700;margin:1rem 0 .5rem}
@@ -139,8 +194,13 @@ const HistoryModal: React.FC<{ policy: PolicyV2; onClose: () => void }> = ({ pol
                                 return (
                                     <li key={e.id} className="ml-4">
                                         <span className={`absolute -left-1.5 flex h-3 w-3 items-center justify-center rounded-full ${dotColor} ring-4 ring-white dark:ring-gray-800`} />
-                                        <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                        <p className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-1.5 flex-wrap">
                                             {ACTION_LABELS[e.action] || e.action}
+                                            {ed.version && (
+                                                <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-650 dark:text-gray-300">
+                                                    v{ed.version}
+                                                </span>
+                                            )}
                                         </p>
                                         <p className="text-xs text-gray-500 dark:text-gray-400">
                                             by <span className="font-medium">{actorName}</span>
@@ -433,8 +493,9 @@ interface ViewModalProps {
     onHistory?: () => void;
     onDownload?: () => void;
     isReadOnly?: boolean;
+    allPolicies?: PolicyV2[];
 }
-const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUserEmail, onClose, onApproved, onEdit, onDelete, onHistory, onDownload, isReadOnly = false }) => {
+const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUserEmail, onClose, onApproved, onEdit, onDelete, onHistory, onDownload, isReadOnly = false, allPolicies = [] }) => {
     const [pendingApproval, setPendingApproval] = useState<PolicyApproval | null>(null);
     const [comment, setComment] = useState('');
     const [showRejectInput, setShowRejectInput] = useState(false);
@@ -496,13 +557,15 @@ const ViewModal: React.FC<ViewModalProps> = ({ policy, currentUserId, currentUse
                 return match;
             });
 
-            return renderMarkdown(processed);
+            const processedLinks = processMarkdownLinks(processed, allPolicies, false);
+            return renderMarkdown(processedLinks);
         } catch {
-            return renderMarkdown(md);
+            const processedLinks = processMarkdownLinks(md, allPolicies, false);
+            return renderMarkdown(processedLinks);
         }
     };
 
-    const html = useMemo(() => viewRenderMarkdown(policy.markdown || ''), [policy.markdown, signedUrls]);
+    const html = useMemo(() => viewRenderMarkdown(policy.markdown || ''), [policy.markdown, signedUrls, allPolicies]);
     const [previewHtml, setPreviewHtml] = useState<string | null>(null);
     const [loadingPreview, setLoadingPreview] = useState(false);
 
@@ -713,6 +776,7 @@ interface EditorModalProps {
     orgName: string;
     currentUserEmail: string | null;
     isReadOnly?: boolean;
+    policies?: PolicyV2[];
 }
 
 const convertDocLangToMarkdown = (dl: any) => {
@@ -735,7 +799,7 @@ const convertDocLangToMarkdown = (dl: any) => {
     return md.trim();
 };
 
-const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, initialDocLang, onClose, onSaved, orgId, orgName, currentUserEmail, isReadOnly = false }) => {
+const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, initialDocLang, onClose, onSaved, orgId, orgName, currentUserEmail, isReadOnly = false, policies = [] }) => {
     const [docLang, setDocLang] = useState<any>(() => {
         const currentUserName = sessionStorage.getItem("grcUserName") || currentUserEmail || 'Policy Owner';
 
@@ -1004,7 +1068,7 @@ const EditorModal: React.FC<EditorModalProps> = ({ policy, initialMarkdown, init
                         {activeTab === 'edit' ? (
                             <PolicyEditor key={`${docLang.document_id || 'editor'}_${docLang.sections?.length || 0}`} docLang={docLang} onChange={setDocLang} orgId={orgId} isReadOnly={isReadOnly} />
                         ) : (
-                            <DocLangPreview docLang={docLang} orgName={orgName} logoUrl={logoUrl} signatureUrl={signatureUrl} includeSignature={includeSignature} />
+                            <DocLangPreview docLang={docLang} orgName={orgName} logoUrl={logoUrl} signatureUrl={signatureUrl} includeSignature={includeSignature} allPolicies={policies} />
                             )}
 
                     </div>
@@ -1193,6 +1257,19 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
     }, []);
 
     useUnifiedRefresh(isActive, fetchPolicies);
+
+    useEffect(() => {
+        const handleOpenPolicyMessage = (e: MessageEvent) => {
+            if (e.data && e.data.type === 'OPEN_POLICY') {
+                const targetPolicy = policies.find(p => p.policy_id === e.data.policyId);
+                if (targetPolicy) {
+                    setViewTarget(targetPolicy);
+                }
+            }
+        };
+        window.addEventListener('message', handleOpenPolicyMessage);
+        return () => window.removeEventListener('message', handleOpenPolicyMessage);
+    }, [policies]);
 
     // Auto-open a specific policy from notification click
     const pendingAutoOpenRef = useRef<string | null>(null);
@@ -1512,6 +1589,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
                     orgName={orgName}
                     currentUserEmail={currentUserEmail}
                     isReadOnly={isReadOnly}
+                    policies={policies}
                 />
             )}
             <PolicyAIDraftModal
@@ -1545,6 +1623,7 @@ export const PoliciesView: React.FC<PoliciesViewProps> = ({ isActive = true, aut
                     onHistory={() => { setViewTarget(null); setHistoryTarget(viewTarget); }}
                     onDownload={() => setDownloadTarget(viewTarget)}
                     isReadOnly={isReadOnly}
+                    allPolicies={policies}
                 />
             )}
             {historyTarget && (

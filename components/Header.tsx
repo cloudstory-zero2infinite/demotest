@@ -90,6 +90,8 @@ export const Header: React.FC<HeaderProps> = ({
     const [showNotifDropdown, setShowNotifDropdown] = useState(false);
     const notifRef = useRef<HTMLDivElement>(null);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const [pendingJoinRequest, setPendingJoinRequest] = useState<{ id: any; email: string } | null>(null);
+    const [loadingJoinRequest, setLoadingJoinRequest] = useState(false);
 
     // ─── Change password state ───
     const [showChangePassword, setShowChangePassword] = useState(false);
@@ -223,7 +225,27 @@ export const Header: React.FC<HeaderProps> = ({
         }
         setShowNotifDropdown(false);
         if (notif.source === 'org') {
-            onNavigate?.('organisation', 'tenant_admin');
+            if (notif.type === 'join_request') {
+                setLoadingJoinRequest(true);
+                try {
+                    const matchEmail = notif.message.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
+                    const email = matchEmail ? matchEmail[0] : notif.message.split(' ')[0];
+                    const pendingList = await SupabaseService.getPendingApprovals();
+                    const match = pendingList.find((m: any) => m.email.toLowerCase() === email.toLowerCase());
+                    if (match) {
+                        setPendingJoinRequest({ id: match.id, email: match.email });
+                    } else {
+                        alert('This request has already been approved or rejected.');
+                    }
+                } catch (err: any) {
+                    console.error('Failed to retrieve join request details:', err);
+                    onNavigate?.('organisation', 'tenant_admin');
+                } finally {
+                    setLoadingJoinRequest(false);
+                }
+            } else {
+                onNavigate?.('organisation', 'tenant_admin');
+            }
         } else if (notif.source === 'control' && notif.control_id) {
             onNavigate?.('governance', 'control_registry', notif.control_id);
         } else if (notif.source === 'policy' && notif.policy_id) {
@@ -674,6 +696,59 @@ export const Header: React.FC<HeaderProps> = ({
                                 {changePwdLoading ? 'Updating...' : 'Update Password'}
                             </button>
                         </div>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* ─── Join Request Approval Modal ─── */}
+        {pendingJoinRequest && (
+            <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/50 p-4" onClick={() => setPendingJoinRequest(null)}>
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+                    <div className="px-6 py-4 border-b dark:border-gray-700">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Join Request</h3>
+                    </div>
+                    <div className="p-6">
+                        <p className="text-sm text-gray-700 dark:text-gray-300">
+                            <span className="font-semibold text-blue-600 dark:text-blue-400">{pendingJoinRequest.email}</span> has requested to join your organisation.
+                        </p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                            Would you like to approve or reject this request?
+                        </p>
+                    </div>
+                    <div className="px-6 py-4 bg-gray-50 dark:bg-gray-700/50 rounded-b-lg flex justify-end gap-3">
+                        <button
+                            onClick={async () => {
+                                try {
+                                    await SupabaseService.rejectMember(pendingJoinRequest.id);
+                                    alert('Join request rejected successfully.');
+                                    setPendingJoinRequest(null);
+                                    fetchNotifications();
+                                    window.dispatchEvent(new CustomEvent('tabChanged'));
+                                } catch (err: any) {
+                                    alert(err.message || 'Failed to reject request.');
+                                }
+                            }}
+                            className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400 transition-colors"
+                        >
+                            Reject
+                        </button>
+                        <button
+                            onClick={async () => {
+                                try {
+                                    await SupabaseService.approveMember(pendingJoinRequest.id);
+                                    alert('Join request approved successfully.');
+                                    setPendingJoinRequest(null);
+                                    fetchNotifications();
+                                    window.dispatchEvent(new CustomEvent('tabChanged'));
+                                } catch (err: any) {
+                                    alert(err.message || 'Failed to approve request.');
+                                }
+                            }}
+                            className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
+                        >
+                            Approve
+                        </button>
                     </div>
                 </div>
             </div>

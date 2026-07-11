@@ -459,6 +459,23 @@ router.post('/setup/join-request', requireAuth, async (req, res) => {
     const limitError = await checkConsultantLimit(adminRecord.org_id);
     if (limitError) return res.status(403).json({ message: limitError });
 
+    // Check if the requesting user already has an onboarding record
+    const { data: existingUserRecord } = await supabaseAdmin
+      .from('org_onboarding')
+      .select('status')
+      .eq('email', email.toLowerCase().trim())
+      .maybeSingle();
+
+    if (existingUserRecord) {
+      if (existingUserRecord.status === 'pending_approval') {
+        return res.status(400).json({ message: 'You have already requested to join an organisation. Please wait for approval.' });
+      }
+      if (existingUserRecord.status === 'active') {
+        return res.status(400).json({ message: 'You are already associated with an organisation.' });
+      }
+      return res.status(400).json({ message: 'An onboarding record already exists for this email.' });
+    }
+
     // Insert pending record
     const { data: pending, error: pendError } = await supabaseAdmin
       .from('org_onboarding')
@@ -628,7 +645,7 @@ router.put('/update-role/:id', requireAuth, async (req, res) => {
     const { id } = req.params;
     const { role } = req.body;
 
-    if (!['user', 'admin', 'cxo'].includes(role)) {
+    if (!['user', 'admin', 'cxo', 'read-only'].includes(role)) {
       return res.status(400).json({ message: 'Invalid role.' });
     }
 
