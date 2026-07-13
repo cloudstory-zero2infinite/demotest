@@ -34,7 +34,7 @@ export function collectorFromConfig(cfg: ZtiConfig, targetType?: string): OpenVa
   let url = '';
   if (gvm.host) {
     const port = gvm.port || 9392;
-    url = gvm.host.includes('://') ? gvm.host : `http://${gvm.host}:${port}`;
+    url = gvm.host.includes('://') ? gvm.host : `https://${gvm.host}:${port}`;
   }
   const hasGvmCreds = !!(gvm.user && gvm.password);
   const useLocalOS =
@@ -87,6 +87,7 @@ export class OpenVasCollector {
     }
 
     console.log(`\n[OpenVAS] Connecting to GSA at ${baseUrl}...`);
+    console.log(`[OpenVAS] Using username: ${this.username}`);
 
     const { token, cookie } = await this._gsaLogin(baseUrl, this.username, this.password);
     console.log('✔ [OpenVAS] Authenticated via GSA login.');
@@ -170,16 +171,18 @@ export class OpenVasCollector {
             }
           }
           const msg = data.match(/<message>([^<]*)<\/message>/i)?.[1] || data;
-          reject(new Error(`GSA login failed (HTTP ${res.statusCode}): ${msg}`));
+          reject(new Error(`GSA login failed (HTTP ${res.statusCode}): ${msg}\nURL: ${baseUrl}\nUsername: ${username}\nResponse: ${data.substring(0, 500)}`));
         });
       });
 
       req.setTimeout(15000, () => {
         req.destroy();
-        reject(new Error('GSA login timed out after 15 seconds.'));
+        reject(new Error(`GSA login timed out after 15 seconds.\nURL: ${baseUrl}\nHostname: ${parsedUrl.hostname}\nPort: ${parsedUrl.port || (isHttps ? 443 : 80)}`));
       });
 
-      req.on('error', reject);
+      req.on('error', (err: Error) => {
+        reject(new Error(`GSA login connection error: ${err.message}\nURL: ${baseUrl}\nHostname: ${parsedUrl.hostname}\nPort: ${parsedUrl.port || (isHttps ? 443 : 80)}\nProtocol: ${isHttps ? 'HTTPS' : 'HTTP'}`));
+      });
       req.write(body);
       req.end();
     });
@@ -220,17 +223,19 @@ export class OpenVasCollector {
           if (res.statusCode && res.statusCode >= 200 && res.statusCode < 400) {
             resolve(data);
           } else {
-            reject(new Error(`GSA HTTP ${res.statusCode}: ${data || res.statusMessage}`));
+            reject(new Error(`GSA HTTP ${res.statusCode}: ${data || res.statusMessage}\nURL: ${baseUrl}\nCommand: ${cmd}\nResponse: ${data.substring(0, 500)}`));
           }
         });
       });
 
       req.setTimeout(30000, () => {
         req.destroy();
-        reject(new Error('GSA request timed out after 30 seconds.'));
+        reject(new Error(`GSA request timed out after 30 seconds.\nURL: ${baseUrl}\nCommand: ${cmd}\nHostname: ${parsedUrl.hostname}\nPort: ${parsedUrl.port || (isHttps ? 443 : 80)}`));
       });
 
-      req.on('error', reject);
+      req.on('error', (err: Error) => {
+        reject(new Error(`GSA request connection error: ${err.message}\nURL: ${baseUrl}\nCommand: ${cmd}\nHostname: ${parsedUrl.hostname}\nPort: ${parsedUrl.port || (isHttps ? 443 : 80)}\nProtocol: ${isHttps ? 'HTTPS' : 'HTTP'}`));
+      });
       req.end();
     });
   }
@@ -589,9 +594,9 @@ export async function integrateOpenvas(): Promise<void> {
     host = undefined;
     port = undefined;
   } else {
-    host = await ask('GVM Host', cfg.gvm?.host || '127.0.0.1');
-    const portStr = await ask('GVM Port', String(cfg.gvm?.port || 9390));
-    port = parseInt(portStr, 10) || 9390;
+    const fullUrl = await ask('GVM URL (e.g., https://10.0.0.3:9392)', cfg.gvm?.host || 'https://127.0.0.1:9392');
+    host = fullUrl;
+    port = undefined;
     socketPath = undefined;
   }
 
