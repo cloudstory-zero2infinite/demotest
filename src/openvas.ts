@@ -131,12 +131,7 @@ export class OpenVasCollector {
     return this._doGsaLoginRequest(baseUrl, '/login', username, password)
       .catch((err: Error) => {
         const errMsg = err.message || '';
-        if (
-          errMsg.includes('Invalid command') ||
-          errMsg.includes('exec_gmp_post') ||
-          errMsg.includes('HTTP 400') ||
-          errMsg.includes('HTTP 404')
-        ) {
+        if (errMsg.includes('HTTP') || errMsg.includes('GSA login failed') || errMsg.includes('connection error')) {
           console.log('[OpenVAS] GSA /login endpoint failed or is not supported. Retrying with legacy /gmp?cmd=login...');
           return this._doGsaLoginRequest(baseUrl, '/gmp?cmd=login', username, password);
         }
@@ -168,11 +163,11 @@ export class OpenVasCollector {
         rejectUnauthorized: false,
       };
       const lib = isHttps ? https : http;
-      const req = lib.request(options, (res) => {
+      const req = lib.request(options, (res: http.IncomingMessage) => {
         let data = '';
         const rawCookies = res.headers['set-cookie'] || [];
-        const cookie = rawCookies.map((c) => c.split(';')[0]).join('; ');
-        res.on('data', (chunk) => {
+        const cookie = rawCookies.map((c: string) => c.split(';')[0]).join('; ');
+        res.on('data', (chunk: any) => {
           data += chunk;
         });
         res.on('end', () => {
@@ -181,7 +176,7 @@ export class OpenVasCollector {
             return resolve({ token: tokenMatch[1].trim(), cookie });
           }
           if (res.statusCode === 303 || res.statusCode === 302) {
-            const cookieToken = rawCookies.map((c) => c.split(';')[0]).find((c) => c.startsWith('token='));
+            const cookieToken = rawCookies.map((c: string) => c.split(';')[0]).find((c: string) => c.startsWith('token='));
             if (cookieToken) {
               return resolve({ token: cookieToken.split('=')[1], cookie });
             }
@@ -228,9 +223,9 @@ export class OpenVasCollector {
       };
 
       const lib = isHttps ? https : http;
-      const req = lib.request(options, (res) => {
+      const req = lib.request(options, (res: http.IncomingMessage) => {
         let data = '';
-        res.on('data', (chunk) => {
+        res.on('data', (chunk: any) => {
           data += chunk;
         });
         res.on('end', () => {
