@@ -153,17 +153,15 @@ export class OpenVasCollector {
     return new Promise((resolve, reject) => {
       const parsedUrl = new URL(baseUrl);
       const isHttps = parsedUrl.protocol === 'https:';
-      const body = Buffer.from(
-        `login=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`,
-        'utf8'
-      );
+      const xmlBody = `<commands><authenticate><credentials><username>${this._escapeXml(username)}</username><password>${this._escapeXml(password)}</password></credentials></authenticate></commands>`;
+      const body = Buffer.from(xmlBody, 'utf8');
       const options = {
         hostname: parsedUrl.hostname,
         port: parsedUrl.port || (isHttps ? 443 : 80),
         path: loginPath,
         method: 'POST',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Type': 'application/xml',
           'Content-Length': String(body.length),
           Accept: 'application/xml, text/xml, */*',
         },
@@ -331,6 +329,15 @@ export class OpenVasCollector {
       .replace(/&quot;/g, '"')
       .replace(/&apos;/g, "'")
       .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1');
+  }
+
+  _escapeXml(str: string): string {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
   }
 
   async _fetchLocalOSVulnerabilities(discoveredHosts: any[] = []): Promise<RawVuln[]> {
