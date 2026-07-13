@@ -128,19 +128,39 @@ export class OpenVasCollector {
   }
 
   _gsaLogin(baseUrl: string, username: string, password: string): Promise<{ token: string; cookie: string }> {
+    return this._doGsaLoginRequest(baseUrl, '/login', username, password)
+      .catch((err: Error) => {
+        const errMsg = err.message || '';
+        if (
+          errMsg.includes('Invalid command') ||
+          errMsg.includes('exec_gmp_post') ||
+          errMsg.includes('HTTP 400') ||
+          errMsg.includes('HTTP 404')
+        ) {
+          console.log('[OpenVAS] GSA /login endpoint failed or is not supported. Retrying with legacy /gmp?cmd=login...');
+          return this._doGsaLoginRequest(baseUrl, '/gmp?cmd=login', username, password);
+        }
+        throw err;
+      });
+  }
+
+  _doGsaLoginRequest(
+    baseUrl: string,
+    loginPath: string,
+    username: string,
+    password: string
+  ): Promise<{ token: string; cookie: string }> {
     return new Promise((resolve, reject) => {
       const parsedUrl = new URL(baseUrl);
       const isHttps = parsedUrl.protocol === 'https:';
-
       const body = Buffer.from(
         `login=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`,
         'utf8'
       );
-
       const options = {
         hostname: parsedUrl.hostname,
         port: parsedUrl.port || (isHttps ? 443 : 80),
-        path: '/login',
+        path: loginPath,
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -149,13 +169,11 @@ export class OpenVasCollector {
         },
         rejectUnauthorized: false,
       };
-
       const lib = isHttps ? https : http;
       const req = lib.request(options, (res) => {
         let data = '';
         const rawCookies = res.headers['set-cookie'] || [];
         const cookie = rawCookies.map((c) => c.split(';')[0]).join('; ');
-
         res.on('data', (chunk) => {
           data += chunk;
         });
@@ -174,12 +192,10 @@ export class OpenVasCollector {
           reject(new Error(`GSA login failed (HTTP ${res.statusCode}): ${msg}\nURL: ${baseUrl}\nUsername: ${username}\nResponse: ${data.substring(0, 500)}`));
         });
       });
-
       req.setTimeout(15000, () => {
         req.destroy();
         reject(new Error(`GSA login timed out after 15 seconds.\nURL: ${baseUrl}\nHostname: ${parsedUrl.hostname}\nPort: ${parsedUrl.port || (isHttps ? 443 : 80)}`));
       });
-
       req.on('error', (err: Error) => {
         reject(new Error(`GSA login connection error: ${err.message}\nURL: ${baseUrl}\nHostname: ${parsedUrl.hostname}\nPort: ${parsedUrl.port || (isHttps ? 443 : 80)}\nProtocol: ${isHttps ? 'HTTPS' : 'HTTP'}`));
       });
