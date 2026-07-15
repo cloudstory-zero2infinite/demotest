@@ -27,8 +27,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set deployment target
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ "${{ github.ref_name }}" = "prod" ]; then
             echo "SERVICE=zti-prod" >> $GITHUB_ENV
@@ -39,6 +43,23 @@ jobs:
             # Frontend + Express share the same Cloud Run URL, so FRONTEND_URL
             # (used by CORS) equals the API base URL.
             echo "DEPLOY_FRONTEND_URL=${{ secrets.VITE_API_BASE_URL_PROD }}" >> $GITHUB_ENV
+
+            # Extract second parent of the merge commit (source commit from main)
+            PARENT_SHA=$(git rev-parse --verify HEAD^2 2>/dev/null || echo "")
+            if [ -n "$PARENT_SHA" ]; then
+              TARGET_SHA=$PARENT_SHA
+              # Query the run number of the workflow run that compiled TARGET_SHA
+              PREV_RUN_NUMBER=$(gh run list --commit "$TARGET_SHA" --workflow "Deploy to Cloud Run" --json runNumber,status --jq '.[] | select(.status == "completed" or .status == "success") | .runNumber' 2>/dev/null | head -n 1 || echo "")
+              [ -z "$PREV_RUN_NUMBER" ] && PREV_RUN_NUMBER=$(gh run list --commit "$TARGET_SHA" --workflow "Deploy to Cloud Run" --json runNumber --jq '.[0].runNumber' 2>/dev/null || echo "")
+              if [ -n "$PREV_RUN_NUMBER" ]; then
+                RUN_NUMBER=$PREV_RUN_NUMBER
+              else
+                RUN_NUMBER=${{ github.run_number }}
+              fi
+            else
+              TARGET_SHA=${{ github.sha }}
+              RUN_NUMBER=${{ github.run_number }}
+            fi
           else
             echo "SERVICE=pre-prod" >> $GITHUB_ENV
             echo "REGION=asia-south1" >> $GITHUB_ENV
@@ -46,9 +67,12 @@ jobs:
             echo "DEPLOY_ENV=pre-prod" >> $GITHUB_ENV
             echo "DEPLOY_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }}" >> $GITHUB_ENV
             echo "DEPLOY_FRONTEND_URL=${{ secrets.VITE_API_BASE_URL }}" >> $GITHUB_ENV
+            TARGET_SHA=${{ github.sha }}
+            RUN_NUMBER=${{ github.run_number }}
           fi
-          # Version string baked into the build AND recorded for release tracking.
-          echo "APP_VERSION=v$(node -p "require('./package.json').version")+${{ github.run_number }}.$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
+
+          SHORT_SHA=$(echo $TARGET_SHA | cut -c1-7)
+          echo "APP_VERSION=v$(node -p "require('./package.json').version")+$RUN_NUMBER.$SHORT_SHA" >> $GITHUB_ENV
 
       - name: Resolve release notes (PR title)
         env:
