@@ -12,8 +12,8 @@ on:
       - 'playwright-report/**'
 
 env:
-  PROJECT_ID: gen-lang-client-0099829502
-  REPOSITORY: my-repo
+  PROJECT_ID: peppy-generator-496509-q7
+  REPOSITORY: zti
 
 jobs:
   deploy:
@@ -36,7 +36,7 @@ jobs:
         run: |
           if [ "${{ github.ref_name }}" = "prod" ]; then
             echo "SERVICE=zti-prod" >> $GITHUB_ENV
-            echo "REGION=asia-southeast1" >> $GITHUB_ENV
+            echo "REGION=asia-south1" >> $GITHUB_ENV
             echo "IMAGE_NAME=shankar/zti-prod" >> $GITHUB_ENV
             echo "DEPLOY_ENV=prod" >> $GITHUB_ENV
             echo "DEPLOY_API_BASE_URL=${{ secrets.VITE_API_BASE_URL_PROD }}" >> $GITHUB_ENV
