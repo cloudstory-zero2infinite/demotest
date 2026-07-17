@@ -3,6 +3,7 @@ name: Deploy to Cloud Run
 on:
   push:
     branches:
+      - dev
       - main
       - prod
     # Don't redeploy when a push only touches E2E test assets.
@@ -13,7 +14,7 @@ on:
 
 env:
   PROJECT_ID: gen-lang-client-0099829502
-  REPOSITORY: my-repo
+  REPOSITORY: zti
 
 jobs:
   deploy:
@@ -36,8 +37,8 @@ jobs:
         run: |
           if [ "${{ github.ref_name }}" = "prod" ]; then
             echo "SERVICE=zti-prod" >> $GITHUB_ENV
-            echo "REGION=asia-southeast1" >> $GITHUB_ENV
-            echo "IMAGE_NAME=shankar/zti-prod" >> $GITHUB_ENV
+            echo "REGION=asia-south1" >> $GITHUB_ENV
+            echo "IMAGE_NAME=zti-prod" >> $GITHUB_ENV
             echo "DEPLOY_ENV=prod" >> $GITHUB_ENV
             echo "DEPLOY_API_BASE_URL=${{ secrets.VITE_API_BASE_URL_PROD }}" >> $GITHUB_ENV
             # Frontend + Express share the same Cloud Run URL, so FRONTEND_URL
@@ -60,10 +61,19 @@ jobs:
               TARGET_SHA=${{ github.sha }}
               RUN_NUMBER=${{ github.run_number }}
             fi
+          elif [ "${{ github.ref_name }}" = "dev" ]; then
+            echo "SERVICE=dev" >> $GITHUB_ENV
+            echo "REGION=asia-south1" >> $GITHUB_ENV
+            echo "IMAGE_NAME=dev" >> $GITHUB_ENV
+            echo "DEPLOY_ENV=dev" >> $GITHUB_ENV
+            echo "DEPLOY_API_BASE_URL=${{ secrets.VITE_API_BASE_URL_DEV }}" >> $GITHUB_ENV
+            echo "DEPLOY_FRONTEND_URL=${{ secrets.VITE_API_BASE_URL_DEV }}" >> $GITHUB_ENV
+            TARGET_SHA=${{ github.sha }}
+            RUN_NUMBER=${{ github.run_number }}
           else
             echo "SERVICE=pre-prod" >> $GITHUB_ENV
             echo "REGION=asia-south1" >> $GITHUB_ENV
-            echo "IMAGE_NAME=shankar/pre-prod" >> $GITHUB_ENV
+            echo "IMAGE_NAME=pre-prod" >> $GITHUB_ENV
             echo "DEPLOY_ENV=pre-prod" >> $GITHUB_ENV
             echo "DEPLOY_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }}" >> $GITHUB_ENV
             echo "DEPLOY_FRONTEND_URL=${{ secrets.VITE_API_BASE_URL }}" >> $GITHUB_ENV
@@ -106,7 +116,7 @@ jobs:
 
       - name: Configure Docker
         run: |
-          gcloud auth configure-docker asia-southeast1-docker.pkg.dev
+          gcloud auth configure-docker asia-south1-docker.pkg.dev
 
       ###########################################
       # Setup Buildx
@@ -121,7 +131,7 @@ jobs:
 
       - name: Build and Push Docker Image
         run: |
-          IMAGE_URI=asia-southeast1-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${{ github.sha }}
+          IMAGE_URI=asia-south1-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${{ github.sha }}
 
           docker buildx build \
             --platform linux/amd64 \
