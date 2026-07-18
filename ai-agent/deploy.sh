@@ -23,9 +23,3 @@ gcloud run deploy zti-ai-agent \
   --cpu 1 \
   --max-instances 5 \
   --set-env-vars \
-GEMINI_API_KEY=AIzaSyAU4xSybkklEiLjH8Upbccwt1_eTS-mtko,\
-GEMINI_MODEL=gemini-2.5-flash,\
-DATABASE_URL=postgresql://postgres:Zti-cloudstory@db.xuqtcrdwbgnqxllhjpri.supabase.co:5432/postgres,\
-NEO4J_URI=neo4j+s://679ede24.databases.neo4j.io,\
-NEO4J_USER=679ede24,\
-NEO4J_PASSWORD=664HbwFtGcpSk6I_Oof-hNGGfjIbKCWII2cyuvU4HUU
