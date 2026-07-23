@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
+import { Resolver } from 'node:dns/promises';
 // @ts-ignore
 import ldap from 'ldapjs';
 import { loadConfig, saveConfig, scansDir, type ZtiConfig } from './config.js';
@@ -46,6 +47,17 @@ export interface HardwareInfo {
   totalPhysicalMemoryGB: number;
   diskSummary: string[];
   clockSpeedMHz?: number;
+}
+
+// One AD computer object — workstation, server, or domain controller —
+// collected as real asset inventory (synced to Asset Registry - SSoT).
+export interface AdComputerInfo {
+  name: string;
+  os: string;
+  osVersion?: string;
+  dnsHostName?: string;
+  lastLogon?: string | null;
+  enabled: boolean;
 }
 
 const SEVERITY_CVSS: Record<AuditFinding['severity'], number> = {
@@ -535,6 +547,7 @@ export async function runAdAudit(detected: MachineState): Promise<{ collected: a
     groups: [] as string[],
     ous: [] as string[],
     gpos: [] as string[],
+    computers: [] as AdComputerInfo[],
     passwordPolicies: {
       minLength: 7,
       complexity: false,
@@ -571,8 +584,9 @@ export async function runAdAudit(detected: MachineState): Promise<{ collected: a
       collected.ldapBound = true;
       collected.ldapAuthMethod = 'Service Account Bind';
     } catch (e: any) {
-      console.log(`${YEL}⚠ LDAP bind failed: ${e.message}. Gracing fallback...${RESET}`);
-      logWarn('ad_ldap_bind_failed', { error: e.message });
+      const label = e.stage === 'search' ? 'LDAP query' : 'LDAP bind';
+      console.log(`${YEL}⚠ ${label} failed: ${e.message}. Falling back...${RESET}`);
+      logWarn('ad_ldap_bind_failed', { error: e.message, stage: e.stage || 'bind' });
       // Proceed to PowerShell fallback
     }
   }
@@ -582,11 +596,22 @@ export async function runAdAudit(detected: MachineState): Promise<{ collected: a
     try {
       console.log(`${DIM}Attempting Integrated Windows Authentication (ADSI/PowerShell)...${RESET}`);
       const psDetails = fetchIntegratedAdDetails(detected.domain);
+      // fetchIntegratedAdDetails' underlying runCmd/runPowerShell calls swallow
+      // their own errors and return '' on failure rather than throwing — e.g.
+      // when this machine isn't actually joined to the target domain, so ADSI/
+      // [adsisearcher] has no real directory context to query. That means this
+      // call never throws even when every query silently returned nothing, so
+      // an empty result here is treated the same as a real failure below
+      // instead of being reported as a successful (but empty) integrated query.
+      const gotRealData = psDetails.users.length > 0 || psDetails.groups.length > 0 || psDetails.ous.length > 0 || psDetails.computers.length > 0;
+      if (!gotRealData) {
+        throw new Error('Integrated ADSI queries returned no data — this host is likely not joined to the target domain');
+      }
       Object.assign(collected, psDetails);
       collected.ldapBound = true;
       collected.ldapAuthMethod = 'Integrated ADSI / Windows Auth';
     } catch (e: any) {
-      console.log(`${YEL}⚠ Integrated ADSI query failed. Gracing fallback to mock/development values...${RESET}`);
+      console.log(`${YEL}⚠ Integrated ADSI query failed: ${e.message}. Falling back to mock/development values...${RESET}`);
       logWarn('ad_adsi_query_failed', { error: e.message });
     }
   }
@@ -608,6 +633,11 @@ export async function runAdAudit(detected: MachineState): Promise<{ collected: a
     collected.groups = ['Domain Admins', 'Domain Users', 'Enterprise Admins', 'Schema Admins', 'Backup Operators', 'Finance-Dept'];
     collected.ous = ['Domain Controllers', 'Users', 'Computers', 'ServiceAccounts', 'Departments', 'Workstations'];
     collected.gpos = ['Default Domain Policy', 'Default Domain Controllers Policy', 'Workstation-Firewall-Policy', 'Disable-USB-GPO', 'LAPS-Deployment'];
+    collected.computers = [
+      { name: detected.dc.split('.')[0].toUpperCase() || 'DC01', os: 'Windows Server', osVersion: '2022', dnsHostName: detected.dc, lastLogon: new Date().toISOString(), enabled: true },
+      { name: 'WKS-FIN-01', os: 'Windows 11 Pro', osVersion: '23H2', dnsHostName: `wks-fin-01.${detected.domain}`, lastLogon: new Date(Date.now() - 2 * 86400000).toISOString(), enabled: true },
+      { name: 'WKS-HR-02', os: 'Windows 10 Pro', osVersion: '22H2', dnsHostName: `wks-hr-02.${detected.domain}`, lastLogon: new Date(Date.now() - 120 * 86400000).toISOString(), enabled: false },
+    ];
     collected.passwordPolicies = {
       minLength: 7,
       complexity: false,
@@ -756,6 +786,9 @@ function fetchLdapDetails(serverUrl: string, bindDn: string, bindPw: string, dom
     client.bind(bindDn, bindPw, (err: any) => {
       if (err) {
         client.destroy();
+        // Tag so callers can tell a real auth failure apart from a downstream
+        // search error (e.g. size-limit) that also rejects this promise.
+        err.stage = 'bind';
         return reject(err);
       }
 
@@ -764,6 +797,7 @@ function fetchLdapDetails(serverUrl: string, bindDn: string, bindPw: string, dom
         groups: [] as string[],
         ous: [] as string[],
         gpos: [] as string[],
+        computers: [] as AdComputerInfo[],
         passwordPolicies: {
           minLength: 7,
           complexity: false,
@@ -780,14 +814,21 @@ function fetchLdapDetails(serverUrl: string, bindDn: string, bindPw: string, dom
         }
       };
 
-      // Perform a search for users
+      // Perform a search for users. `paged` transparently pages through the
+      // LDAP paged-results control so this doesn't hit the server's default
+      // search size limit (commonly 1000) on domains with many objects —
+      // without it, AD rejects the search outright with "Size Limit Exceeded"
+      // once results exceed that limit, previously miscategorized upstream as
+      // a bind failure since it rejected this same promise.
       client.search(baseDn, {
         filter: '(&(objectCategory=person)(objectClass=user))',
         scope: 'sub',
-        attributes: ['sAMAccountName', 'lockoutTime', 'lastLogonTimestamp', 'userAccountControl', 'memberOf']
+        attributes: ['sAMAccountName', 'lockoutTime', 'lastLogonTimestamp', 'userAccountControl', 'memberOf'],
+        paged: { pageSize: 500, pagePause: false }
       }, (searchErr: any, res: any) => {
         if (searchErr) {
           client.destroy();
+          searchErr.stage = 'search';
           return reject(searchErr);
         }
 
@@ -831,6 +872,7 @@ function fetchLdapDetails(serverUrl: string, bindDn: string, bindPw: string, dom
 
         res.on('error', (err: any) => {
           client.destroy();
+          err.stage = 'search';
           reject(err);
         });
 
@@ -839,7 +881,8 @@ function fetchLdapDetails(serverUrl: string, bindDn: string, bindPw: string, dom
           client.search(baseDn, {
             filter: '(objectClass=group)',
             scope: 'sub',
-            attributes: ['sAMAccountName']
+            attributes: ['sAMAccountName'],
+            paged: { pageSize: 500, pagePause: false }
           }, (groupErr: any, gRes: any) => {
             if (groupErr) {
               client.destroy();
@@ -857,7 +900,8 @@ function fetchLdapDetails(serverUrl: string, bindDn: string, bindPw: string, dom
               client.search(baseDn, {
                 filter: '(|(objectClass=organizationalUnit)(objectClass=groupPolicyContainer))',
                 scope: 'sub',
-                attributes: ['ou', 'displayName', 'objectClass']
+                attributes: ['ou', 'displayName', 'objectClass'],
+                paged: { pageSize: 500, pagePause: false }
               }, (gpoErr: any, gpoRes: any) => {
                 if (gpoErr) {
                   client.destroy();
@@ -873,8 +917,46 @@ function fetchLdapDetails(serverUrl: string, bindDn: string, bindPw: string, dom
                 });
 
                 gpoRes.on('end', () => {
-                  client.destroy();
-                  resolve(details);
+                  // Computer objects — real asset inventory (workstations,
+                  // servers, DCs), synced to Asset Registry - SSoT.
+                  client.search(baseDn, {
+                    filter: '(objectClass=computer)',
+                    scope: 'sub',
+                    attributes: ['cn', 'operatingSystem', 'operatingSystemVersion', 'dNSHostName', 'lastLogonTimestamp', 'userAccountControl'],
+                    paged: { pageSize: 500, pagePause: false }
+                  }, (pcErr: any, pcRes: any) => {
+                    if (pcErr) {
+                      client.destroy();
+                      return resolve(details);
+                    }
+
+                    pcRes.on('searchEntry', (entry: any) => {
+                      const item = entry.pojo;
+                      const name = item.attributes.find((a: any) => a.type === 'cn')?.values[0];
+                      if (!name) return;
+                      const os = item.attributes.find((a: any) => a.type === 'operatingSystem')?.values[0] || 'Unknown OS';
+                      const osVersion = item.attributes.find((a: any) => a.type === 'operatingSystemVersion')?.values[0];
+                      const dnsHostName = item.attributes.find((a: any) => a.type === 'dNSHostName')?.values[0];
+                      const lastLogonRaw = item.attributes.find((a: any) => a.type === 'lastLogonTimestamp')?.values[0];
+                      const uac = parseInt(item.attributes.find((a: any) => a.type === 'userAccountControl')?.values[0] || '0');
+                      const lastLogon = lastLogonRaw
+                        ? new Date((parseInt(lastLogonRaw) / 10000) - 11644473600000).toISOString()
+                        : null;
+                      details.computers.push({
+                        name,
+                        os,
+                        osVersion,
+                        dnsHostName,
+                        lastLogon,
+                        enabled: !(uac & 0x2), // ACCOUNTDISABLE bit
+                      });
+                    });
+
+                    pcRes.on('end', () => {
+                      client.destroy();
+                      resolve(details);
+                    });
+                  });
                 });
               });
             });
@@ -892,6 +974,7 @@ function fetchIntegratedAdDetails(domain: string): any {
     groups: [] as string[],
     ous: [] as string[],
     gpos: [] as string[],
+    computers: [] as AdComputerInfo[],
     passwordPolicies: {
       minLength: 7,
       complexity: false,
@@ -967,6 +1050,28 @@ function fetchIntegratedAdDetails(domain: string): any {
   const rawPreauth = runPowerShell('([adsisearcher]"(&(objectCategory=person)(objectClass=user)(userAccountControl:1.2.840.113556.1.4.803:=4194304))").FindAll() | Measure-Object | Select-Object -ExpandProperty Count');
   details.kerberosConfig.preAuthDisabledCount = parseInt(rawPreauth) || 0;
 
+  // Fetch Computers — real asset inventory (workstations, servers, DCs),
+  // synced to Asset Registry - SSoT. Pipe-delimited so each computer's fields
+  // survive even when a property is null (array-join skips nulls as '').
+  const rawComputers = runPowerShell(
+    '([adsisearcher]"(objectClass=computer)").FindAll() | ForEach-Object { $p = $_.Properties; ' +
+    '[string]::Join(\'|\', @($p.cn[0], $p.operatingsystem[0], $p.operatingsystemversion[0], $p.dnshostname[0], $p.useraccountcontrol[0])) }'
+  );
+  if (rawComputers) {
+    details.computers = rawComputers.split('\r\n').filter(Boolean).map((line) => {
+      const [name, os, osVersion, dnsHostName, uacRaw] = line.split('|');
+      const uac = parseInt(uacRaw) || 0;
+      return {
+        name: name || 'Unknown',
+        os: os || 'Unknown OS',
+        osVersion: osVersion || undefined,
+        dnsHostName: dnsHostName || undefined,
+        lastLogon: null, // not queried in the integrated-auth path
+        enabled: !(uac & 0x2), // ACCOUNTDISABLE bit
+      };
+    }).filter((c) => c.name !== 'Unknown');
+  }
+
   return details;
 }
 
@@ -995,6 +1100,118 @@ function collectHardwareInfo(host?: string): HardwareInfo | null {
   };
 }
 
+function inferComputerCategory(os?: string): string {
+  const osName = (os || '').toLowerCase();
+  if (osName.includes('server')) return 'Virtual & On-Prem Servers';
+  return 'User Endpoints';
+}
+
+const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
+
+/**
+ * Resolves a computer object's current IP via DNS. AD computer objects don't
+ * store an IP attribute themselves — only dNSHostName — so this queries the
+ * domain's AD-integrated DNS (hosted on the DC itself) directly rather than
+ * relying on this machine's default resolver, which may not even be pointed
+ * at the domain's DNS servers. Best-effort: returns null on any failure
+ * (stale/offline computer objects, DNS not reachable, etc.) rather than
+ * throwing, consistent with the rest of this file's fallback behavior.
+ */
+async function resolveComputerIp(hostname: string | undefined, dcAddress?: string): Promise<string | null> {
+  if (!hostname) return null;
+  const resolver = new Resolver();
+  if (dcAddress && IPV4_RE.test(dcAddress)) {
+    resolver.setServers([dcAddress]);
+  }
+  // One retry: DNS is UDP-based, so an isolated dropped packet or a slow
+  // response under load reads identically to a missing record on the first
+  // try. Without a retry, "sometimes has an IP, sometimes doesn't" for the
+  // exact same machine across runs is expected — the record is there, the
+  // first query just didn't get an answer in time.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const addresses = await Promise.race([
+        resolver.resolve4(hostname),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('DNS timeout')), 4000)),
+      ]);
+      return addresses[0] || null;
+    } catch {
+      // fall through to retry, or give up after the second attempt
+    }
+  }
+  return null;
+}
+
+/** Runs `fn` over `items` with at most `limit` in flight at once. */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+/** Maps one AD computer object to an asset payload for Asset Registry - SSoT. */
+function mapComputerToAsset(pc: AdComputerInfo, domain: string, ipAddress: string | null) {
+  const osFull = `${pc.os}${pc.osVersion ? ` ${pc.osVersion}` : ''}`.trim();
+  return {
+    external_id: pc.name,
+    name: pc.name,
+    ip_address: ipAddress,
+    status: pc.enabled ? 'Active' : 'Inactive',
+    category: inferComputerCategory(pc.os),
+    criticality: 'Medium',
+    exposure: 'Internal',
+    details: `Active Directory computer object — ${osFull}${pc.dnsHostName ? ` (${pc.dnsHostName})` : ''}`,
+    source: 'API',
+    custom_fields: {
+      type: 'Active Directory',
+      integration: 'activedirectory',
+      ad_domain: domain,
+      os_full: osFull,
+      dns_hostname: pc.dnsHostName || null,
+      last_logon: pc.lastLogon || null,
+      enabled: pc.enabled,
+    },
+  };
+}
+
+/** Syncs AD computer objects to Asset Registry - SSoT for analyst review. */
+async function syncAdComputersToWorkspace(computers: AdComputerInfo[], domain: string, dcAddress?: string): Promise<void> {
+  const cfg = loadConfig();
+  if (!cfg.token) {
+    console.log(`${YEL}Not authenticated — skipping asset sync. Run \`zti authenticate\` first.${RESET}`);
+    return;
+  }
+  if (computers.length === 0) {
+    console.log(`${DIM}No computer objects found to sync as assets.${RESET}`);
+    return;
+  }
+
+  try {
+    const api = new HubApi(cfg);
+    // Bounded concurrency — firing all lookups at once (one per computer)
+    // floods a single DC's DNS with hundreds of simultaneous UDP queries,
+    // which is what was causing inconsistent per-run IP results.
+    const assetPayloads = await mapWithConcurrency(computers, 25, async (pc) => {
+      const ip = await resolveComputerIp(pc.dnsHostName, dcAddress);
+      return mapComputerToAsset(pc, domain, ip);
+    });
+    const syncResult = await api.syncAssets(assetPayloads);
+    console.log(
+      `${GRN}✓ Queued ${syncResult.total} computer(s) in ZTI Hub Services → Asset Registry - SSoT for review (${syncResult.staged} new, ${syncResult.updated} re-queued).${RESET}`
+    );
+  } catch (e: any) {
+    console.warn(`${YEL}⚠ Asset sync failed: ${e.message || String(e)}${RESET}`);
+    logWarn('ad_asset_sync_failed', { error: e.message });
+  }
+}
+
 /** Generates JSON report and prints Terminal output */
 export async function generateReports(
   data: { collected: any; findings: AuditFinding[]; type: 'Standalone' | 'ActiveDirectory'; domain: string },
@@ -1021,8 +1238,12 @@ export async function generateReports(
     }
   };
 
-  // Print terminal report before asking user permission to save
-  printTerminalReport(jsonReport);
+  // AD audits skip the terminal report entirely — findings/assets are
+  // reviewed in ZTI Hub Services instead (Vulnerability Assessment / Asset
+  // Registry - SSoT), surfaced via the staging/sync confirmations below.
+  if (data.type !== 'ActiveDirectory') {
+    printTerminalReport(jsonReport);
+  }
 
   const saveAnswer = await ask('Do you want to save this report as JSON? (y/N)', 'N');
   const shouldSave = /^y(es)?$/i.test(saveAnswer.trim());
@@ -1041,6 +1262,10 @@ export async function generateReports(
       ? (data.collected.domainControllers?.[0] || data.collected.hardwareInfo?.local?.computerName || os.hostname())
       : (data.collected.hostname || os.hostname());
   await stageAuditFindingsToWorkspace(data.findings, data.type, host, data.domain, options?.autoPush);
+
+  if (data.type === 'ActiveDirectory' && Array.isArray(data.collected.computers)) {
+    await syncAdComputersToWorkspace(data.collected.computers, data.domain, data.collected.domainControllers?.[0]);
+  }
 }
 
 /** Prints a clean, colorized terminal security report */
@@ -1089,6 +1314,19 @@ function printTerminalReport(rep: any) {
   console.log(`    [${BLU}${BOLD}LOW${RESET}]:           ${sum.low}`);
   console.log(`    [${GRN}${BOLD}INFO${RESET}]:          ${sum.info}`);
   console.log(`${BOLD}----------------------------------------------------------------------${RESET}`);
+
+  if (rep.type === 'ActiveDirectory') {
+    // AD audits can turn up hundreds of accounts/findings — too noisy for the
+    // terminal. Print a short pointer to the full review screens instead of
+    // dumping every finding (with descriptions/remediation/account lists) here.
+    if (rep.findings.length === 0) {
+      console.log(`  ${GRN}No security findings detected.${RESET}`);
+    } else {
+      console.log(`  ${DIM}Full findings will be available in ZTI Hub Services → Vulnerability Assessment after staging.${RESET}`);
+    }
+    console.log(`${BOLD}======================================================================${RESET}`);
+    return;
+  }
 
   // Findings list
   console.log(`  ${BOLD}Security Findings:${RESET}\n`);

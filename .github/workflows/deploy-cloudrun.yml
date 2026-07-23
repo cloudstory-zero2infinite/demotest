@@ -3,6 +3,7 @@ name: Deploy to Cloud Run
 on:
   push:
     branches:
+      - dev
       - main
       - prod
     # Don't redeploy when a push only touches E2E test assets.
@@ -12,8 +13,8 @@ on:
       - 'playwright-report/**'
 
 env:
-  PROJECT_ID: gen-lang-client-0099829502
-  REPOSITORY: my-repo
+  PROJECT_ID: peppy-generator-496509-q7
+  REPOSITORY: zti
 
 jobs:
   deploy:
@@ -22,33 +23,66 @@ jobs:
     permissions:
       contents: read
       id-token: write
-      pull-requests: read # resolve the PR title for release notes
+      pull-requests: read # resolve the PR title for release
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set deployment target
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ "${{ github.ref_name }}" = "prod" ]; then
             echo "SERVICE=zti-prod" >> $GITHUB_ENV
-            echo "REGION=asia-southeast1" >> $GITHUB_ENV
-            echo "IMAGE_NAME=shankar/zti-prod" >> $GITHUB_ENV
+            echo "REGION=asia-south1" >> $GITHUB_ENV
+            echo "IMAGE_NAME=zti-prod" >> $GITHUB_ENV
             echo "DEPLOY_ENV=prod" >> $GITHUB_ENV
             echo "DEPLOY_API_BASE_URL=${{ secrets.VITE_API_BASE_URL_PROD }}" >> $GITHUB_ENV
             # Frontend + Express share the same Cloud Run URL, so FRONTEND_URL
             # (used by CORS) equals the API base URL.
             echo "DEPLOY_FRONTEND_URL=${{ secrets.VITE_API_BASE_URL_PROD }}" >> $GITHUB_ENV
+
+            # Extract second parent of the merge commit (source commit from main)
+            PARENT_SHA=$(git rev-parse --verify HEAD^2 2>/dev/null || echo "")
+            if [ -n "$PARENT_SHA" ]; then
+              TARGET_SHA=$PARENT_SHA
+              # Query the run number of the workflow run that compiled TARGET_SHA
+              PREV_RUN_NUMBER=$(gh run list --commit "$TARGET_SHA" --workflow "Deploy to Cloud Run" --json runNumber,status --jq '.[] | select(.status == "completed" or .status == "success") | .runNumber' 2>/dev/null | head -n 1 || echo "")
+              [ -z "$PREV_RUN_NUMBER" ] && PREV_RUN_NUMBER=$(gh run list --commit "$TARGET_SHA" --workflow "Deploy to Cloud Run" --json runNumber --jq '.[0].runNumber' 2>/dev/null || echo "")
+              if [ -n "$PREV_RUN_NUMBER" ]; then
+                RUN_NUMBER=$PREV_RUN_NUMBER
+              else
+                RUN_NUMBER=${{ github.run_number }}
+              fi
+            else
+              TARGET_SHA=${{ github.sha }}
+              RUN_NUMBER=${{ github.run_number }}
+            fi
+          elif [ "${{ github.ref_name }}" = "dev" ]; then
+            echo "SERVICE=dev" >> $GITHUB_ENV
+            echo "REGION=asia-south1" >> $GITHUB_ENV
+            echo "IMAGE_NAME=dev" >> $GITHUB_ENV
+            echo "DEPLOY_ENV=dev" >> $GITHUB_ENV
+            echo "DEPLOY_API_BASE_URL=${{ secrets.VITE_API_BASE_URL_DEV }}" >> $GITHUB_ENV
+            echo "DEPLOY_FRONTEND_URL=${{ secrets.VITE_API_BASE_URL_DEV }}" >> $GITHUB_ENV
+            TARGET_SHA=${{ github.sha }}
+            RUN_NUMBER=${{ github.run_number }}
           else
             echo "SERVICE=pre-prod" >> $GITHUB_ENV
             echo "REGION=asia-south1" >> $GITHUB_ENV
-            echo "IMAGE_NAME=shankar/pre-prod" >> $GITHUB_ENV
+            echo "IMAGE_NAME=pre-prod" >> $GITHUB_ENV
             echo "DEPLOY_ENV=pre-prod" >> $GITHUB_ENV
             echo "DEPLOY_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }}" >> $GITHUB_ENV
             echo "DEPLOY_FRONTEND_URL=${{ secrets.VITE_API_BASE_URL }}" >> $GITHUB_ENV
+            TARGET_SHA=${{ github.sha }}
+            RUN_NUMBER=${{ github.run_number }}
           fi
-          # Version string baked into the build AND recorded for release tracking.
-          echo "APP_VERSION=v$(node -p "require('./package.json').version")+${{ github.run_number }}.$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_ENV
+
+          SHORT_SHA=$(echo $TARGET_SHA | cut -c1-7)
+          echo "APP_VERSION=v$(node -p "require('./package.json').version")+$RUN_NUMBER.$SHORT_SHA" >> $GITHUB_ENV
 
       - name: Resolve release notes (PR title)
         env:
@@ -82,7 +116,7 @@ jobs:
 
       - name: Configure Docker
         run: |
-          gcloud auth configure-docker asia-southeast1-docker.pkg.dev
+          gcloud auth configure-docker asia-south1-docker.pkg.dev
 
       ###########################################
       # Setup Buildx
@@ -97,7 +131,7 @@ jobs:
 
       - name: Build and Push Docker Image
         run: |
-          IMAGE_URI=asia-southeast1-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${{ github.sha }}
+          IMAGE_URI=asia-south1-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${{ github.sha }}
 
           docker buildx build \
             --platform linux/amd64 \
