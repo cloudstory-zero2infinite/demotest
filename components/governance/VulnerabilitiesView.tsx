@@ -108,54 +108,55 @@ const VulnerabilityModal: React.FC<VulnerabilityModalProps> = ({ isOpen, onClose
 
     }, [isOpen]);
 
+    const initializedRef = useRef(false);
+    const prevVulnerabilityToEditRef = useRef<Vulnerability | null>(null);
+
     useEffect(() => {
+        if (!isOpen) {
+            initializedRef.current = false;
+            prevVulnerabilityToEditRef.current = null;
+            return;
+        }
+
+        if (initializedRef.current && prevVulnerabilityToEditRef.current === vulnerabilityToEdit) {
+            // Need to update asset text if it hasn't been set yet and assets loaded
+            if (vulnerabilityToEdit && vulnerabilityToEdit.asset_id && !assetSearchText && allAssets.length > 0) {
+                const linkedAsset = allAssets.find(a => a.id === vulnerabilityToEdit.asset_id);
+                if (linkedAsset) {
+                    setAssetSearchText(`${linkedAsset.name} (${linkedAsset.asset_id})`);
+                }
+            }
+            return;
+        }
+
+        initializedRef.current = true;
+        prevVulnerabilityToEditRef.current = vulnerabilityToEdit;
 
         if (vulnerabilityToEdit) {
-
             const { name, description, derived_from, status, asset_id } = vulnerabilityToEdit;
-
             const customFieldsData: Record<string, any> = {};
-
             customFields.forEach(field => {
-
                 customFieldsData[field.field_name] = vulnerabilityToEdit.custom_fields?.[field.field_name] || '';
-
             });
 
             setFormData({ name, description, derived_from, status, asset_id, custom_fields: customFieldsData });
 
             if (vulnerabilityToEdit.asset_id && allAssets.length > 0) {
-
                 const linkedAsset = allAssets.find(a => a.id === vulnerabilityToEdit.asset_id);
-
                 if (linkedAsset) {
-
                     setAssetSearchText(`${linkedAsset.name} (${linkedAsset.asset_id})`);
-
                 }
-
             } else {
-
                 setAssetSearchText('');
-
             }
-
         } else {
-
             const customFieldsData: Record<string, any> = {};
-
             customFields.forEach(field => {
-
                 customFieldsData[field.field_name] = '';
-
             });
-
             setFormData({ name: '', description: '', derived_from: 'Scanning', status: 'Planned', asset_id: null, custom_fields: customFieldsData });
-
             setAssetSearchText('');
-
         }
-
     }, [vulnerabilityToEdit, isOpen, allAssets, customFields]);
 
     const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -212,7 +213,9 @@ const VulnerabilityModal: React.FC<VulnerabilityModalProps> = ({ isOpen, onClose
 
             asset.name.toLowerCase().includes(assetSearchText.toLowerCase()) ||
 
-            asset.asset_id.toLowerCase().includes(assetSearchText.toLowerCase())
+            asset.asset_id.toLowerCase().includes(assetSearchText.toLowerCase()) ||
+
+            (asset.ip_address && asset.ip_address.toLowerCase().includes(assetSearchText.toLowerCase()))
 
         );
 

@@ -14,15 +14,23 @@ export const AssetTypeModal: React.FC<AssetTypeModalProps> = ({ isOpen, onClose,
     const [localTypes, setLocalTypes] = useState<AssetType[]>([]);
     const [loading, setLoading] = useState(false);
 
+    const initializedRef = React.useRef(false);
+
     useEffect(() => {
-        if (isOpen) {
-            setLocalTypes(JSON.parse(JSON.stringify(assetTypes)));
+        if (!isOpen) {
+            initializedRef.current = false;
+            return;
         }
+        
+        if (initializedRef.current) return;
+        
+        initializedRef.current = true;
+        setLocalTypes(JSON.parse(JSON.stringify(assetTypes)));
     }, [isOpen, assetTypes]);
 
     const handleAddType = () => {
         const newType: AssetType = {
-            id: `type-${Date.now()}`,
+            id: type-${Date.now()},
             name: 'New Asset Type',
             fields: ['Name', 'Criticality']
         };

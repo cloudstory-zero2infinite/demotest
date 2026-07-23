@@ -119,13 +119,22 @@ const AssetModal: React.FC<AssetModalProps> = ({ isOpen, onClose, onSave, assetT
     const isViewMode = mode === 'view';
     const isFieldsDisabled = isViewMode || isReadOnly;
 
-
-
-
-
-
+    const initializedRef = useRef(false);
+    const prevAssetToEditRef = useRef<Asset | null>(null);
 
     useEffect(() => {
+        if (!isOpen) {
+            initializedRef.current = false;
+            prevAssetToEditRef.current = null;
+            return;
+        }
+
+        if (initializedRef.current && prevAssetToEditRef.current === assetToEdit) {
+            return;
+        }
+
+        initializedRef.current = true;
+        prevAssetToEditRef.current = assetToEdit;
         if (assetToEdit) {
             const { asset_id, name, asset_owner, business_unit, physical_location, criticality, details, governed_status, vulnerability_count, exposure, category, ip_address, mac_id, source, custom_fields } = assetToEdit;
             setFormData({ asset_id, name, asset_owner, business_unit, physical_location, criticality, details, governed_status, vulnerability_count, exposure, category, ip_address, mac_id, source, custom_fields: custom_fields || {} });
@@ -908,6 +917,22 @@ export const AssetsView: React.FC<{ isActive?: boolean, userRole?: UserRole | nu
     useEffect(() => {
         const savedOrder = localStorage.getItem('assets_column_order');
         const customFieldKeys = customFields.map(f => `custom_field_${f.field_name}`);
+
+        
+        const standardKeysSet = new Set([
+            'asset_id', 'name', 'asset_owner', 'business_unit', 'physical_location',
+            'criticality', 'category', 'details', 'governed_status', 'exposure',
+            'ip_address', 'mac_id', 'vulnerability_count', 'source', 'owner'
+        ]);
+        const normalizeFieldName = (n: string) => n.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        // Standard fields referenced by a custom asset type's `fields` list (e.g. ip_address
+        // for a "Wazuh" pill) live outside defaultColumns — without this they'd never make it
+        // into columnOrder, so that pill's table would silently drop the column.
+        const typeReferencedStandardKeys = Array.from(new Set(
+            customAssetTypes.flatMap(t => t.fields)
+                .map(f => standardKeysSet.has(f) ? f : (standardKeysSet.has(normalizeFieldName(f)) ? normalizeFieldName(f) : null))
+                .filter((f): f is string => !!f)
+        ));
 
         if (savedOrder) {
             try {

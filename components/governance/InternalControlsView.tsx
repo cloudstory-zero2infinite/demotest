@@ -60,8 +60,22 @@ const InternalControlModal: React.FC<InternalControlModalProps> = ({ isOpen, onC
     useEffect(() => {
         SupabaseService.getComplianceTags().then(setComplianceTags);
     }, []);
+    const initializedRef = useRef(false);
+    const prevControlToEditRef = useRef<InternalControl | null>(null);
 
     useEffect(() => {
+        if (!isOpen) {
+            initializedRef.current = false;
+            prevControlToEditRef.current = null;
+            return;
+        }
+
+        if (initializedRef.current && prevControlToEditRef.current === controlToEdit) {
+            return;
+        }
+
+        initializedRef.current = true;
+        prevControlToEditRef.current = controlToEdit;
         if (controlToEdit) {
             const sanitizedControlData = {
                 ...controlToEdit,

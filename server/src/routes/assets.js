@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireDevice } from '../middleware/deviceAuth.js';
 
 
 
@@ -15,6 +16,7 @@ import { supabaseAdmin } from '../supabase.js';
 
 
 import { requireAuth } from '../middleware/auth.js';
+import { generateNextAssetId } from '../lib/assetIngest.js';
 
 
 
@@ -27,52 +29,77 @@ import { requireAuth } from '../middleware/auth.js';
 
 
 
-
-
-
-async function generateNextAssetId(orgId) {
-  let orgPrefix = 'OR';
-  try {
-    const { data: org } = await supabaseAdmin
-      .from('organizations')
-      .select('name')
-      .eq('id', orgId)
-      .single();
-    if (org && org.name) {
-      orgPrefix = org.name.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase() || 'OR';
-    }
-  } catch (orgError) {
-    console.warn('Failed to fetch org name for prefix:', orgError.message);
-  }
-
-  let maxNum = 1000;
-  try {
-    const { data: existingAssets } = await supabaseAdmin
-      .from('assets')
-      .select('asset_id')
-      .eq('org_id', orgId)
-      .like('asset_id', `AST-${orgPrefix}-%`);
-    if (existingAssets) {
-      existingAssets.forEach(asset => {
-        if (asset.asset_id) {
-          const numStr = asset.asset_id.replace(`AST-${orgPrefix}-`, '');
-          const num = parseInt(numStr, 10);
-          if (!isNaN(num) && num > maxNum) {
-            maxNum = num;
-          }
-        }
-      });
-    }
-  } catch (existingError) {
-    console.warn('Failed to query existing assets for sequential ID:', existingError.message);
-  }
-
-  return `AST-${orgPrefix}-${maxNum + 1}`;
-}
 
 const router = Router();
 
+// ════════════════════════════════════════════════════════════
+//  DEVICE-FACING (device token) — requireDevice
+//  Driven by the zti CLI (`zti ingest wazuh`) to sync discovered agents/hosts.
+//  Lands in asset_registry_ssot for analyst review (ZTI Hub Services → Asset
+//  Registry - SSoT) rather than the live assets table — only an approved
+//  import (POST /api/asset-registry/import) creates/updates a real asset.
+//  Upserts by (org_id, integration, external_id) so repeated syncs update
+//  the staged row rather than duplicate it; review_status is always reset
+//  to 'pending' on resync so every sync gets a fresh look, even for
+//  previously-imported agents.
+// ════════════════════════════════════════════════════════════
 
+router.post('/sync', requireDevice, async (req, res) => {
+  try {
+    const items = Array.isArray(req.body?.assets) ? req.body.assets : [];
+    if (!items.length) return res.status(201).json({ staged: 0, updated: 0, total: 0 });
+
+    let staged = 0;
+    let updated = 0;
+
+    for (const item of items) {
+      const source = item.source || 'API';
+      const externalId = item.external_id != null ? String(item.external_id) : null;
+      const integration = item.custom_fields?.integration || null;
+      if (!externalId || !integration) continue; // nothing to key the staged row on
+
+      const { data: existing } = await supabaseAdmin
+        .from('asset_registry_ssot')
+        .select('id')
+        .eq('org_id', req.orgId)
+        .eq('integration', integration)
+        .eq('external_id', externalId)
+        .maybeSingle();
+
+      const payload = {
+        org_id: req.orgId,
+        integration,
+        external_id: externalId,
+        name: item.name || 'Unknown asset',
+        criticality: item.criticality || 'Medium',
+        exposure: item.exposure || 'Internal',
+        category: item.category || 'Services/Infra',
+        details: item.details || null,
+        ip_address: item.ip_address || null,
+        status: item.status || 'Active',
+        source,
+        custom_fields: { external_id: externalId, ...(item.custom_fields || {}) },
+        review_status: 'pending',
+        updated_at: new Date().toISOString(),
+      };
+
+      if (existing) {
+        const { error } = await supabaseAdmin.from('asset_registry_ssot').update(payload).eq('id', existing.id);
+        if (error) throw error;
+        updated++;
+      } else {
+        const { error } = await supabaseAdmin.from('asset_registry_ssot').insert(payload);
+        if (error) throw error;
+        staged++;
+      }
+    }
+
+    res.status(201).json({ staged, updated, total: items.length });
+  } catch (err) {
+    console.error('[assets] device sync error:', err);
+    res.status(500).json({ message: err.message });
+  }
+});
 
 
 
@@ -3783,4 +3810,3 @@ router.delete('/relationships/bulk', requireAuth, async (req, res) => {
 
 
 export const assetsRouter = router;
-

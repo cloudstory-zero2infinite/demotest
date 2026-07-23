@@ -148,4 +148,12 @@ export class HubApi {
       body: JSON.stringify({ findings }),
     });
   }
+
+    // ── Asset inventory sync ───────────────────────────────────────────────────
+  syncAssets(assets: unknown[]) {
+    return this.req<{ staged: number; updated: number; total: number }>('/api/assets/sync', {
+      method: 'POST',
+      body: JSON.stringify({ assets }),
+    });
+  }
 }

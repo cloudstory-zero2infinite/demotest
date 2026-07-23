@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
+import { AssetRegistrySSoTView } from '../hub/AssetRegistrySSoTView';
 import { VulnerabilityAssessmentView } from '../hub/VulnerabilityAssessmentView';
 import { CSPMAssessmentView } from '../hub/CSPMAssessmentView';
 import { UserRole } from '../../types';
 
-type SubTab = 'va' | 'cspm' | 'pentest' | 'code_review';
+type SubTab = 'assets_ssot' | 'va' | 'cspm' | 'pentest' | 'code_review';
 
 const ComingSoon: React.FC<{ title: string; blurb: string }> = ({ title, blurb }) => (
   <div className="border border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-10 text-center mt-6">
@@ -23,6 +24,7 @@ export const ZtiHubServicesTab: React.FC<{ isActive?: boolean, userRole?: UserRo
   };
 //sub tabs for the ZTI Hub Services tab, including Vulnerability Assessment, CSPM, Pentesting, and Code Review
   const subTabs: { id: SubTab; label: string }[] = [
+    { id: 'assets_ssot', label: 'Asset Registry - SSoT' },
     { id: 'va', label: 'Vulnerability Assessment' },
     { id: 'cspm', label: 'CSPM' },
     { id: 'pentest', label: 'Pentesting' },
@@ -50,6 +52,11 @@ export const ZtiHubServicesTab: React.FC<{ isActive?: boolean, userRole?: UserRo
       </div>
 
       <div className="mt-4">
+        {mountedSubTabs.has('assets_ssot') && (
+          <div className={activeSubTab === 'assets_ssot' ? '' : 'hidden'}>
+            <AssetRegistrySSoTView isActive={isActive && activeSubTab === 'assets_ssot'} userRole={userRole} />
+          </div>
+        )}
         {mountedSubTabs.has('va') && (
           <div className={activeSubTab === 'va' ? '' : 'hidden'}>
             <VulnerabilityAssessmentView isActive={isActive && activeSubTab === 'va'} userRole={userRole} />

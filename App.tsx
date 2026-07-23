@@ -441,6 +441,13 @@ const App: React.FC = () => {
       } catch (err) {
         console.error("Failed to log logout activity", err);
       }
+      if (typeof window !== 'undefined') {
+        Object.keys(localStorage).forEach(key => {
+          if (key.startsWith('sb-')) {
+            localStorage.removeItem(key);
+          }
+        });
+      }
 
       sessionStorage.removeItem("grcUserName");
       // Reset the CXO "escalated only" toggle so it defaults back ON next login.
@@ -467,6 +474,20 @@ const App: React.FC = () => {
       if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current as any);
     };
   }, []);
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      if (sessionStorage.getItem("grcUserName")) {
+        console.warn("Unauthorized API response detected. Signing out gracefully...");
+        handleSignOut();
+      }
+    };
+    
+    if (typeof window !== 'undefined') {
+      window.addEventListener('unauthorized', handleUnauthorized);
+      return () => window.removeEventListener('unauthorized', handleUnauthorized);
+    }
+  }, [userName]);
 
   const toggleDarkMode = () => setIsDarkMode(!isDarkMode);
 

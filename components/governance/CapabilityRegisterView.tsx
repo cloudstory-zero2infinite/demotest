@@ -609,54 +609,46 @@ const CapabilityModal: React.FC<CapabilityModalProps> = ({ isOpen, onClose, onSa
 
 
 
+    const initializedRef = useRef(false);
+    const prevCapabilityToEditRef = useRef<Capability | null>(null);
+
     useEffect(() => {
-
-        if (capabilityToEdit) {
-
-            const customFieldsData: Record<string, any> = {};
-
-            customFields.forEach(field => {
-
-                customFieldsData[field.field_name] = capabilityToEdit.custom_fields?.[field.field_name] || '';
-
-            });
-
-            setFormData({
-
-                capab_name: capabilityToEdit.capab_name,
-
-                capab_provider: capabilityToEdit.capab_provider ?? [],
-
-                capab_cmdb_id: capabilityToEdit.capab_cmdb_id ?? [],
-
-                capab_owner: capabilityToEdit.capab_owner,
-
-                capab_other_details: capabilityToEdit.capab_other_details ?? '',
-
-                custom_fields: customFieldsData,
-
-            });
-
-        } else {
-
-            const customFieldsData: Record<string, any> = {};
-
-            customFields.forEach(field => {
-
-                customFieldsData[field.field_name] = '';
-
-            });
-
-            setFormData({
-
-                ...DEFAULT_FORM,
-
-                custom_fields: customFieldsData,
-
-            });
-
+        if (!isOpen) {
+            initializedRef.current = false;
+            prevCapabilityToEditRef.current = null;
+            return;
         }
 
+        if (initializedRef.current && prevCapabilityToEditRef.current === capabilityToEdit) {
+            return;
+        }
+
+        initializedRef.current = true;
+        prevCapabilityToEditRef.current = capabilityToEdit;
+
+        if (capabilityToEdit) {
+            const customFieldsData: Record<string, any> = {};
+            customFields.forEach(field => {
+                customFieldsData[field.field_name] = capabilityToEdit.custom_fields?.[field.field_name] || '';
+            });
+            setFormData({
+                capab_name: capabilityToEdit.capab_name,
+                capab_provider: capabilityToEdit.capab_provider ?? [],
+                capab_cmdb_id: capabilityToEdit.capab_cmdb_id ?? [],
+                capab_owner: capabilityToEdit.capab_owner,
+                capab_other_details: capabilityToEdit.capab_other_details ?? '',
+                custom_fields: customFieldsData,
+            });
+        } else {
+            const customFieldsData: Record<string, any> = {};
+            customFields.forEach(field => {
+                customFieldsData[field.field_name] = '';
+            });
+            setFormData({
+                ...DEFAULT_FORM,
+                custom_fields: customFieldsData,
+            });
+        }
     }, [capabilityToEdit, isOpen, customFields]);
 
 

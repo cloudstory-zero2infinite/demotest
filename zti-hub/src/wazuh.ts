@@ -295,6 +295,40 @@ function fetchVulnerabilitiesFromIndexer(host: string, verifyTls: boolean): Prom
   });
 }
 
+function inferAssetCategory(agent: any): string {
+  const osName = (agent.os?.name || agent.os?.platform || '').toLowerCase();
+  if (osName.includes('server')) return 'Virtual & On-Prem Servers';
+  if (osName.includes('win') || osName.includes('mac') || osName.includes('darwin')) return 'User Endpoints';
+  return 'Virtual & On-Prem Servers'; // Linux/unknown agents default to server-class infra
+}
+
+function mapAgentToAsset(agent: any) {
+  const osName = agent.os?.name || agent.os?.platform || '';
+  const osVersion = agent.os?.version || '';
+  const osFull = `${osName} ${osVersion}`.trim() || 'Unknown OS';
+
+  return {
+    external_id: String(agent.id),
+    name: agent.name || `agent-${agent.id}`,
+    ip_address: agent.ip || null,
+    status: agent.status === 'active' ? 'Active' : 'Inactive',
+    category: inferAssetCategory(agent),
+    criticality: 'Medium',
+    exposure: 'Internal',
+    details: `Wazuh agent ${agent.id} — ${osFull}${agent.version ? ` — agent v${agent.version}` : ''}`,
+    source: 'API',
+    custom_fields: {
+      type: 'Wazuh',
+      integration: 'wazuh',
+      wazuh_status: agent.status || null,
+      os_full: osFull,
+      agent_version: agent.version || null,
+      groups: Array.isArray(agent.group) ? agent.group.join(', ') : agent.group || null,
+      last_keep_alive: agent.lastKeepAlive || null,
+    },
+  };
+}
+
 export async function integrateWazuh(): Promise<void> {
   const cfg = loadConfig();
   if (!cfg.token) {
@@ -508,10 +542,22 @@ export async function ingestWazuh(): Promise<void> {
       const agents = await fetchWazuhAgents(wazuh.managerUrl, token, !!wazuh.verifyTls);
       console.log(`Found ${agents.length} agent(s).`);
 
+      // Sync asset inventory first — independent of vulnerability data below,
+      // so a later Indexer failure doesn't lose this.
+      try {
+        const api = new HubApi(cfg);
+        const assetPayloads = agents.map(mapAgentToAsset);
+        const syncResult = await api.syncAssets(assetPayloads);
+        console.log(
+          `${GREEN}✓ Queued ${syncResult.total} agent(s) in ZTI Hub Services → Asset Registry - SSoT for review (${syncResult.staged} new, ${syncResult.updated} re-queued).${RESET}`
+        );
+      } catch (syncErr: any) {
+        console.warn(`${YELLOW}⚠ Asset sync failed: ${syncErr.message || String(syncErr)}${RESET}`);
+      }
+
       let legacyFailed = false;
 
       for (const agent of agents) {
-        console.log(`Fetching vulnerabilities for agent ${agent.name} (${agent.id})...`);
         try {
           const vulns = await fetchAgentVulnerabilities(wazuh.managerUrl, agent.id, token, !!wazuh.verifyTls);
           for (const v of vulns) {
@@ -525,8 +571,7 @@ export async function ingestWazuh(): Promise<void> {
               packageName: v.name || 'Unknown Package',
             });
           }
-        } catch (err: any) {
-          console.warn(`Manager API /vulnerability/${agent.id} failed: ${err.message || String(err)}`);
+        } catch {
           legacyFailed = true;
           break;
         }
@@ -534,14 +579,11 @@ export async function ingestWazuh(): Promise<void> {
 
       // Fallback if legacy Manager API failed or returns no data (due to being Wazuh >= 4.8.0)
       if (legacyFailed || (agents.length > 0 && records.length === 0)) {
-        console.log('\nManager API /vulnerability endpoint is not available (Wazuh 4.8+).');
-        console.log('Attempting fallback to query Wazuh Indexer on port 9200...');
-        
         const managerHost = new URL(wazuh.managerUrl.startsWith('http') ? wazuh.managerUrl : `https://${wazuh.managerUrl}`).hostname;
-        
+
         try {
           const hits = await fetchVulnerabilitiesFromIndexer(managerHost, !!wazuh.verifyTls);
-          console.log(`Successfully fetched ${hits.length} records from Wazuh Indexer.`);
+          console.log(`✓ Fetched ${hits.length} vulnerability record(s) from Wazuh Indexer.`);
           for (const hit of hits) {
             const agentId = hit.agent?.id || 'unknown';
             const agentName = hit.agent?.name || 'unknown';
@@ -562,9 +604,7 @@ export async function ingestWazuh(): Promise<void> {
             });
           }
         } catch (idxErr: any) {
-          console.error(`${RED}✗ Indexer query failed: ${idxErr.message || String(idxErr)}${RESET}`);
-          console.log(`Please make sure your Wazuh Indexer is running on port 9200 of ${managerHost} and accepts credentials admin:SecretPassword.`);
-          console.log('Alternatively, run `zti config --mock` to use mock data for testing.');
+          console.log(`${YELLOW}⚠ Vulnerability data unavailable (${idxErr.message || String(idxErr)}) — asset sync above still completed.${RESET}`);
           process.exitCode = 1;
           return;
         }

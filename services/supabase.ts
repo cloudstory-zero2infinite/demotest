@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate, MapperRunResult, MapperGraph, EmailTemplate, QuestionnaireResult, DueDiligenceChatResult, RiskRegisterEntry, RiskComputeResult, ManualRiskInput, ZtiHubStatus, ControlCheckResult, ZtiHubDevice, VulnScanJob, VulnScanFinding, VulnScanDiffRow, CspmScanJob, CspmCheckResult, CspmPreviewRow } from '../types';
+import { ProgramTask, ProgramTaskCreate, ProgramTaskUpdate, ActivityLog, InternalControl, InternalControlCreate, InternalControlUpdate, Asset, AssetCreate, AssetUpdate, Capability, CapabilityCreate, CapabilityUpdate, ControlRegistry, ControlRegistryCreate, ControlRegistryUpdate, ControlEvidenceReview, EvidenceFileMetadata, ControlNotification, OrgNotification, PolicyDocument, PolicyDocumentCreate, PolicyDocumentUpdate, PolicyV2, PolicyApproval, PolicyNotification, Compliance, ComplianceCreate, ComplianceUpdate, Contact, ContactCreate, ContactUpdate, AllActivityLog, Vulnerability, VulnerabilityCreate, VulnerabilityUpdate, PolicyNode, PolicyLink, WorkflowTemplate, ScoringSnapshot, AssetRelationshipCreate, AssetCustomField, AssetCustomFieldCreate, AssetCustomFieldUpdate, MapperRunResult, MapperGraph, EmailTemplate, QuestionnaireResult, DueDiligenceChatResult, RiskRegisterEntry, RiskComputeResult, ManualRiskInput, ZtiHubStatus, ControlCheckResult, ZtiHubDevice, VulnScanJob, VulnScanFinding, VulnScanDiffRow, CspmScanJob, CspmCheckResult, CspmPreviewRow, AssetRegistryDiffRow, AssetRegistryRow } from '../types';
 import { isDemoEnabled } from './demo/demoMode';
 import { handleDemoRequest } from './demo/demoApi';
 
@@ -121,6 +121,11 @@ const apiRequest = async <T>(path: string, options: RequestInit = {}): Promise<T
 
 
   if (!response.ok) {
+    if (response.status === 401) {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('unauthorized'));
+      }
+    }
 
     const err = await response.json().catch(() => ({ message: response.statusText }));
 
@@ -699,6 +704,9 @@ export const getAssets = async (): Promise<Asset[]> => {
 
 };
 
+export const getAssetByIpAddress = async (ipAddress: string): Promise<Asset> => {
+  return apiRequest<Asset>(`/api/assets/by-ip/${ipAddress}`);
+};
 
 
 export const addAsset = async (asset: AssetCreate): Promise<Asset> => {
@@ -1154,6 +1162,27 @@ export const importVulnScanFindings = async (
   discard: string[]
 ): Promise<{ imported: number; discarded: number }> => {
   return apiRequest<{ imported: number; discarded: number }>(`/api/vuln-scan/jobs/${jobId}/import`, {
+    method: 'POST',
+    body: JSON.stringify({ approve, discard }),
+  });
+};
+
+
+// --- ZTI Hub Services: Asset Registry - SSoT ---
+
+export const getAssetRegistry = async (): Promise<AssetRegistryRow[]> => {
+  return apiRequest<AssetRegistryRow[]>('/api/asset-registry');
+};
+
+export const getAssetRegistryDiff = async (): Promise<AssetRegistryDiffRow[]> => {
+  return apiRequest<AssetRegistryDiffRow[]>('/api/asset-registry/diff');
+};
+
+export const importAssetRegistry = async (
+  approve: string[],
+  discard: string[]
+): Promise<{ imported: number; discarded: number }> => {
+  return apiRequest<{ imported: number; discarded: number }>('/api/asset-registry/import', {
     method: 'POST',
     body: JSON.stringify({ approve, discard }),
   });

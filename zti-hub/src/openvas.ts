@@ -91,18 +91,39 @@ export class OpenVasCollector {
     const { token, cookie } = await this._gsaLogin(baseUrl, this.username, this.password);
     console.log('✔ [OpenVAS] Authenticated via GSA login.');
 
-    const resultsResponse = await this._gmpGet(
-      baseUrl,
-      'get_results',
-      { filter: 'rows=-1', details: '1' },
-      token,
-      cookie
-    );
+    // Mirrors the Vulnerabilities page: enumerate distinct vulns via get_vulns,
+    // then drill into get_results per vuln to recover host/port/CVE/solution detail
+    // that get_vulns itself doesn't include.
+    const vulnsResponse = await this._gmpGet(baseUrl, 'get_vulns', { filter: 'rows=-1 min_qod=0' }, token, cookie);
+    const vulnsStatusMatch = vulnsResponse.match(/<get_vulns_response[^>]*status="(\d+)"/i);
+    if (!vulnsStatusMatch || vulnsStatusMatch[1] !== '200') {
+      const statusText = vulnsResponse.match(/status_text="([^"]*)"/i)?.[1] || 'Unknown';
+      throw new Error(`get_vulns failed: status ${vulnsStatusMatch?.[1]} (${statusText})`);
+    }
+    const vulnIds = this._parseVulnIds(vulnsResponse);
+    console.log(`✔ [OpenVAS] Found ${vulnIds.length} vulnerabilities on the Vulnerabilities page.`);
 
-    const statusMatch = resultsResponse.match(/<get_results_response[^>]*status="(\d+)"/i);
-    if (!statusMatch || statusMatch[1] !== '200') {
-      const statusText = resultsResponse.match(/status_text="([^"]*)"/i)?.[1] || 'Unknown';
-      throw new Error(`get_results failed: status ${statusMatch?.[1]} (${statusText})`);
+    const rawVuls: RawVuln[] = [];
+    const seen = new Set<string>();
+    for (const oid of vulnIds) {
+      const resultsResponse = await this._gmpGet(
+        baseUrl,
+        'get_results',
+        { filter: `rows=-1 min_qod=0 nvt="${oid}"`, details: '1' },
+        token,
+        cookie
+      );
+      const statusMatch = resultsResponse.match(/<get_results_response[^>]*status="(\d+)"/i);
+      if (!statusMatch || statusMatch[1] !== '200') {
+        logWarn(`[OpenVAS] get_results failed for vulnerability ${oid}, skipping.`);
+        continue;
+      }
+      for (const v of this._parseXmlResults(resultsResponse)) {
+        const key = `${v.host}|${v.port}|${v.name}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rawVuls.push(v);
+      }
     }
 
     try {
@@ -111,19 +132,19 @@ export class OpenVasCollector {
       /* non-fatal */
     }
 
-    const rawVuls = this._parseXmlResults(resultsResponse);
-    console.log(`✔ [OpenVAS] Fetched ${rawVuls.length} findings from GSA.`);
+    console.log(`✔ [OpenVAS] Fetched ${rawVuls.length} findings from GSA (across ${vulnIds.length} vulnerabilities).`);
 
-    return rawVuls.map((v) => ({
-      host: v.host || 'Unknown Host',
-      ip_address: v.ip_address || '0.0.0.0',
-      port: v.port || 'general',
-      name: v.name || 'Vulnerability',
-      severity: parseFloat(String(v.severity)) || 0.0,
-      cve: v.cve || 'N/A',
-      description: v.description || 'No description provided.',
-      solution: v.solution || 'No solution provided.',
-    }));
+    return rawVuls;
+  }
+
+  _parseVulnIds(xmlString: string): string[] {
+    const ids: string[] = [];
+    const regex = /<vuln id="([^"]+)">/g;
+    let match;
+    while ((match = regex.exec(xmlString)) !== null) {
+      ids.push(match[1]);
+    }
+    return ids;
   }
 
   _gsaLogin(baseUrl: string, username: string, password: string): Promise<{ token: string; cookie: string }> {
@@ -132,7 +153,7 @@ export class OpenVasCollector {
       const isHttps = parsedUrl.protocol === 'https:';
 
       const body = Buffer.from(
-        `login=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`,
+        `cmd=login&login=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`,
         'utf8'
       );
 

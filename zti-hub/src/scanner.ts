@@ -95,7 +95,7 @@ function mockScan(target: ScanTarget): ScanFinding[] {
 }
 
 // ── Real scanner (experimental) ───────────────────────────────────────────────
-// Drives a running Greenbone/GVM instance via `gvm-cli`. A full GMP scan is a
+// Drives a running Greenbone/GVM instance via gvm-cli. A full GMP scan is a
 // multi-step workflow (create target → create task → start → poll → get report);
 // here we run a connectivity probe and surface a clear error until the full
 // orchestration is enabled in Phase 5. Treat as experimental, mirroring runProwler.
@@ -126,7 +126,7 @@ function realScan(target: ScanTarget, cfg: ZtiConfig): Promise<ScanFinding[]> {
       // Connectivity OK but full scan orchestration is not yet wired (Phase 5).
       reject(
         new Error(
-          'GVM reachable, but real scan orchestration is not enabled yet (Phase 5). Use `zti config --mock` for now.'
+          'GVM reachable, but real scan orchestration is not enabled yet (Phase 5). Use zti config --mock for now.'
         )
       );
     });
@@ -159,7 +159,7 @@ export function rawVulnsToScanFindings(rawVulns: RawCollectorVuln[]): ScanFindin
     return {
       host: v.host || 'Unknown Host',
       port: v.port || 'general',
-      cve_id: v.cve || 'N/A',
+      cve_id: v.cve && v.cve !== 'N/A' ? v.cve : undefined,
       vuln_name: v.name || 'Vulnerability',
       description: v.description || '',
       cvss_score: cvss || null,

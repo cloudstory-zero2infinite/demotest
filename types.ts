@@ -146,6 +146,36 @@ export type AssetRelationshipCreate = Omit<AssetRelationship, 'id' | 'created_at
 export type AssetRelationshipUpdate = Partial<AssetRelationshipCreate>;
 
 
+// Asset Registry - SSoT (ZTI Hub Services). Raw integration syncs (Wazuh
+// today) staged for analyst review before becoming real assets.
+export type AssetRegistryReviewStatus = 'pending' | 'discarded' | 'imported';
+
+export interface AssetRegistryRow {
+    id: string;
+    org_id: string;
+    integration: string;
+    external_id: string;
+    name: string | null;
+    ip_address: string | null;
+    status: string | null;
+    category: string | null;
+    criticality: string | null;
+    exposure: string | null;
+    details: string | null;
+    source: string | null;
+    custom_fields?: Record<string, any> | null;
+    review_status: AssetRegistryReviewStatus;
+    asset_id: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface AssetRegistryDiffRow {
+    incoming: AssetRegistryRow;
+    current: Asset | null;
+    conflict: boolean;
+}
+
 // Policies
 export type PolicyStatus = 0 | 1; // 0: Draft, 1: Published
 export type DocumentContentType = 0 | 1 | 2; // 0: Use Content, 1: Use Attachments, 2: Use URL

@@ -2317,43 +2317,54 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
 
 
 
+   const initializedRef = useRef(false);
+    const prevControlToEditRef = useRef<ControlRegistry | null>(null);
+
     useEffect(() => {
-        if (isOpen) {
-            if (controlToEdit) {
-                // Initialize custom fields data with current values or defaults
-                const customFieldsData: Record<string, any> = {};
-                customFields.forEach(field => {
-                    customFieldsData[field.field_name] = controlToEdit.custom_fields?.[field.field_name] || '';
-                });
+        if (!isOpen) {
+            initializedRef.current = false;
+            prevControlToEditRef.current = null;
+            return;
+        }
 
-                setFormData({
-                    ctl_id: controlToEdit.ctl_id,
-                    ctl_name: controlToEdit.ctl_name,
-                    ctl_status: controlToEdit.ctl_status,
-                    ctl_type: controlToEdit.ctl_type,
-                    enforcement_type: controlToEdit.enforcement_type,
-                    ctl_description: controlToEdit.ctl_description ?? '',
-                    ctld_by: controlToEdit.ctld_by ?? [],
-                    ctl_ref_fw: fwToString(controlToEdit.ctl_ref_fw),
-                    ctl_other_details: controlToEdit.ctl_other_details ?? '',
-                    maturity_score: controlToEdit.maturity_score ?? 0,
-                    custom_fields: customFieldsData,
-                });
-            } else {
-                // Initialize custom fields data for new control
-                const customFieldsData: Record<string, any> = {};
-                customFields.forEach(field => {
-                    customFieldsData[field.field_name] = '';
-                });
+        if (initializedRef.current && prevControlToEditRef.current === controlToEdit) {
+            return;
+        }
 
-                setFormData({
-                    ...DEFAULT_FORM,
-                    custom_fields: customFieldsData,
-                });
-            }
+        initializedRef.current = true;
+        prevControlToEditRef.current = controlToEdit;
+
+        if (controlToEdit) {
+            const customFieldsData: Record<string, any> = {};
+            customFields.forEach(field => {
+                customFieldsData[field.field_name] = controlToEdit.custom_fields?.[field.field_name] || '';
+            });
+
+            setFormData({
+                ctl_id: controlToEdit.ctl_id,
+                ctl_name: controlToEdit.ctl_name,
+                ctl_status: controlToEdit.ctl_status,
+                ctl_type: controlToEdit.ctl_type,
+                enforcement_type: controlToEdit.enforcement_type,
+                ctl_description: controlToEdit.ctl_description ?? '',
+                ctld_by: controlToEdit.ctld_by ?? [],
+                ctl_ref_fw: fwToString(controlToEdit.ctl_ref_fw),
+                ctl_other_details: controlToEdit.ctl_other_details ?? '',
+                maturity_score: controlToEdit.maturity_score ?? 0,
+                custom_fields: customFieldsData,
+            });
+        } else {
+            const customFieldsData: Record<string, any> = {};
+            customFields.forEach(field => {
+                customFieldsData[field.field_name] = '';
+            });
+
+            setFormData({
+                ...DEFAULT_FORM,
+                custom_fields: customFieldsData,
+            });
         }
     }, [controlToEdit, isOpen, customFields]);
-
 
 
 
@@ -2767,7 +2778,7 @@ const ControlModal: React.FC<ControlModalProps> = ({ isOpen, onClose, onSave, co
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Other Details</label>
 
-
+                        <input type="text" name="ctl_other_details" value={formData.ctl_other_details} onChange={handleChange} readOnly={isFieldsDisabled || isSystemFieldFrozen || isNNFieldFrozen} placeholder="other details" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                     </div>
 
 

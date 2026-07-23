@@ -16,6 +16,15 @@ const router = Router();
 const ALLOWED_TARGET_TYPES = ['all', 'subnet', 'ip', 'local'];
 const AUDIT_TARGET_ALIASES = ['ad', 'host'];
 
+// Scanners (esp. OpenVAS) send the literal string "N/A" for findings with no
+// real CVE. Treated as a real value it collides every such finding onto one
+// shared "N/A" vulnerability_management row instead of being matched by name.
+function normalizeCve(cveId) {
+  if (!cveId) return null;
+  const trimmed = String(cveId).trim();
+  return trimmed && trimmed.toUpperCase() !== 'N/A' ? trimmed : null;
+}
+
 function derivedFromForJob(job) {
   if (job?.scanner === 'ad') return 'AD';
   return 'Scanning';
@@ -122,7 +131,7 @@ router.post('/jobs/:id/findings', requireDevice, async (req, res) => {
       scan_job_id: req.params.id,
       host: f.host || null,
       port: f.port || null,
-      cve_id: f.cve_id || null,
+      cve_id: normalizeCve(f.cve_id),
       vuln_name: f.vuln_name || f.name || 'Unknown finding',
       description: f.description || null,
       cvss_score: f.cvss_score ?? null,
@@ -167,15 +176,26 @@ router.get('/jobs', requireAuth, async (req, res) => {
     const ids = (jobs || []).map((j) => j.id);
     const pendingByJob = new Map();
     if (ids.length) {
-      const { data: f } = await supabaseAdmin
-        .from('vuln_scan_findings')
-        .select('scan_job_id, review_status')
-        .in('scan_job_id', ids);
-      for (const row of f || []) {
-        if (!pendingByJob.has(row.scan_job_id)) pendingByJob.set(row.scan_job_id, { pending: 0, total: 0 });
-        const e = pendingByJob.get(row.scan_job_id);
-        e.total += 1;
-        if (row.review_status === 'pending') e.pending += 1;
+      // PostgREST caps an unbounded select at its default row limit (commonly 1000),
+      // silently truncating the count for orgs with many findings. Page through
+      // all matching rows so newer jobs don't read back as 0 findings.
+      const PAGE_SIZE = 1000;
+      let offset = 0;
+      for (;;) {
+        const { data: f, error: fErr } = await supabaseAdmin
+          .from('vuln_scan_findings')
+          .select('scan_job_id, review_status')
+          .in('scan_job_id', ids)
+          .range(offset, offset + PAGE_SIZE - 1);
+        if (fErr) throw fErr;
+        for (const row of f || []) {
+          if (!pendingByJob.has(row.scan_job_id)) pendingByJob.set(row.scan_job_id, { pending: 0, total: 0 });
+          const e = pendingByJob.get(row.scan_job_id);
+          e.total += 1;
+          if (row.review_status === 'pending') e.pending += 1;
+        }
+        if (!f || f.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
       }
     }
     res.json((jobs || []).map((j) => ({
@@ -221,7 +241,7 @@ router.get('/jobs/:id/diff', requireAuth, async (req, res) => {
       .eq('review_status', 'pending');
     if (error) throw error;
 
-    const cves = [...new Set((findings || []).map((f) => f.cve_id).filter(Boolean))];
+    const cves = [...new Set((findings || []).map((f) => normalizeCve(f.cve_id)).filter(Boolean))];
     const names = [...new Set((findings || []).map((f) => f.vuln_name).filter(Boolean))];
 
     const existing = [];
@@ -244,12 +264,14 @@ router.get('/jobs/:id/diff', requireAuth, async (req, res) => {
     const byCve = new Map();
     const byName = new Map();
     for (const e of existing) {
-      if (e.cve_id && !byCve.has(e.cve_id)) byCve.set(e.cve_id, e);
+      const eCve = normalizeCve(e.cve_id);
+      if (eCve && !byCve.has(eCve)) byCve.set(eCve, e);
       if (e.name && !byName.has(e.name)) byName.set(e.name, e);
     }
 
     res.json((findings || []).map((f) => {
-      const current = (f.cve_id && byCve.get(f.cve_id)) || byName.get(f.vuln_name) || null;
+      const fCve = normalizeCve(f.cve_id);
+      const current = (fCve && byCve.get(fCve)) || byName.get(f.vuln_name) || null;
       return { incoming: f, current, conflict: !!current };
     }));
   } catch (err) {
@@ -296,13 +318,14 @@ router.post('/jobs/:id/import', requireAuth, async (req, res) => {
 
       for (const f of findings || []) {
         // Find an existing row to update (collide on cve_id, else exact name).
+        const fCve = normalizeCve(f.cve_id);
         let existing = null;
-        if (f.cve_id) {
+        if (fCve) {
           const { data } = await supabaseAdmin
             .from('vulnerability_management')
             .select('id:vuln_id')
             .eq('org_id', req.orgId)
-            .eq('cve_id', f.cve_id)
+            .eq('cve_id', fCve)
             .maybeSingle();
           existing = data;
         }
@@ -320,7 +343,7 @@ router.post('/jobs/:id/import', requireAuth, async (req, res) => {
           name: f.vuln_name,
           description: f.description,
           derived_from: derivedFrom,
-          cve_id: f.cve_id,
+          cve_id: fCve,
           cvss_score: f.cvss_score,
           priority: f.priority,
           scan_job_id: f.scan_job_id,
