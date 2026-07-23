@@ -316,7 +316,7 @@ interface OrganisationTabProps {
 
 type OrgSubTabId = 'tenant_admin' | 'view_org' | 'templates' | 'settings';
 
-export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, isActive = true }) => {
+export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, activeSubTab: activeSubTabProp, isActive = true }) => {
     const isPlatformAdmin = userRole === 'tenant_admin' || userRole === 'admin' || userRole === 'cxo' || userRole === 'read-only';
     const canManageMembers = userRole === 'tenant_admin' || userRole === 'admin' || userRole === 'read-only';
     const canManageSettings = userRole === 'tenant_admin' || userRole === 'admin' || userRole === 'cxo' || userRole === 'read-only';
@@ -333,9 +333,14 @@ export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, isAc
             const next = new Set(prev);
             next.add(tab);
             return next;
-            return next;
         });
     };
+
+    useEffect(() => {
+        if (activeSubTabProp) {
+            handleSubTabChange(activeSubTabProp as OrgSubTabId);
+        }
+    }, [activeSubTabProp]);
 
     const subTabs: { id: OrgSubTabId; label: string; adminOnly?: boolean }[] = [
         { id: 'tenant_admin', label: 'Manage Member & ZTI-HUB', adminOnly: true },

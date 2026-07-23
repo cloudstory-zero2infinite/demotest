@@ -3,7 +3,8 @@ FROM node:20-alpine
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install
+# CI=true skips the postinstall's `playwright install` (browsers the app never uses).
+RUN CI=true npm install
 
 COPY . .
 

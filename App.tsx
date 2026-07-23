@@ -615,6 +615,7 @@ const App: React.FC = () => {
           <OrganisationTab
             userRole={platformAdminRole}
             isActive={activeTab === "organisation"}
+            activeSubTab={activeOrgSubTab}
           />
         </div>
 

@@ -15,6 +15,58 @@ import { convertHtmlToMarkdown } from './policy-templates.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
+function findMatchingPolicy(href, text, allPolicies) {
+  if (!allPolicies || allPolicies.length === 0) return null;
+  const cleanHref = href.toLowerCase().trim();
+  const cleanText = text.toLowerCase().trim();
+  
+  for (const policy of allPolicies) {
+    const pId = (policy.policy_id || '').toLowerCase().trim();
+    const pRef = (policy.policy_ref || '').toLowerCase().trim();
+    const pName = (policy.name || '').toLowerCase().trim();
+    
+    if (
+      (pId && (cleanHref === pId || cleanHref.includes(pId))) ||
+      (pRef && (cleanHref === pRef || cleanHref.includes(pRef) || cleanHref.startsWith(pRef) || cleanText.includes(pRef))) ||
+      (pName && (cleanHref === pName || cleanText === pName))
+    ) {
+      return policy;
+    }
+    
+    const strippedHref = cleanHref.replace(/\.(md|pdf|docx|txt)$/, '').split('/').pop();
+    if (strippedHref && (strippedHref === pId || strippedHref === pRef || strippedHref === pName)) {
+      return policy;
+    }
+  }
+  return null;
+}
+
+function processMarkdownLinks(md, allPolicies, isBackend = false, isPreview = false) {
+  if (!md) return md;
+  const linkRegex = /(^|[^!])\[(.*?)\]\((.*?)\)/g;
+  
+  return md.replace(linkRegex, (match, prefix, text, href) => {
+    const isExternal = href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:');
+    const matchedPolicy = findMatchingPolicy(href, text, allPolicies);
+    
+    if (matchedPolicy) {
+      if (isBackend) {
+        if (isPreview) {
+          return `${prefix}<a href="javascript:void(0)" onclick="window.parent.postMessage({type:'OPEN_POLICY',policyId:'${matchedPolicy.policy_id}'},'*'); event.stopPropagation();" style="color: #2563eb; text-decoration: underline;">${text}</a>`;
+        }
+        return `${prefix}<a href="?policyId=${matchedPolicy.policy_id}" style="color: #2563eb; text-decoration: underline;">${text}</a>`;
+      } else {
+        return `${prefix}<a href="javascript:void(0)" onclick="window.parent.postMessage({type:'OPEN_POLICY',policyId:'${matchedPolicy.policy_id}'},'*'); window.postMessage({type:'OPEN_POLICY',policyId:'${matchedPolicy.policy_id}'},'*'); event.stopPropagation();" class="text-blue-600 dark:text-blue-400 hover:underline font-medium">${text}</a>`;
+      }
+    } else {
+      if (isExternal) {
+        return match;
+      }
+      return `${prefix}${text}`;
+    }
+  });
+}
+
 async function fetchImageBase64(url) {
   if (!url) return '';
   return new Promise((resolve) => {
@@ -43,6 +95,92 @@ const router = Router();
 // ── Utility: log to all_activity_log (fire-and-forget) ─────────────────────
 function logActivity(payload) {
   supabaseAdmin.from('all_activity_log').insert(payload).then(() => {});
+}
+
+function countApprovals(versionHistory) {
+  if (!versionHistory || !Array.isArray(versionHistory)) return 0;
+  return versionHistory.filter(h => {
+    const ev = (h.event || '').toLowerCase();
+    return ev.includes('approved') || ev === 'revised';
+  }).length;
+}
+
+function incrementVersion(versionStr) {
+  if (!versionStr) return '1.0';
+  const clean = versionStr.replace(/^[vV]/, '').trim();
+  const parts = clean.split('.');
+  if (parts.length >= 2) {
+    const major = parseInt(parts[0], 10);
+    const minor = parseInt(parts[1], 10);
+    if (!isNaN(major) && !isNaN(minor)) {
+      return `${major}.${minor + 1}`;
+    }
+  }
+  const num = parseFloat(clean);
+  if (!isNaN(num)) {
+    return (num + 0.1).toFixed(1);
+  }
+  return '1.0';
+}
+
+function updatePolicyVersionAndHistory(markdown, doc_lang, newVersion, eventName, dateStr) {
+  const versionPrefix = newVersion.startsWith('v') ? newVersion : `v${newVersion}`;
+  const historyLine = `* **${versionPrefix}** – ${eventName} on ${dateStr}`;
+
+  // 1. Update doc_lang
+  let updatedDocLang = doc_lang ? { ...doc_lang } : {};
+  updatedDocLang.version = newVersion;
+  if (!updatedDocLang.version_history) {
+    updatedDocLang.version_history = [];
+  }
+  
+  // Clean potential duplicate entry for the exact version prefix and event
+  updatedDocLang.version_history = updatedDocLang.version_history.filter(
+    h => !(h.version === versionPrefix && h.event === eventName)
+  );
+  
+  updatedDocLang.version_history.push({
+    version: versionPrefix,
+    event: eventName,
+    date: dateStr,
+    raw: historyLine
+  });
+
+  // 2. Update markdown version in metadata table
+  let updatedMarkdown = markdown || '';
+  const versionTableRegex = /(\|\s*\*\*Version:\*\*\s*\|\s*)([^\s|]+)(\s*\|)/i;
+  const versionLineRegex = /(\*\*Version:\*\*\s*)([^\s\n]+)/i;
+  
+  if (versionTableRegex.test(updatedMarkdown)) {
+    updatedMarkdown = updatedMarkdown.replace(versionTableRegex, `$1${newVersion}$3`);
+  } else if (versionLineRegex.test(updatedMarkdown)) {
+    updatedMarkdown = updatedMarkdown.replace(versionLineRegex, `$1${newVersion}`);
+  }
+
+  // 3. Update doc_lang.metadata.version if it exists
+  if (updatedDocLang.metadata) {
+    updatedDocLang.metadata.version = newVersion;
+  }
+
+  // 4. Update or append "## Version History" section in markdown
+  const versionHistoryHeader = '## Version History';
+  const historyListStr = updatedDocLang.version_history.map(h => h.raw).join('\n');
+
+  if (updatedMarkdown.includes(versionHistoryHeader)) {
+    const parts = updatedMarkdown.split(versionHistoryHeader);
+    const postHeader = parts[1];
+    const nextHeadingIndex = postHeader.search(/\n#/);
+    if (nextHeadingIndex !== -1) {
+      const rest = postHeader.substring(nextHeadingIndex);
+      updatedMarkdown = parts[0] + versionHistoryHeader + '\n\n' + historyListStr + '\n' + rest;
+    } else {
+      updatedMarkdown = parts[0] + versionHistoryHeader + '\n\n' + historyListStr;
+    }
+  } else {
+    updatedMarkdown = updatedMarkdown.trim() + '\n\n' + versionHistoryHeader + '\n\n' + historyListStr;
+  }
+
+  return { updatedMarkdown, updatedDocLang };
 }
 
 async function notifyAdmins(orgId, excludeUserId, notificationData) {
@@ -784,6 +922,12 @@ router.get('/:id/download', requireAuth, async (req, res) => {
       return res.status(404).json({ message: 'Policy not found.' });
     }
 
+    // Fetch all policies in the organization
+    const { data: allPolicies } = await supabaseAdmin
+      .from('policy_documents')
+      .select('policy_id, policy_ref, name')
+      .eq('org_id', req.orgId);
+
     // 2. Fetch organization and settings
     const { data: org, error: orgErr } = await supabaseAdmin
       .from('organizations')
@@ -1088,7 +1232,8 @@ router.get('/:id/download', requireAuth, async (req, res) => {
       : policyMarkdown;
 
     // Compile markdown policy content to HTML using the pre-replaced markdown
-    const policyContentHtml = marked.parse(cleanPolicyMarkdown || '# ' + policy.name + '\n\nNo content.');
+    const processedPolicyMarkdown = processMarkdownLinks(cleanPolicyMarkdown, allPolicies, true, req.query.preview === 'true');
+    const policyContentHtml = marked.parse(processedPolicyMarkdown || '# ' + policy.name + '\n\nNo content.');
 
     // Custom template variables (user defined)
     const customVars = template?.placeholders || {};
@@ -1122,7 +1267,11 @@ router.get('/:id/download', requireAuth, async (req, res) => {
     const auditJustMd = extractSectionContent(sections, ['audit', 'justification'], 9);
 
     // Helper to format html values
-    const parseToHtml = (md) => md ? marked.parse(md) : '';
+    const parseToHtml = (md) => {
+      if (!md) return '';
+      const processed = processMarkdownLinks(md, allPolicies, true, req.query.preview === 'true');
+      return marked.parse(processed);
+    };
 
     // Values for DOCX (mail-merge: clean text/markdown)
     const placeholderValues = {
@@ -1752,7 +1901,7 @@ router.get('/:id/download', requireAuth, async (req, res) => {
 
           <div class="footer">
             <span>{{footer_content}}</span>
-            <span>Generated securely by ZeroTo1 GRC</span>
+            <span>Generated securely by ZTI</span>
           </div>
         </body>
         </html>
@@ -1989,6 +2138,7 @@ router.post('/', requireAuth, async (req, res) => {
         user_email: req.user?.email || actorName,
         from_status: null,
         to_status: policy_status,
+        version: data.version,
       },
     });
 
@@ -2014,7 +2164,7 @@ router.put('/:id', requireAuth, async (req, res) => {
 
     const { data: current, error: currentError } = await supabaseAdmin
       .from('policy_documents')
-      .select('policy_status, name, next_review_date')
+      .select('policy_status, name, next_review_date, version, doc_lang, markdown, policy_ref, document_type, owner_name')
       .eq('policy_id', req.params.id)
       .eq('org_id', req.orgId)
       .single();
@@ -2023,15 +2173,42 @@ router.put('/:id', requireAuth, async (req, res) => {
       return res.status(404).json({ message: 'Policy not found' });
     }
 
+    const isTransitioningToDraft = 
+      (current?.policy_status === 'approved' || current?.policy_status === 'reviewed') && 
+      policy_status === 'draft';
+
+    let finalVersion = doc_lang?.version || meta.version || current?.version || '1.0';
+
+    if (isTransitioningToDraft) {
+      const approvalsCount = countApprovals(current?.doc_lang?.version_history);
+      if (approvalsCount >= 1) {
+        const nextVerNum = 1.0 + (2 * approvalsCount - 1) * 0.1;
+        finalVersion = nextVerNum.toFixed(1);
+      } else {
+        finalVersion = '1.0';
+      }
+
+      const todayStr = new Date().toLocaleDateString('en-US');
+      const result = updatePolicyVersionAndHistory(
+        finalMarkdown !== undefined ? finalMarkdown : (current?.markdown || ''),
+        finalDocLang !== undefined ? finalDocLang : (current?.doc_lang || {}),
+        finalVersion,
+        'Moved back to Draft',
+        todayStr
+      );
+      finalMarkdown = result.updatedMarkdown;
+      finalDocLang = result.updatedDocLang;
+    }
+
     const updatePayload = {
-      ...(finalMarkdown !== undefined || finalDocLang !== undefined ? {
-        markdown: finalMarkdown,
-        doc_lang: finalDocLang,
+      ...(finalMarkdown !== undefined || finalDocLang !== undefined || isTransitioningToDraft ? {
+        markdown: finalMarkdown !== undefined ? finalMarkdown : current?.markdown,
+        doc_lang: finalDocLang !== undefined ? finalDocLang : current?.doc_lang,
         name: doc_lang?.title || meta.name || current?.name || 'Untitled Policy',
-        policy_ref: doc_lang?.document_id || meta.policy_ref || null,
-        version: doc_lang?.version || meta.version || 'V1.0',
-        document_type: doc_lang?.document_type || meta.document_type || null,
-        owner_name: doc_lang?.metadata?.owner_name || meta.owner_name || null,
+        policy_ref: doc_lang?.document_id || meta.policy_ref || current?.policy_ref || null,
+        version: finalVersion,
+        document_type: doc_lang?.document_type || meta.document_type || current?.document_type || null,
+        owner_name: doc_lang?.metadata?.owner_name || meta.owner_name || current?.owner_name || null,
 
         // NOTE: refresh_date (the renewal/due date) is intentionally NOT set here.
         // It is owned solely by the approval flow (POST /:id/approve) — editing a
@@ -2073,6 +2250,7 @@ router.put('/:id', requireAuth, async (req, res) => {
         user_email: req.user?.email || actorName,
         from_status: current?.policy_status,
         to_status: policy_status || current?.policy_status,
+        version: data.version,
       },
     });
 
@@ -2128,7 +2306,7 @@ router.post('/:id/submit-approval', requireAuth, async (req, res) => {
 
     const { data: policy } = await supabaseAdmin
       .from('policy_documents')
-      .select('name, policy_status')
+      .select('name, policy_status, version')
       .eq('policy_id', policyId)
       .single();
 
@@ -2153,7 +2331,10 @@ router.post('/:id/submit-approval', requireAuth, async (req, res) => {
 
     await supabaseAdmin
       .from('policy_documents')
-      .update({ policy_status: 'in_approval', updated_at: new Date().toISOString() })
+      .update({
+        policy_status: 'in_approval',
+        updated_at: new Date().toISOString()
+      })
       .eq('policy_id', policyId);
 
     if (approver_id) {
@@ -2183,6 +2364,7 @@ router.post('/:id/submit-approval', requireAuth, async (req, res) => {
         comment: `Sent to ${approver_name} (${approver_email}) for approval`,
         approver_name,
         approver_email,
+        version: policy.version,
       },
     });
 
@@ -2201,7 +2383,7 @@ router.post('/:id/submit-review', requireAuth, async (req, res) => {
 
     const { data: policy } = await supabaseAdmin
       .from('policy_documents')
-      .select('name, policy_status')
+      .select('name, policy_status, version')
       .eq('policy_id', policyId)
       .single();
 
@@ -2226,7 +2408,10 @@ router.post('/:id/submit-review', requireAuth, async (req, res) => {
 
     await supabaseAdmin
       .from('policy_documents')
-      .update({ policy_status: 'to_review', updated_at: new Date().toISOString() })
+      .update({
+        policy_status: 'to_review',
+        updated_at: new Date().toISOString()
+      })
       .eq('policy_id', policyId);
 
     if (reviewer_id) {
@@ -2263,6 +2448,7 @@ router.post('/:id/submit-review', requireAuth, async (req, res) => {
         comment: `Sent to ${reviewer_name} (${reviewer_email}) for review`,
         approver_name: reviewer_name,
         approver_email: reviewer_email,
+        version: policy.version,
       },
     });
 
@@ -2281,7 +2467,7 @@ router.post('/:id/approve', requireAuth, async (req, res) => {
 
     const { data: policy } = await supabaseAdmin
       .from('policy_documents')
-      .select('name, policy_status, user_id')
+      .select('name, policy_status, user_id, version, doc_lang, markdown, updated_at')
       .eq('policy_id', policyId)
       .single();
 
@@ -2299,6 +2485,33 @@ router.post('/:id/approve', requireAuth, async (req, res) => {
     refreshDate.setMonth(refreshDate.getMonth() + months);
     const refreshDateStr = refreshDate.toISOString().split('T')[0];
 
+    // Compute automatic version and audit trail
+    let finalVersion = policy.version || '1.0';
+    let finalMarkdown = policy.markdown || '';
+    let finalDocLang = policy.doc_lang || {};
+
+    const approvalDateStr = new Date().toLocaleDateString('en-US');
+    const approvalsCount = countApprovals(policy.doc_lang?.version_history);
+    let eventName = 'Created/Approved';
+    if (approvalsCount === 0) {
+      finalVersion = '1.0';
+      eventName = 'Created/Approved';
+    } else {
+      const nextVerNum = 1.0 + (2 * approvalsCount) * 0.1;
+      finalVersion = nextVerNum.toFixed(1);
+      eventName = 'Approved after revision';
+    }
+
+    const result = updatePolicyVersionAndHistory(
+      finalMarkdown,
+      finalDocLang,
+      finalVersion,
+      eventName,
+      approvalDateStr
+    );
+    finalMarkdown = result.updatedMarkdown;
+    finalDocLang = result.updatedDocLang;
+
     await supabaseAdmin
       .from('policy_approvals')
       .update({ status: 'approved', comment: comment || null, updated_at: new Date().toISOString() })
@@ -2310,6 +2523,9 @@ router.post('/:id/approve', requireAuth, async (req, res) => {
       .update({
         policy_status: 'approved',
         refresh_date: refreshDateStr,
+        version: finalVersion,
+        markdown: finalMarkdown,
+        doc_lang: finalDocLang,
         // New approval cycle → clear any reminders sent for the previous cycle.
         reminder_14d_sent_at: null,
         reminder_7d_sent_at: null,
@@ -2356,6 +2572,7 @@ router.post('/:id/approve', requireAuth, async (req, res) => {
         from_status: prevStatus,
         to_status: 'approved',
         comment: comment || null,
+        version: finalVersion,
       },
     });
 
@@ -2375,7 +2592,7 @@ router.post('/:id/review', requireAuth, async (req, res) => {
 
     const { data: policy } = await supabaseAdmin
       .from('policy_documents')
-      .select('name, policy_status, user_id')
+      .select('name, policy_status, user_id, version')
       .eq('policy_id', policyId)
       .single();
 
@@ -2459,6 +2676,7 @@ router.post('/:id/review', requireAuth, async (req, res) => {
         from_status: prevStatus,
         to_status: 'reviewed',
         comment: comment || null,
+        version: policy.version,
       },
     });
 
@@ -2478,7 +2696,7 @@ router.post('/:id/reject', requireAuth, async (req, res) => {
 
     const { data: policy } = await supabaseAdmin
       .from('policy_documents')
-      .select('name, policy_status, user_id')
+      .select('name, policy_status, user_id, version')
       .eq('policy_id', policyId)
       .single();
 
@@ -2520,6 +2738,7 @@ router.post('/:id/reject', requireAuth, async (req, res) => {
         from_status: prevStatus,
         to_status: 'draft',
         comment: comment || null,
+        version: policy.version,
       },
     });
 

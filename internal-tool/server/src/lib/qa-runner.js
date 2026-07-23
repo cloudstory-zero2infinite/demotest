@@ -21,10 +21,42 @@ export const E2E_ROOT =
 const SPECS_DIR = path.join(E2E_ROOT, 'e2e', 'specs');
 const AUTH_FILE = path.join(E2E_ROOT, 'e2e', 'fixtures', 'user.json');
 
-// Always run against pre-prod (per product decision). Override via PREPROD_BASE_URL.
+// pre-prod default so the tool works out of the box locally.
 export const PREPROD_BASE_URL =
+  process.env.E2E_URL_PRE_PROD ||
   process.env.PREPROD_BASE_URL ||
   'https://pre-prod-987276481381.asia-south1.run.app';
+
+// Selectable environments are discovered from E2E_URL_<ENV> env vars, e.g.
+// E2E_URL_PRE_PROD, E2E_URL_PROD, E2E_URL_DEV, E2E_URL_QA, E2E_URL_STAGE.
+// Adding a new environment = set a new E2E_URL_* var (no code change). An env
+// appears only if its URL is set (pre-prod always present via the default above).
+// Same E2E_EMAIL/E2E_PASSWORD authenticate against all (shared Supabase project).
+export function listEnvironments() {
+  const map = new Map();
+  map.set('pre-prod', PREPROD_BASE_URL);
+  if (process.env.PROD_BASE_URL) map.set('prod', process.env.PROD_BASE_URL); // legacy
+  for (const [k, v] of Object.entries(process.env)) {
+    if (!k.startsWith('E2E_URL_') || !v) continue;
+    const id = k.slice('E2E_URL_'.length).toLowerCase().replace(/_/g, '-');
+    map.set(id, v);
+  }
+  const rank = (id) => (id === 'pre-prod' ? 0 : id === 'prod' ? 1 : 2);
+  return [...map.entries()]
+    .map(([id, url]) => ({ id, url }))
+    .sort((a, b) => rank(a.id) - rank(b.id) || a.id.localeCompare(b.id));
+}
+
+// Resolve the base URL for an environment; throws if it isn't configured.
+export function baseUrlForEnv(environment) {
+  const found = listEnvironments().find((e) => e.id === environment);
+  if (!found || !found.url) {
+    const err = new Error(`Environment not configured: ${environment}`);
+    err.code = 'BAD_ENV';
+    throw err;
+  }
+  return found.url;
+}
 
 // Where per-run artifacts (html report + results.json) are written.
 const RUNS_DIR = path.join(os.tmpdir(), 'qa-runs');
@@ -120,6 +152,7 @@ export function publicRun(run) {
   return {
     runId: run.runId,
     suite: run.suite,
+    environment: run.environment,
     status: run.status, // running | passed | failed | error
     baseUrl: run.baseUrl,
     version: run.version,
@@ -206,12 +239,14 @@ export function isBusy() {
  * @param {string} suiteId  a suite folder name, or "all" for the full suite.
  * @returns {RunRecord}
  */
-export async function startRun(suiteId) {
+export async function startRun(suiteId, environment = 'pre-prod') {
   if (activeRunId) {
     const err = new Error('A run is already in progress.');
     err.code = 'BUSY';
     throw err;
   }
+
+  const baseUrl = baseUrlForEnv(environment); // throws BAD_ENV if not configured
 
   // Validate the suite id against the real folder list to avoid arg injection.
   let specArg = null; // null => whole testDir (run all)
@@ -249,8 +284,9 @@ export async function startRun(suiteId) {
   const run = {
     runId,
     suite: suiteId || 'all',
+    environment,
     status: 'running',
-    baseUrl: PREPROD_BASE_URL,
+    baseUrl,
     version: null,
     startedAt: new Date().toISOString(),
     finishedAt: null,
@@ -279,7 +315,7 @@ export async function startRun(suiteId) {
     cwd: E2E_ROOT,
     env: {
       ...process.env,
-      BASE_URL: PREPROD_BASE_URL,
+      BASE_URL: baseUrl,
       LOGIN_MODE: 'email',
       E2E_EMAIL: email,
       E2E_PASSWORD: password,
@@ -310,7 +346,7 @@ export async function startRun(suiteId) {
       await organizeScreenshots(run);
       run.reportReady = fs.existsSync(path.join(reportDir, 'index.html'));
       // Probe the deployed app version using the session the run just created.
-      run.version = await captureVersion().catch(() => null);
+      run.version = await captureVersion(run.baseUrl).catch(() => null);
       finishRun(run, { crashed: false, message: stderrTail });
     } catch (e) {
       finishRun(run, { crashed: true, message: e.message || stderrTail });
@@ -509,13 +545,13 @@ function stripAnsi(s) {
  * version from the app header (components/Header.tsx renders it in a span
  * with title="Build <version>").
  */
-async function captureVersion() {
+async function captureVersion(baseUrl = PREPROD_BASE_URL) {
   if (!fs.existsSync(AUTH_FILE)) return null;
   const browser = await chromium.launch({ headless: true });
   try {
     const context = await browser.newContext({ storageState: AUTH_FILE });
     const page = await context.newPage();
-    await page.goto(PREPROD_BASE_URL, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
     const badge = page.locator('span[title^="Build "]').first();
     await badge.waitFor({ state: 'visible', timeout: 20000 });
     const text = (await badge.textContent())?.trim();

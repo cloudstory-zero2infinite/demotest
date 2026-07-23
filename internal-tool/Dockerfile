@@ -1,33 +1,36 @@
-FROM node:22-alpine
+# Playwright image (Node + Chromium) so the deployed internal tool can run E2E.
+# Build from the REPO ROOT (see deploy.sh) to include e2e/ specs + playwright.config.ts.
+FROM mcr.microsoft.com/playwright:v1.59.1-jammy
 
 WORKDIR /app
+# Where the runner finds e2e/specs + playwright.config.ts.
+ENV E2E_ROOT=/app
 
-# Install frontend deps first (better layer caching)
+# Root E2E harness (@playwright/test + specs + config).
 COPY package*.json ./
-RUN npm install
+# CI=true skips the postinstall that installs ALL browsers; we add chromium only.
+RUN CI=true npm install
+RUN npx playwright install chromium
+COPY playwright.config.ts ./
+COPY e2e ./e2e
 
-# Copy the full project (this includes ../ai-agent/ontology only if you build from the
-# monorepo root with this Dockerfile path — but we build from /internal-tool, so we
-# only get this folder's files. That is fine; ontology files will fall back to a stub.)
-COPY . .
+# ── Internal-tool app (frontend + backend) ──
+COPY internal-tool ./internal-tool
+RUN cd internal-tool && npm install && cd server && npm install
 
-# Install backend deps
-RUN cd server && npm install
-
-# Build args for the Vite frontend
+# Build the Vite frontend
 ARG VITE_SUPABASE_URL
 ARG VITE_SUPABASE_ANON_KEY
 ARG VITE_API_BASE_URL=""
 ARG VITE_APP_VERSION=dev
-
 ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
 ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 ENV VITE_APP_VERSION=$VITE_APP_VERSION
-
-RUN npm run build
+RUN cd internal-tool && npm run build
 
 EXPOSE 8080
 ENV PORT=8080
 
-CMD ["node", "server/src/index.js"]
+# Express serves both /api/* and the built frontend (internal-tool/dist).
+CMD ["node", "internal-tool/server/src/index.js"]

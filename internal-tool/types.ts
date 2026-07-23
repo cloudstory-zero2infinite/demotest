@@ -202,8 +202,17 @@ export interface QaSuite {
   specFiles: number;
 }
 
+// Discovered from server E2E_URL_<ENV> vars — any env id (pre-prod, prod, dev, qa, stage…).
+export type QaEnvironment = string;
+
+export interface QaEnvOption {
+  id: QaEnvironment;
+  url: string;
+}
+
 export interface QaSuitesResponse {
   baseUrl: string;
+  environments: QaEnvOption[];
   busy: boolean;
   suites: QaSuite[];
 }
@@ -251,6 +260,7 @@ export interface QaSummary {
 export interface QaRun {
   runId: string;
   suite: string;
+  environment: QaEnvironment;
   status: QaRunStatus;
   baseUrl: string;
   version: string | null;
