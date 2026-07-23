@@ -12,7 +12,7 @@ import { DEMO_ORG_NAME, isDemoEnabled } from './services/demo/demoMode';
 
 import { Header } from "./components/Header";
 
-import { Sidebar, MainTab, OrgSubTab } from "./components/Sidebar";
+import { Sidebar, MainTab, OrgSubTab, GovernanceSubTab, GOVERNANCE_SUB_TABS } from "./components/Sidebar";
 
 import { FeedbackModal } from "./components/common/FeedbackModal";
 
@@ -38,18 +38,115 @@ import { ZtiHubServicesTab } from "./components/tabs/ZtiHubServicesTab";
 
 import { ActivityLogsTab } from "./components/tabs/ActivityLogsTab";
 
+// Determines which Governance sub-tab should be active on initial load.
+// Supports both the current URL format (#governance/assets) and the
+// legacy flat format (#assets) for backward compatibility with old
+// bookmarks/notification links.
+const getInitialGovernanceSubTab = (): GovernanceSubTab | null => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const hashParts = window.location.hash.replace(/^#\/?/, "").split("/");
+  const mainTab = hashParts[0];
+  const subTab = hashParts[1];
+
+  // New URL format:
+  // #governance/assets
+  // #governance/policies
+  // #governance/control_registry
+  // #governance/due_diligence
+  // #governance/mapper_visualizer
+  if (mainTab === "governance" && subTab && GOVERNANCE_SUB_TABS.includes(subTab as GovernanceSubTab)) {
+    return subTab as GovernanceSubTab;
+  }
+
+  // Older URL format:
+  // #assets
+  // #policies
+  // #control_registry
+  if (GOVERNANCE_SUB_TABS.includes(mainTab as GovernanceSubTab)) {
+    return mainTab as GovernanceSubTab;
+  }
+
+  return null;
+};
+
+type ZtiHubSubTab = 'va' | 'cspm' | 'pentest' | 'code_review';
+const ZTI_HUB_SUB_TABS: ZtiHubSubTab[] = ['va', 'cspm', 'pentest', 'code_review'];
+
+const getInitialZtiHubSubTab = (): ZtiHubSubTab | null => {
+  if (typeof window === "undefined") return null;
+  const hashParts = window.location.hash.replace(/^#\/?/, "").split("/");
+  const mainTab = hashParts[0];
+  const subTab = hashParts[1];
+  if (mainTab === "zti_hub_services" && subTab && ZTI_HUB_SUB_TABS.includes(subTab as ZtiHubSubTab)) {
+    return subTab as ZtiHubSubTab;
+  }
+  return null;
+};
+
+const getInitialTab = (): MainTab => {
+  if (typeof window === "undefined") {
+    return "dashboard";
+  }
+
+  const hashParts = window.location.hash.replace(/^#\/?/, "").split("/");
+  const hash = hashParts[0];
+
+  const validTabs: MainTab[] = [
+    "dashboard",
+    "organisation",
+    "program",
+    "governance",
+    "compliance",
+    "risk",
+    "zti_hub_services",
+    "logs",
+  ];
+
+  if (validTabs.includes(hash as MainTab)) {
+    return hash as MainTab;
+  }
+
+  // Legacy flat URLs (#assets, #policies, #due_diligence, ...) imply
+  // the Governance main tab. Keep this in sync with getInitialGovernanceSubTab.
+  if (GOVERNANCE_SUB_TABS.includes(hash as GovernanceSubTab)) {
+    return "governance";
+  }
+
+  return "dashboard";
+};
+
+
 const App: React.FC = () => {
   // Navigation state
 
-  const [activeTab, setActiveTab] = useState<MainTab>("dashboard");
+  const [activeTab, setActiveTab] = useState<MainTab>(getInitialTab);
 
-  const [activeOrgSubTab, setActiveOrgSubTab] = useState<OrgSubTab>("view_org");
+  const [activeOrgSubTab, setActiveOrgSubTab] = useState<OrgSubTab>(() => {
+    if (typeof window === "undefined") {
+      return "view_org" as OrgSubTab;
+    }
 
-  const [governanceSubTab, setGovernanceSubTab] = useState<string | null>(null);
+    const hash = window.location.hash.replace(/^#\/?/, "");
+    const [mainTab, subTab] = hash.split("/");
 
-  const [governanceOpenItemId, setGovernanceOpenItemId] = useState<
-    string | null
-  >(null);
+    if (mainTab === "organisation" && subTab) {
+      return subTab as OrgSubTab;
+    }
+
+    return "view_org" as OrgSubTab;
+  });
+
+  const [ztiHubSubTab, setZtiHubSubTab] = useState<ZtiHubSubTab | null>(getInitialZtiHubSubTab);
+
+  const [governanceSubTab, setGovernanceSubTab] = useState<GovernanceSubTab | null>(
+    getInitialGovernanceSubTab
+  );
+
+  const [governanceOpenItemId, setGovernanceOpenItemId] = useState<string | null>(null);
+  
 
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
       // Default closed on mobile (< 1024px), respect saved preference on desktop
@@ -89,9 +186,7 @@ const App: React.FC = () => {
 
   const [isOnboarded, setIsOnboarded] = useState<boolean>(true);
 
-  const [onboardingStatus, setOnboardingStatus] = useState<
-    "active" | "pending_approval" | null
-  >(null);
+  const [onboardingStatus, setOnboardingStatus] = useState<"active" | "pending_approval" | null>(null);
 
   const [orgName, setOrgName] = useState<string | null>(null);
 
@@ -127,7 +222,6 @@ const App: React.FC = () => {
   const handleToggleSidebar = () => {
     setSidebarOpen((prev) => {
       const next = !prev;
-      // Only persist preference on desktop; on mobile the sidebar always starts closed
       if (typeof window !== "undefined" && window.innerWidth >= 1024) {
         localStorage.setItem("sidebarOpen", String(next));
       }
@@ -135,14 +229,60 @@ const App: React.FC = () => {
     });
   };
 
-  const handleNavigate = (tab: MainTab, subTab?: string, itemId?: string) => {
-    setActiveTab(tab);
-    if (tab === 'organisation' && subTab) setActiveOrgSubTab(subTab as OrgSubTab);
-    // Handle governance-related tabs
-    if (['governance', 'assets', 'policies', 'vulnerability', 'relationships', 'capabilities', 'control_registry'].includes(tab)) {
-      if (subTab) setGovernanceSubTab(subTab);
-      setGovernanceOpenItemId(itemId || null);
+  // Navigation is hierarchical: activeTab controls the main application
+  // section, governanceSubTab controls which Governance section is open,
+  // and governanceOpenItemId optionally opens a specific record inside it.
+  const handleNavigate = (
+    tab: MainTab | GovernanceSubTab,
+    subTab?: string,
+    itemId?: string
+  ) => {
+    const isGovernanceSubTab = GOVERNANCE_SUB_TABS.includes(tab as GovernanceSubTab);
+
+    const actualMainTab: MainTab = isGovernanceSubTab ? "governance" : (tab as MainTab);
+
+    const actualGovernanceSubTab: string | undefined = isGovernanceSubTab
+      ? (tab as string)
+      : tab === "governance"
+        ? subTab
+        : undefined;
+
+    setActiveTab(actualMainTab);
+
+    if (tab === "organisation" && subTab) {
+      setActiveOrgSubTab(subTab as OrgSubTab);
     }
+
+    if (tab === "zti_hub_services" && subTab) {
+      setZtiHubSubTab(subTab as ZtiHubSubTab);
+    }
+
+    if (actualMainTab === "governance") {
+      if (actualGovernanceSubTab) {
+        setGovernanceSubTab(actualGovernanceSubTab as GovernanceSubTab);
+      }
+      setGovernanceOpenItemId(itemId || null);
+    } else {
+      setGovernanceOpenItemId(null);
+    }
+
+    let hash = `#${actualMainTab}`;
+
+    if (actualMainTab === "governance" && actualGovernanceSubTab) {
+      hash = `#governance/${actualGovernanceSubTab}`;
+    } else if (actualMainTab === "organisation" && subTab) {
+      hash = `#organisation/${subTab}`;
+    } else if (actualMainTab === "zti_hub_services" && subTab) {
+      hash = `#zti_hub_services/${subTab}`;
+    }
+
+    console.log("DEBUG handleNavigate:", { tab, subTab, actualMainTab, actualGovernanceSubTab, hash });
+
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${hash}`
+    );
   };
 
   // Theme Effect
@@ -441,13 +581,6 @@ const App: React.FC = () => {
       } catch (err) {
         console.error("Failed to log logout activity", err);
       }
-      if (typeof window !== 'undefined') {
-        Object.keys(localStorage).forEach(key => {
-          if (key.startsWith('sb-')) {
-            localStorage.removeItem(key);
-          }
-        });
-      }
 
       sessionStorage.removeItem("grcUserName");
       // Reset the CXO "escalated only" toggle so it defaults back ON next login.
@@ -474,20 +607,6 @@ const App: React.FC = () => {
       if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current as any);
     };
   }, []);
-
-  useEffect(() => {
-    const handleUnauthorized = () => {
-      if (sessionStorage.getItem("grcUserName")) {
-        console.warn("Unauthorized API response detected. Signing out gracefully...");
-        handleSignOut();
-      }
-    };
-    
-    if (typeof window !== 'undefined') {
-      window.addEventListener('unauthorized', handleUnauthorized);
-      return () => window.removeEventListener('unauthorized', handleUnauthorized);
-    }
-  }, [userName]);
 
   const toggleDarkMode = () => setIsDarkMode(!isDarkMode);
 
@@ -612,11 +731,7 @@ const App: React.FC = () => {
         </div>
 
         <div className={activeTab === "organisation" ? "" : "hidden"}>
-          <OrganisationTab
-            userRole={platformAdminRole}
-            isActive={activeTab === "organisation"}
-            activeSubTab={activeOrgSubTab}
-          />
+          <OrganisationTab userRole={platformAdminRole} isActive={activeTab === "organisation"} activeSubTab={activeOrgSubTab} onSubTabChange={(subTab) => handleNavigate("organisation", subTab)}/>
         </div>
 
         <div className={activeTab === "program" ? "" : "hidden"}>
@@ -624,31 +739,14 @@ const App: React.FC = () => {
         </div>
 
         <div className={activeTab === "governance" ? "" : "hidden"}>
-          <GovernanceTab userRole={platformAdminRole} isActive={activeTab === "governance"} externalSubTab={governanceSubTab} externalOpenItemId={governanceOpenItemId} onExternalSubTabConsumed={() => { setGovernanceSubTab(null); setGovernanceOpenItemId(null); }} />
-        </div>
-
-        <div className={activeTab === "assets" ? "" : "hidden"}>
-          <GovernanceTab userRole={platformAdminRole} isActive={activeTab === "assets"} externalSubTab="assets" externalOpenItemId={null} />
-        </div>
-
-        <div className={activeTab === "policies" ? "" : "hidden"}>
-          <GovernanceTab userRole={platformAdminRole} isActive={activeTab === "policies"} externalSubTab="policies" externalOpenItemId={null} />
-        </div>
-
-        <div className={activeTab === "vulnerability" ? "" : "hidden"}>
-          <GovernanceTab userRole={platformAdminRole} isActive={activeTab === "vulnerability"} externalSubTab="vulnerability" externalOpenItemId={null} />
-        </div>
-
-        <div className={activeTab === "relationships" ? "" : "hidden"}>
-          <GovernanceTab userRole={platformAdminRole} isActive={activeTab === "relationships"} externalSubTab="relationships" externalOpenItemId={null} />
-        </div>
-
-        <div className={activeTab === "capabilities" ? "" : "hidden"}>
-          <GovernanceTab userRole={platformAdminRole} isActive={activeTab === "capabilities"} externalSubTab="capabilities" externalOpenItemId={null} />
-        </div>
-
-        <div className={activeTab === "control_registry" ? "" : "hidden"}>
-          <GovernanceTab userRole={platformAdminRole} isActive={activeTab === "control_registry"} externalSubTab="control_registry" externalOpenItemId={null} />
+          <GovernanceTab
+            userRole={platformAdminRole}
+            isActive={activeTab === "governance"}
+            externalSubTab={governanceSubTab}
+            externalOpenItemId={governanceOpenItemId}
+            onExternalSubTabConsumed={() => setGovernanceOpenItemId(null)}
+            onSubTabChange={(subTab) => handleNavigate("governance", subTab)}
+          />
         </div>
 
         <div className={activeTab === "compliance" ? "" : "hidden"}>
@@ -660,7 +758,12 @@ const App: React.FC = () => {
         </div>
 
         <div className={activeTab === "zti_hub_services" ? "" : "hidden"}>
-          <ZtiHubServicesTab userRole={platformAdminRole} isActive={activeTab === "zti_hub_services"} />
+          <ZtiHubServicesTab
+            userRole={platformAdminRole}
+            isActive={activeTab === "zti_hub_services"}
+            externalSubTab={ztiHubSubTab}
+            onSubTabChange={(subTab) => handleNavigate("zti_hub_services", subTab)}
+          />
         </div>
 
         <div className={activeTab === "logs" ? "" : "hidden"}>
@@ -834,6 +937,7 @@ const App: React.FC = () => {
           <Sidebar
             activeTab={activeTab}
             activeOrgSubTab={activeOrgSubTab}
+            activeGovernanceSubTab={governanceSubTab}
             isOpen={sidebarOpen}
             onToggle={handleToggleSidebar}
             onNavigate={handleNavigate}

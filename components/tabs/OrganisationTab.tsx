@@ -312,11 +312,13 @@ interface OrganisationTabProps {
     userRole: UserRole | null;
     activeSubTab?: string;
     isActive?: boolean;
+    onSubTabChange?: (tab: string) => void;
 }
+
 
 type OrgSubTabId = 'tenant_admin' | 'view_org' | 'templates' | 'settings';
 
-export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, activeSubTab: activeSubTabProp, isActive = true }) => {
+export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, activeSubTab: activeSubTabProp, isActive = true, onSubTabChange }) => {
     const isPlatformAdmin = userRole === 'tenant_admin' || userRole === 'admin' || userRole === 'cxo' || userRole === 'read-only';
     const canManageMembers = userRole === 'tenant_admin' || userRole === 'admin' || userRole === 'read-only';
     const canManageSettings = userRole === 'tenant_admin' || userRole === 'admin' || userRole === 'cxo' || userRole === 'read-only';
@@ -325,8 +327,8 @@ export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, acti
     const [activeSubTab, setActiveSubTab] = useState<OrgSubTabId>(defaultTab);
     const [mountedTabs, setMountedTabs] = useState<Set<OrgSubTabId>>(new Set([defaultTab]));
 
-    const handleSubTabChange = (tab: OrgSubTabId) => {
-        // Non-admins can view admin tabs (read-only), so allow navigation
+    const applySubTab = (tab: OrgSubTabId) => {
+    
         setActiveSubTab(tab);
         setMountedTabs(prev => {
             if (prev.has(tab)) return prev;
@@ -336,9 +338,15 @@ export const OrganisationTab: React.FC<OrganisationTabProps> = ({ userRole, acti
         });
     };
 
+    const handleSubTabChange = (tab: OrgSubTabId) => {
+        // Non-admins can view admin tabs (read-only), so allow navigation
+        applySubTab(tab);
+        onSubTabChange?.(tab);
+    };
+
     useEffect(() => {
         if (activeSubTabProp) {
-            handleSubTabChange(activeSubTabProp as OrgSubTabId);
+            applySubTab(activeSubTabProp as OrgSubTabId);
         }
     }, [activeSubTabProp]);
 

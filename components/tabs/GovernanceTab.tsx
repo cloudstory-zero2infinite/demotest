@@ -1,61 +1,75 @@
 import React, { useState, useEffect } from 'react';
 
-import { InternalControlsView } from '../governance/InternalControlsView';
-
 import { AssetsView } from '../governance/AssetsView';
-
 import { PoliciesView } from '../governance/PoliciesView';
-
 import { VulnerabilitiesView } from '../governance/VulnerabilitiesView';
-
 import { AssetRelationshipsView } from '../governance/AssetRelationshipsView';
-
 import { CapabilityRegisterView } from '../governance/CapabilityRegisterView';
-
 import { ControlRegistryView } from '../governance/ControlRegistryView';
-
 import { MapperVisualizerView } from '../governance/MapperVisualizerView';
-
 import { DueDiligenceTPRMView } from '../governance/DueDiligenceTPRMView';
 
-
-
-
 import { UserRole } from '../../types';
+import { GovernanceSubTab } from '../Sidebar';
+
+type SubTab = GovernanceSubTab;
 
 interface GovernanceTabProps {
     isActive?: boolean;
     externalSubTab?: string | null;
     externalOpenItemId?: string | null;
     onExternalSubTabConsumed?: () => void;
-    activeGovernanceSubTab?: 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry' | 'due_diligence' | 'mapper_visualizer';
+    // Fired whenever the active sub-tab changes as a result of something
+    // that happened *inside* GovernanceTab (a tab-bar click, or a
+    // navigation request from a child view). App.tsx uses this to keep
+    // its own governanceSubTab state and the URL hash in sync.
+    onSubTabChange?: (tab: GovernanceSubTab) => void;
     userRole: UserRole | null;
 }
 
-export const GovernanceTab: React.FC<GovernanceTabProps> = ({ 
-    isActive = true, 
-    externalSubTab, 
-    externalOpenItemId, 
+const DEFAULT_SUB_TAB: SubTab = 'assets';
+
+export const GovernanceTab: React.FC<GovernanceTabProps> = ({
+    isActive = true,
+    externalSubTab,
+    externalOpenItemId,
     onExternalSubTabConsumed,
-    activeGovernanceSubTab = 'assets',
+    onSubTabChange,
     userRole
 }) => {
 
-    type SubTab = 'controls' | 'assets' | 'policies' | 'vulnerability' | 'relationships' | 'capabilities' | 'control_registry' | 'due_diligence' | 'mapper_visualizer';
+    const initialSubTab: SubTab = (externalSubTab as SubTab) || DEFAULT_SUB_TAB;
 
-    const [activeSubTab, setActiveSubTab] = useState<SubTab>(activeGovernanceSubTab);
+    const [activeSubTab, setActiveSubTab] = useState<SubTab>(initialSubTab);
 
-    const [mountedSubTabs, setMountedSubTabs] = useState<Set<SubTab>>(new Set([activeGovernanceSubTab]));
-
-
+    const [mountedSubTabs, setMountedSubTabs] = useState<Set<SubTab>>(
+        new Set([initialSubTab])
+    );
 
     // Item IDs to auto-open in child views
-
     const [openControlId, setOpenControlId] = useState<string | null>(null);
-
     const [openPolicyId, setOpenPolicyId] = useState<string | null>(null);
-
     const [focusMasterPolicyId, setFocusMasterPolicyId] = useState<string | null>(null);
+
+    // Internal-only: update local state without notifying the parent.
+    // Use this when the change originates FROM the parent (externalSubTab
+    // prop) so we don't call back and create a redundant round-trip.
+    const applySubTab = (tab: SubTab) => {
+        setActiveSubTab(tab);
+        setMountedSubTabs(prev => {
+            if (prev.has(tab)) return prev;
+            const next = new Set(prev);
+            next.add(tab);
+            return next;
+        });
+    };
+
+    // User/child-initiated: update local state AND notify the parent so
+    // App.tsx can update governanceSubTab + the URL hash.
+    const handleSubTabChange = (tab: SubTab) => {
+        applySubTab(tab);
+        onSubTabChange?.(tab);
+    };
 
     // Listen for navigation events dispatched from child views (e.g. the
     // Mapper Run modal's "Open in Mapper Visualizer" CTA).
@@ -73,71 +87,24 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
         return () => window.removeEventListener('governance-navigate', handler);
     }, []);
 
-
-
-    // Sync activeSubTab with activeGovernanceSubTab prop
-
+    // React to external subtab navigation (e.g. from Sidebar, deep links,
+    // or notification clicks). This is parent-driven, so we only sync
+    // local state — we don't call onSubTabChange here.
     useEffect(() => {
+        if (!externalSubTab) return;
 
-        if (activeGovernanceSubTab !== activeSubTab) {
+        applySubTab(externalSubTab as SubTab);
 
-            handleSubTabChange(activeGovernanceSubTab as SubTab);
-
-        }
-
-    }, [activeGovernanceSubTab]);
-
-
-
-    // React to external subtab navigation (e.g. from notification click)
-
-    useEffect(() => {
-
-        if (externalSubTab) {
-
-            handleSubTabChange(externalSubTab as SubTab);
-
-            if (externalOpenItemId) {
-
-                if (externalSubTab === 'control_registry') {
-
-                    setOpenControlId(externalOpenItemId);
-
-                } else if (externalSubTab === 'policies') {
-
-                    setOpenPolicyId(externalOpenItemId);
-
-                }
-
+        if (externalOpenItemId) {
+            if (externalSubTab === 'control_registry') {
+                setOpenControlId(externalOpenItemId);
+            } else if (externalSubTab === 'policies') {
+                setOpenPolicyId(externalOpenItemId);
             }
-
-            onExternalSubTabConsumed?.();
-
         }
 
+        onExternalSubTabConsumed?.();
     }, [externalSubTab, externalOpenItemId]);
-
-
-
-    const handleSubTabChange = (tab: SubTab) => {
-
-        setActiveSubTab(tab);
-
-        setMountedSubTabs(prev => {
-
-            if (prev.has(tab)) return prev;
-
-            const next = new Set(prev);
-
-            next.add(tab);
-
-            return next;
-
-        });
-
-    };
-
-
 
     const subTabs: { id: SubTab; label: string }[] = [
         { id: 'assets', label: 'Assets' },
@@ -173,79 +140,59 @@ export const GovernanceTab: React.FC<GovernanceTabProps> = ({
             <div className="mt-4">
 
                 {mountedSubTabs.has('assets') && (
-
-                    <div className={activeSubTab === 'assets' ? '' : 'hidden'}><AssetsView userRole={userRole} isActive={isActive && activeSubTab === 'assets'} /></div>
-
+                    <div className={activeSubTab === 'assets' ? '' : 'hidden'}>
+                        <AssetsView userRole={userRole} isActive={isActive && activeSubTab === 'assets'} />
+                    </div>
                 )}
 
                 {mountedSubTabs.has('policies') && (
-
                     <div className={activeSubTab === 'policies' ? '' : 'hidden'}>
-
                         <PoliciesView userRole={userRole} isActive={isActive && activeSubTab === 'policies'} autoOpenPolicyId={openPolicyId} onAutoOpenConsumed={() => setOpenPolicyId(null)} />
-
                     </div>
-
                 )}
 
                 {mountedSubTabs.has('vulnerability') && (
-
-                    <div className={activeSubTab === 'vulnerability' ? '' : 'hidden'}><VulnerabilitiesView userRole={userRole} isActive={isActive && activeSubTab === 'vulnerability'} /></div>
-
+                    <div className={activeSubTab === 'vulnerability' ? '' : 'hidden'}>
+                        <VulnerabilitiesView userRole={userRole} isActive={isActive && activeSubTab === 'vulnerability'} />
+                    </div>
                 )}
 
                 {mountedSubTabs.has('relationships') && (
-
-                    <div className={activeSubTab === 'relationships' ? '' : 'hidden'}><AssetRelationshipsView userRole={userRole} isActive={isActive && activeSubTab === 'relationships'} /></div>
-
+                    <div className={activeSubTab === 'relationships' ? '' : 'hidden'}>
+                        <AssetRelationshipsView userRole={userRole} isActive={isActive && activeSubTab === 'relationships'} />
+                    </div>
                 )}
 
                 {mountedSubTabs.has('capabilities') && (
-
-                    <div className={activeSubTab === 'capabilities' ? '' : 'hidden'}><CapabilityRegisterView userRole={userRole} isActive={isActive && activeSubTab === 'capabilities'} /></div>
-
+                    <div className={activeSubTab === 'capabilities' ? '' : 'hidden'}>
+                        <CapabilityRegisterView userRole={userRole} isActive={isActive && activeSubTab === 'capabilities'} />
+                    </div>
                 )}
 
                 {mountedSubTabs.has('control_registry') && (
-
                     <div className={activeSubTab === 'control_registry' ? '' : 'hidden'}>
-
                         <ControlRegistryView userRole={userRole} isActive={isActive && activeSubTab === 'control_registry'} autoOpenControlId={openControlId} onAutoOpenConsumed={() => setOpenControlId(null)} />
-
                     </div>
-
                 )}
 
                 {mountedSubTabs.has('due_diligence') && (
-
                     <div className={activeSubTab === 'due_diligence' ? '' : 'hidden'}>
-
                         <DueDiligenceTPRMView userRole={userRole} isActive={isActive && activeSubTab === 'due_diligence'} />
-
                     </div>
-
                 )}
 
                 {mountedSubTabs.has('mapper_visualizer') && (
-
                     <div className={activeSubTab === 'mapper_visualizer' ? '' : 'hidden'}>
-
                         <MapperVisualizerView
                             userRole={userRole}
                             isActive={isActive && activeSubTab === 'mapper_visualizer'}
                             focusMasterPolicyId={focusMasterPolicyId}
                             onFocusConsumed={() => setFocusMasterPolicyId(null)}
                         />
-
                     </div>
-
                 )}
 
             </div>
-
         </div>
-
     );
-
 };
-
