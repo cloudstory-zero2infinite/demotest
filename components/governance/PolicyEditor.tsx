@@ -443,29 +443,85 @@ export const PolicyEditor: React.FC<PolicyEditorProps> = ({ docLang, onChange, o
             if (uploadedImages.length > 0) {
                 const newDocImages = [...(docLang.images || [])];
                 
-                uploadedImages.forEach(({ name, filePath }) => {
-                    // Try to auto-detect section based on filename referenced in section contents
-                    let targetSectionId = selectedSectionId || (docLang.sections?.[0]?.id || 'introduction');
-                    if (docLang.sections) {
-                        for (const sec of docLang.sections) {
-                            if (sec.content && (sec.content.includes(name) || sec.content.toLowerCase().includes(name.toLowerCase()))) {
-                                targetSectionId = sec.id;
-                                break;
+                if (!selectedSectionId) {
+                    // Paste Entire Document mode
+                    let updatedPasteText = pasteText;
+                    uploadedImages.forEach(({ name }) => {
+                        if (!updatedPasteText.includes(`[Image: ${name}]`)) {
+                            updatedPasteText += `\n\n[Image: ${name}]`;
+                        }
+                    });
+                    setPasteText(updatedPasteText);
+
+                    uploadedImages.forEach(({ name, filePath }) => {
+                        newDocImages.push({
+                            section_id: 'introduction',
+                            name,
+                            file_path: filePath
+                        });
+                    });
+
+                    const parsed = parseDocumentText(updatedPasteText, {
+                        ...docLang,
+                        images: newDocImages
+                    });
+
+                    if (parsed) {
+                        onChange(parsed);
+                    } else {
+                        onChange({
+                            ...docLang,
+                            images: newDocImages
+                        });
+                    }
+                } else {
+                    // Normal section-level mode
+                    const sectionUpdates: Record<string, string[]> = {};
+                    
+                    uploadedImages.forEach(({ name, filePath }) => {
+                        // Try to auto-detect section based on filename referenced in section contents
+                        let targetSectionId = selectedSectionId || (docLang.sections?.[0]?.id || 'introduction');
+                        if (docLang.sections) {
+                            for (const sec of docLang.sections) {
+                                if (sec.content && (sec.content.includes(name) || sec.content.toLowerCase().includes(name.toLowerCase()))) {
+                                    targetSectionId = sec.id;
+                                    break;
+                                }
                             }
                         }
-                    }
-                    
-                    newDocImages.push({
-                        section_id: targetSectionId,
-                        name,
-                        file_path: filePath
-                    });
-                });
+                        
+                        newDocImages.push({
+                            section_id: targetSectionId,
+                            name,
+                            file_path: filePath
+                        });
 
-                onChange({
-                    ...docLang,
-                    images: newDocImages
-                });
+                        if (!sectionUpdates[targetSectionId]) {
+                            sectionUpdates[targetSectionId] = [];
+                        }
+                        sectionUpdates[targetSectionId].push(name);
+                    });
+
+                    const updatedSections = docLang.sections.map(s => {
+                        const imagesToAppend = sectionUpdates[s.id];
+                        if (imagesToAppend && imagesToAppend.length > 0) {
+                            let content = s.content || '';
+                            imagesToAppend.forEach(name => {
+                                if (!content.includes(`[Image: ${name}]`)) {
+                                    content += `\n\n[Image: ${name}]`;
+                                }
+                            });
+                            return { ...s, content };
+                        }
+                        return s;
+                    });
+
+                    onChange({
+                        ...docLang,
+                        sections: updatedSections,
+                        images: newDocImages
+                    });
+                }
                 alert(`Successfully uploaded ${uploadedImages.length} image(s).`);
             }
         } catch (err: any) {
@@ -812,21 +868,23 @@ export const PolicyEditor: React.FC<PolicyEditorProps> = ({ docLang, onChange, o
                                                     <div className="flex items-center gap-2 min-w-0">
                                                         <span className="text-[11px] text-gray-500 truncate max-w-[140px] font-mono">{img.name}</span>
                                                     </div>
-                                                    <div className="flex items-center gap-1">
-                                                        <button 
-                                                            onClick={() => {
-                                                                const tag = `[Image: ${img.name}]`;
-                                                                const activeSec = docLang.sections.find(s => s.id === selectedSectionId);
-                                                                if (!activeSec) return;
-                                                                const currentText = activeSec.content || '';
-                                                                const updated = currentText.includes(tag) ? currentText : (currentText + '\n\n' + tag);
-                                                                handleSectionChange(selectedSectionId, 'content', updated);
-                                                            }}
-                                                            disabled={isReadOnly}
-                                                            className="text-xs text-blue-500 hover:text-blue-700 border border-blue-500/20 px-2 py-0.5 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                                                        >
-                                                            Insert tag
-                                                        </button>
+                                                    <div className="flex items-center gap-1">                                                         <button 
+                                                             onClick={() => {
+                                                                 const tag = `[Image: ${img.name}]`;
+                                                                 const activeSec = docLang.sections.find(s => s.id === selectedSectionId);
+                                                                 if (!activeSec) return;
+                                                                 const currentText = activeSec.content || '';
+                                                                 const updated = currentText.includes(tag) ? currentText : (currentText + '\n\n' + tag);
+                                                                 handleSectionChange(selectedSectionId, 'content', updated);
+                                                             }}
+                                                             disabled={isReadOnly}
+                                                             className="text-blue-500 hover:text-blue-700 p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                                                             title="Insert Tag"
+                                                         >
+                                                             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                                             </svg>
+                                                         </button>
                                                         <button
                                                             onClick={async () => {
                                                                 const isConfirmed = confirm("Are you sure you want to delete this attachment?");
@@ -895,7 +953,14 @@ export const PolicyEditor: React.FC<PolicyEditorProps> = ({ docLang, onChange, o
                             
                             <textarea
                                 value={pasteText}
-                                onChange={e => setPasteText(e.target.value)}
+                                onChange={e => {
+                                    const newVal = e.target.value;
+                                    setPasteText(newVal);
+                                    const parsed = parseDocumentText(newVal, docLang);
+                                    if (parsed) {
+                                        onChange(parsed);
+                                    }
+                                }}
                                 placeholder="Paste your document text here..."
                                 rows={16}
                                 disabled={isReadOnly}

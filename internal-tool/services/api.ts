@@ -255,10 +255,10 @@ export const listQaTests = () => request<QaTestsResponse>('/api/internal/qa/test
 export const listQaRuns = () =>
   request<{ runs: QaRunRecord[] }>('/api/internal/qa/runs');
 
-export const startQaRun = (suite: string) =>
+export const startQaRun = (suite: string, environment: string) =>
   request<QaRun>('/api/internal/qa/run', {
     method: 'POST',
-    body: JSON.stringify({ suite }),
+    body: JSON.stringify({ suite, environment }),
   });
 
 export const getQaRun = (runId: string) =>

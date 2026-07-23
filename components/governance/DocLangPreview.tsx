@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { marked } from 'marked';
 import { supabase } from '../../services/supabase';
+import { processMarkdownLinks } from './PoliciesView';
 
 interface DocLangPreviewProps {
     docLang: any;
@@ -8,9 +9,10 @@ interface DocLangPreviewProps {
     logoUrl?: string | null;
     signatureUrl?: string | null;
     includeSignature?: boolean;
+    allPolicies?: any[];
 }
 
-export const DocLangPreview: React.FC<DocLangPreviewProps> = ({ docLang, orgName, logoUrl, signatureUrl, includeSignature = true }) => {
+export const DocLangPreview: React.FC<DocLangPreviewProps> = ({ docLang, orgName, logoUrl, signatureUrl, includeSignature = true, allPolicies = [] }) => {
     const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
 
     useEffect(() => {
@@ -99,9 +101,11 @@ export const DocLangPreview: React.FC<DocLangPreviewProps> = ({ docLang, orgName
                 return match;
             });
 
-            return marked.parse(processed);
+            const processedLinks = processMarkdownLinks(processed, allPolicies, false);
+            return marked.parse(processedLinks);
         } catch {
-            return md;
+            const processedLinks = processMarkdownLinks(md, allPolicies, false);
+            return marked.parse(processedLinks);
         }
     };
 
